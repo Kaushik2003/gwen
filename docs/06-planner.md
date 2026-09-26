@@ -21,10 +21,10 @@ func Generate(in GenerateInput) []PlanItemDraft
 func Reminders(in ReminderInput) []Reminder
 ```
 
-`civil.Day` is a small value type defined in `internal/planner` (`struct{ Y int; M time.Month; D int }`)
-with `String()` returning `YYYY-MM-DD`; day arithmetic follows
-[03-data-model.md](03-data-model.md#time-representation). **Today** always means the day the current
-instant belongs to per [05-time-engine.md](05-time-engine.md#day-boundaries).
+`civil.Day` is a small value type in package `internal/planner/civil`
+(`struct{ Y int; M time.Month; D int }`) with `String()` returning `YYYY-MM-DD`; day arithmetic
+follows [03-data-model.md](03-data-model.md#time-representation). **Today** always means the day the
+current instant belongs to per [05-time-engine.md](05-time-engine.md#day-boundaries).
 
 ## Recurrence
 
