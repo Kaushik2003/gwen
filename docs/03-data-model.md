@@ -128,9 +128,9 @@ ORDER BY d.day;
 - **Forward-only.** Files contain only a `-- +goose Up` section. There are no down migrations —
   SQLite cannot drop columns that carry foreign keys, so a down path would be a lie.
 - **A shipped migration is never edited.** Changes go in a new file.
-- Before applying any pending migration, the daemon writes a backup with
-  `VACUUM INTO '<data dir>/gwen.db.bak-<current version>'`, keeping the two most recent backups.
-  Rollback is restoring that file.
+- Before applying any pending migration to a database already at version 1 or later, the daemon
+  writes a backup with `VACUUM INTO '<data dir>/gwen.db.bak-<current version>'`, keeping the two
+  most recent backups. Rollback is restoring that file. A new database has nothing to back up.
 - Migrations run at daemon startup, before the socket is bound. Failure is fatal.
 
 | File | Phase | Owner |

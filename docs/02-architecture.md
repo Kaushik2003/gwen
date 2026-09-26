@@ -100,6 +100,7 @@ type Event struct {
     Kind      EventKind // Idle, Active, Locked, Unlocked, Suspend, Resume
     Threshold time.Duration // set on Idle, the threshold that fired
     At        time.Time
+    Ack       func() // set on Suspend; the loop calls it once the suspend is committed
 }
 ```
 
@@ -189,7 +190,7 @@ The complete allowed list. **Adding anything requires a spec change first**
 | `github.com/spf13/cobra` | cmd/gwen | CLI |
 | `github.com/BurntSushi/toml` | config | config file |
 | `github.com/godbus/dbus/v5` | notify, activity | desktop notifications, login1 |
-| `github.com/rajveermalviya/go-wayland` | activity | Wayland client for idle protocol |
+| `github.com/rajveermalviya/go-wayland/wayland` | activity | Wayland client for idle protocol |
 | `fyne.io/systray` | cmd/gwen-tray | StatusNotifierItem tray |
 | `gopkg.in/natefinch/lumberjack.v2` | cmd/gwend | log rotation |
 | `github.com/stretchr/testify` | tests | assertions |

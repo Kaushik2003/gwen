@@ -1,0 +1,13 @@
+# Build output
+/bin/
+/dist/
+/cmd/gwen-ui/build/bin/
+
+# Frontend
+/ui/node_modules/
+/ui/dist/
+/ui/package.json.md5
+
+# Go test artefacts
+*.test
+*.out
