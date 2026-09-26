@@ -11,10 +11,10 @@ with `go tool <name>`, so their versions are pinned with everything else (see
 
 | Target | Does |
 |---|---|
-| `make build` | `bin/gwend`, `bin/gwen`, `bin/gwen-tray` with `CGO_ENABLED=0`; then `bin/gwen-ui` via `go tool wails build -tags webkit2_41` |
+| `make build` | `bin/gwend`, `bin/gwen`, `bin/gwen-tray` with `CGO_ENABLED=0`; then `bin/gwen-ui` via `go tool wails build -tags webkit2_41` in `cmd/gwen-ui/` ([08-clients.md](08-clients.md#gui)) |
 | `make ui` | `npm ci && npm run build` in `ui/` |
 | `make build-hub` | `GOOS=linux GOARCH=arm64 CGO_ENABLED=0` build of `bin/arm64/gwend` |
-| `make check` | `gofmt -s -l` (fails on any output), `go vet ./...`, `go tool staticcheck ./...`, `go test -race ./...`, `make docs-check`, and `npx tsc --noEmit` in `ui/` when `ui/node_modules` exists |
+| `make check` | `gofmt -s -l` (fails on any output), `go vet ./...`, `go tool staticcheck ./...`, `go test -race ./...` (all with `-tags webkit2_41`; vet and staticcheck also with `manual`), `make docs-check`, and `npx tsc --noEmit` in `ui/` when `ui/node_modules` exists |
 | `make docs-check` | `scripts/docs-check.sh`, the checks in [README.md](README.md#what-make-docs-check-verifies) |
 | `make package` | `make build`, then `go tool nfpm package` for rpm and deb into `dist/`, plus `dist/SHA256SUMS` |
 | `make install-dev` | `make build`, copy binaries to `~/.local/bin`, install the dev user unit, `systemctl --user daemon-reload` |
@@ -38,7 +38,8 @@ passes it to `GET /v1/health`.
 
 ## Packages
 
-`packaging/nfpm.yaml` produces both formats from one file.
+`packaging/nfpm.yaml` produces both formats from one file. Its `version` is `${VERSION}`, which
+`make package` sets from `VERSION`, falling back to `0.0.0` for an untagged build.
 
 | Field | Value |
 |---|---|

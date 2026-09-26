@@ -166,7 +166,11 @@ most recent non-`off` Status the tray saw, kept in memory only.
 `cmd/gwen-ui` (Go host) and `ui/` (React). Wails v2, built with the `webkit2_41` tag.
 
 **Host.** Binds one struct, `App`, whose exported methods mirror `client.API` one to one with the
-same names and wire types; Wails generates the TypeScript bindings. The host also subscribes to
+same names and wire types, except `Events`; Wails generates the TypeScript bindings into
+`ui/src/wailsjs/`, which are committed. The Wails project file is `cmd/gwen-ui/wails.json`, with
+`frontend:dir` `../../ui`, `frontend:install` `npm ci`, `frontend:build` `npm run build`, and
+`outputfilename` `gwen-ui`. Vite builds into `ui/dist/`, which package `ui` embeds from
+`ui/embed.go` (`//go:embed all:dist`) for the host to serve. The host also subscribes to
 `/v1/events` and re-emits each event with `runtime.EventsEmit(ctx, "gwen:" + name, data)`. Extra
 host-only methods: `NewTopic()`, `SetCredential(name, value)`, `OpenURL(url)`,
 `EnableService()`, `SetAutostart(bool)`. Single instance via Wails `SingleInstanceLock` with unique

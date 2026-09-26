@@ -179,8 +179,8 @@ Starts after the v1 release gate passes.
 
 ### W10 — Planner backend
 
-**Owns:** `internal/planner/`, and within v2 may edit `internal/store/`, `internal/api/`,
-`internal/wire/`, `internal/client/`, `cmd/gwend/`. **Depends on:** v1.
+**Owns:** `internal/planner/`, and within v2 may edit `internal/model/`, `internal/store/`,
+`internal/api/`, `internal/wire/`, `internal/client/`, `cmd/gwend/`. **Depends on:** v1.
 
 **Delivers:** everything in [06-planner.md](06-planner.md); migration `00002_planner.sql`; store
 repositories for goals, commitments, and plan items, plus the v2 task columns; every v2 endpoint in
