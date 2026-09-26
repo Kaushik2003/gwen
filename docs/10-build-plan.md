@@ -152,8 +152,9 @@ defines.
 **Owns:** `cmd/gwen-tray/`, `packaging/icons/tray/`. **Depends on:** W0.
 
 **Delivers:** the tray in [08-clients.md](08-clients.md#tray), with a pure
-`menuFor(status *wire.Status, daemonUp bool) Menu` function that decides visibility, labels, and
-icon; and the four tray icons.
+`menuFor(status *wire.Status, daemonUp bool, projects []wire.Project, now time.Time) Menu` function
+that decides visibility, labels, checked project, icon, and tooltip, where `projects` is the live
+list and `now` the skew-corrected current instant; and the four tray icons.
 
 ### W8 — GUI
 

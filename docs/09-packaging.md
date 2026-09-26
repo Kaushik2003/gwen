@@ -115,7 +115,7 @@ own subcommand, safe to re-run.
 |---|---|---|
 | 1. Service | `gwen setup service [--disable]` | `systemctl --user enable --now gwend.service` (or `disable --now`), then waits up to 5 s for `GET /v1/health`. |
 | 2. Tracking | `gwen setup tracking` | Prompts `tracking.daily_target`, `soft_idle`, `hard_idle`; `PATCH /v1/config`. |
-| 3. Tray | `gwen setup autostart [--disable]` | Copies `/usr/share/gwen/gwen-tray.desktop` to `~/.config/autostart/` (or removes it) and starts `gwen-tray` now. |
+| 3. Tray | `gwen setup autostart [--disable]` | Copies `/usr/share/gwen/gwen-tray.desktop` to `~/.config/autostart/` (or removes it) and starts `gwen-tray` now. Without that file, as after `make install-dev`, it writes the same entry with `Exec=` set to the absolute path of the `gwen-tray` beside the running `gwen`. |
 | 4. Phone | `gwen setup phone [--server URL] [--fallback URL] [--token TOKEN]` | Generates `ntfy.topic` if empty; sets the servers and `nudge.phone = true`; writes `credentials/ntfy_token` when given; prints the subscribe URL and app install instructions; runs `POST /v1/notify/test`. |
 | 5. Summary | — | Prints what is enabled and how to open the dashboard. |
 
