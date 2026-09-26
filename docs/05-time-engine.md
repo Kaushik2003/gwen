@@ -125,9 +125,9 @@ W2 must deliver these, whatever the backend:
    `get_idle_notification` otherwise.
 4. `Locked`/`Unlocked` from the login1 session's `Lock`/`Unlock` signals and its `LockedHint`
    property; `Suspend`/`Resume` from `PrepareForSleep(true)`/`PrepareForSleep(false)`.
-5. A login1 `delay` inhibitor for `sleep` is held while running and released after `Suspend` has
-   been delivered and the loop acknowledges it, so the suspend instant is written before the
-   machine sleeps. The inhibitor is re-taken on `Resume`.
+5. A login1 `delay` inhibitor for `sleep` is held while running and released when the loop calls the
+   `Suspend` event's `Ack`, after committing the transition, so the suspend instant is written
+   before the machine sleeps. The inhibitor is re-taken on `Resume`.
 
 ## Transitions
 

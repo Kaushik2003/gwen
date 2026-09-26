@@ -100,6 +100,7 @@ type Event struct {
     Kind      EventKind // Idle, Active, Locked, Unlocked, Suspend, Resume
     Threshold time.Duration // set on Idle, the threshold that fired
     At        time.Time
+    Ack       func() // set on Suspend; the loop calls it once the suspend is committed
 }
 ```
 
