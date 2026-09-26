@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -266,4 +267,20 @@ func TestClassify(t *testing.T) {
 	}
 	other := errors.New("other")
 	require.Same(t, other, classify(other))
+}
+
+func TestError(t *testing.T) {
+	t.Parallel()
+	err := fmt.Errorf("patch segment %s: %w", "abc", FailField(ErrConflict, "started_at", "segments may not overlap"))
+	require.ErrorIs(t, err, ErrConflict)
+	require.NotErrorIs(t, err, ErrInvalid)
+	var se *Error
+	require.ErrorAs(t, err, &se)
+	require.Equal(t, "segments may not overlap", se.Message)
+	require.Equal(t, "started_at", se.Field)
+	require.Equal(t, "patch segment abc: segments may not overlap", err.Error())
+
+	plain := Fail(ErrNotFound, "no project %s", "2c3d4e5f")
+	require.ErrorIs(t, plain, ErrNotFound)
+	require.Equal(t, "no project 2c3d4e5f", plain.Error())
 }

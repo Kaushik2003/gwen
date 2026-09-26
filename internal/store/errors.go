@@ -20,6 +20,30 @@ var (
 	ErrInvalid = errors.New("invalid")
 )
 
+// Error is a store failure with a message fit to show the user; the API uses
+// Message as the error message and Field as details.field
+// (docs/04-api-contract.md#errors). errors.Is matches its sentinel, and
+// errors.As still finds it after further wrapping.
+type Error struct {
+	Err     error  // ErrNotFound, ErrConflict, or ErrInvalid
+	Message string // a lowercase sentence, e.g. "segments may not overlap"
+	Field   string // the offending request field, or ""
+}
+
+func (e *Error) Error() string { return e.Message }
+
+func (e *Error) Unwrap() error { return e.Err }
+
+// Fail returns an *Error for a sentinel with a formatted message.
+func Fail(sentinel error, format string, args ...any) error {
+	return &Error{Err: sentinel, Message: fmt.Sprintf(format, args...)}
+}
+
+// FailField is Fail naming the offending request field.
+func FailField(sentinel error, field, format string, args ...any) error {
+	return &Error{Err: sentinel, Message: fmt.Sprintf(format, args...), Field: field}
+}
+
 // classify maps a SQLite constraint violation to a sentinel, keeping the
 // driver's message: UNIQUE and PRIMARY KEY become ErrConflict, CHECK and NOT
 // NULL become ErrInvalid, and FOREIGN KEY becomes ErrNotFound. Any other error
