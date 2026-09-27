@@ -172,7 +172,10 @@ Rules:
 - `split` requires `at` strictly inside the segment with both halves at least 1000 ms; otherwise
   `invalid_request`. The first half keeps the id.
 - Every write here enforces [03-data-model.md](03-data-model.md#invariants); an overlap is
-  `conflict`.
+  `conflict`. For overlap the open segment runs on indefinitely, and no segment written here may end
+  after the daemon's clock (`invalid_request`), so an edit can never collide with where the engine
+  will close the open segment.
+- A `task_id` given without a `project_id` takes the task's project, as in the tracking commands.
 - Changing `kind` to a break kind clears `project_id` and `task_id`.
 
 ### Projects
