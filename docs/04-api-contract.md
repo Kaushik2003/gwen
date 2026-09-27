@@ -264,13 +264,15 @@ Implemented by W10. Computation rules are owned by [06-planner.md](06-planner.md
 | `GET /v1/briefing` | — | Briefing |
 
 v2 also extends `GET /v1/tasks` with `&goal_id=` and `&templates=true` (templates are excluded
-unless set), and `POST`/`PATCH /v1/tasks` accept `goal_id`, `quantity`, `rrule`.
+unless set, and then listed alongside the other tasks), and `POST`/`PATCH /v1/tasks` accept `goal_id`, `quantity`, `rrule`.
 
 - **Goal:** all `goals` columns on the wire, plus `progress`: `{done_quantity, remaining_quantity,
   required_per_day, actual_per_day, pace, projected_finish_day}` where `pace` is `ahead`,
   `on_track`, or `behind`. For `kind = "tasks"` the quantities count tasks.
 - **Commitment:** all `commitments` columns on the wire; `counts_toward_target` is a bool.
 - **Plan:** `{day, capacity_minutes, planned_minutes, items: [PlanItem]}`, items by `position`.
+  `planned_minutes` sums the items whose `status` is `planned` or `done`. `GET /v1/plan` without
+  `day` reads today. Items whose task is deleted are not returned.
 - **PlanItem:** all `plan_items` columns on the wire (`pinned` a bool), plus `task` (embedded Task).
 - **Briefing:** `{day, pending: [PlanItem], today: [PlanItem], reminders: [Reminder], goals: [Goal]}`.
   **Reminder:** `{task_id, title, due_day, days_left, message}`.
