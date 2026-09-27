@@ -395,7 +395,9 @@ func (c *cli) taskCmd() *cobra.Command {
 	done := byID("done T", "Mark a task done", func(ctx context.Context, id string) (*wire.Task, error) {
 		return c.api.CompleteTask(ctx, id, wire.CompleteTaskRequest{})
 	})
-	reopen := byID("reopen T", "Reopen a done task", c.api.ReopenTask)
+	reopen := byID("reopen T", "Reopen a done task", func(ctx context.Context, id string) (*wire.Task, error) {
+		return c.api.ReopenTask(ctx, id) // c.api is set only once a command runs
+	})
 	rm := &cobra.Command{
 		Use:   "rm T",
 		Short: "Delete a task",

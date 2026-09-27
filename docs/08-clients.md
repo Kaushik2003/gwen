@@ -35,7 +35,9 @@ credentials files and managing the systemd unit and autostart entry.
 exact name among live, non-archived projects. `--project none` means unassigned.
 
 **Time arguments**: `HH:MM` is a local time on the day given by `--day` (default: today per the
-config's `tracking.day_rollover`); durations use Go syntax (`7h30m`).
+config's `tracking.day_rollover`); a time before the rollover is on the next calendar date, as that
+work day's late hours are. Durations use Go syntax (`7h30m`). `none` clears `--project`, `--task`,
+`--due`, and `--estimate` on an edit.
 
 ### v1 commands
 
