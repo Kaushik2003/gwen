@@ -221,10 +221,10 @@ Run on the development machine after W5–W9 are merged. Every step must pass.
 3. `gwen project add Internship`, then `gwen in --project Internship`.
 4. Take hands off the keyboard and mouse for 40 s. At about 10 s a desktop notification with three
    buttons appears and the phone receives a push. At 30 s the tray turns blue.
-5. `gwen day show` lists a work segment ending within 1 s of when input stopped and a
+5. `gwen today` lists a work segment ending within 1 s of when input stopped and a
    `break_auto`/`idle` segment starting at that same instant.
 6. Touch the mouse: the tray turns green within 1 s and a `work`/`activity` segment opens.
-7. The `segments` table queried with `sqlite3` matches `gwen day show --json`.
+7. The `segments` table queried with `sqlite3` matches `gwen today --json`.
 8. `systemctl --user kill --signal=SIGKILL gwend && systemctl --user stop gwend`, wait 90 s,
    `systemctl --user start gwend`. `gwen status` shows `break_auto`, and the last work segment is
    `truncated` with an end within 15 s of the kill.
