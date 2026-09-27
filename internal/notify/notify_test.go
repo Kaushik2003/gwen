@@ -255,12 +255,11 @@ func TestDesktopWithoutBus(t *testing.T) {
 
 // fakeNotifier records notifications and can block.
 type fakeNotifier struct {
-	name    string
-	err     error
-	block   chan struct{} // when set, Notify waits for it to close
-	mu      *sync.Mutex
-	got     *[]string
-	ignores bool // when true, blocking ignores ctx
+	name  string
+	err   error
+	block chan struct{} // when set, Notify waits for it to close
+	mu    *sync.Mutex
+	got   *[]string
 }
 
 func newFake(name string) fakeNotifier {
