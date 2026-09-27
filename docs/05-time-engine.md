@@ -71,12 +71,14 @@ nudges.
 | `CloseDay` | `At` | Set `clocked_out_at` on the open work day. |
 | `OpenSegment` | `Kind, Source string; ProjectID, TaskID *string; At` | Insert an open segment on the open work day. |
 | `CloseSegment` | `At; Truncated bool` | Set `ended_at` on the open segment, honouring [invariant 7](03-data-model.md#invariants). |
-| `Notify` | `Kind, Title, Body string; Actions []Action` | None; sent after commit per [07](07-integrations.md#notifications). |
+| `Notify` | `Kind, Title, Body string; Actions []Action; At` | None; sent after commit per [07](07-integrations.md#notifications). |
 | `Withdraw` | `Kind string` | None; closes that desktop notification if still shown. |
-| `RecordTransition` | `Trigger, From, To string; Data map[string]any` | Insert into `engine_events`. |
+| `RecordTransition` | `Trigger, From, To string; At; Data map[string]any` | Insert into `engine_events`. |
 
-Every decision that changes `state` includes exactly one `RecordTransition`, whose `Trigger` is the
-input name in snake case (`clock_in`, `idle`, `tick`).
+Every change of `state`, and every day rollover, is one `RecordTransition` whose `Trigger` is the
+input name in snake case (`clock_in`, `idle`, `tick`); a deadline caught up by another input records
+`tick`. A decision that catches up deadlines can therefore hold several. Recovery records its result
+with `Trigger` `recovery`.
 
 ## States
 
@@ -227,14 +229,15 @@ that runs into the next day.
 | `idle` | Entering `idle_pending` via the soft threshold. Once per idle period. | `back`, `break`, `snooze` | yes |
 | `break_long` | A break has lasted `nudge.break_reminder`, measured from the break segment's `started_at`; then every `nudge.repeat` until the break ends. | `end_break`, `snooze` | yes |
 | `break_active` | In `break_manual`, the first `Active` after the break has lasted 60 s. At most once per break. | `end_break` | no |
-| `clock_in` | In `off`, the first `Active`, `Unlocked`, or `Resume` on a local day for which the engine has not already prompted and has not clocked out. | `clock_in` | no |
+| `clock_in` | In `off`, the first `Active`, `Unlocked`, or `Resume` on a local day for which the engine has not already prompted and has not clocked out. A `Resume` whose own deadline catch-up ended the day (a suspend across the rollover, G12) does not prompt; the next input does. | `clock_in` | no |
 
 Rules:
 
 - While `at < snoozed_until`, `idle` and `break_long` are dropped, not queued. A `break_long` whose
   time falls inside the snooze fires at `snoozed_until` instead, then resumes its repeat interval.
 - `break_long` deadlines are part of `NextDeadline`.
-- Leaving the state a nudge was about emits `Withdraw` for its kind.
+- Leaving the state a nudge was about emits `Withdraw` for its kind, if one is showing. A nudge that
+  would be sent and withdrawn within one decision is not sent.
 - Action ids map to inputs: `back` → `Active`, `break` → `BreakStart`, `snooze` → `Snooze`,
   `end_break` → `BreakEnd`, `clock_in` → `ClockIn` with the last attribution. An action that yields
   `ErrInvalidState` is logged at `Debug` and dropped.
