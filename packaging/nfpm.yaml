@@ -1,0 +1,57 @@
+# rpm and deb for Gwen (docs/09-packaging.md#packages). `make package` sets
+# VERSION and runs this from the repository root.
+name: gwen
+arch: amd64
+platform: linux
+version: ${VERSION}
+version_schema: semver
+release: 1
+maintainer: Gwen <gwen@localhost>
+description: Personal time tracker and study planner
+license: MIT
+homepage: https://github.com/kzark/gwen
+
+overrides:
+  rpm:
+    depends:
+      - webkit2gtk4.1
+      - gtk3
+  deb:
+    depends:
+      - libwebkit2gtk-4.1-0
+      - libgtk-3-0
+
+contents:
+  - src: bin/gwend
+    dst: /usr/bin/gwend
+    file_info: {mode: 0755}
+  - src: bin/gwen
+    dst: /usr/bin/gwen
+    file_info: {mode: 0755}
+  - src: bin/gwen-tray
+    dst: /usr/bin/gwen-tray
+    file_info: {mode: 0755}
+  - src: bin/gwen-ui
+    dst: /usr/bin/gwen-ui
+    file_info: {mode: 0755}
+  - src: packaging/gwend.service
+    dst: /usr/lib/systemd/user/gwend.service
+    file_info: {mode: 0644}
+  - src: packaging/gwen.desktop
+    dst: /usr/share/applications/gwen.desktop
+    file_info: {mode: 0644}
+  - src: packaging/gwen-tray.desktop
+    dst: /usr/share/gwen/gwen-tray.desktop
+    file_info: {mode: 0644}
+  - src: packaging/icons/gwen.svg
+    dst: /usr/share/icons/hicolor/scalable/apps/gwen.svg
+    file_info: {mode: 0644}
+  - src: packaging/icons/gwen-48.png
+    dst: /usr/share/icons/hicolor/48x48/apps/gwen.png
+    file_info: {mode: 0644}
+  - src: packaging/icons/gwen-128.png
+    dst: /usr/share/icons/hicolor/128x128/apps/gwen.png
+    file_info: {mode: 0644}
+
+scripts:
+  postinstall: packaging/postinstall.sh

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Gwen
+GenericName=Time tracker
+Comment=Track your working day and plan your study goals
+Exec=gwen-ui
+Icon=gwen
+Terminal=false
+Categories=Utility;Office;
+StartupWMClass=gwen-ui
