@@ -123,3 +123,7 @@ func (e *Engine) Config() Config { return e.cur.cfg }
 // RecoveryEffects are the effects New derived from the stored state; the
 // daemon commits them before anything else.
 func (e *Engine) RecoveryEffects() []Effect { return e.recovery }
+
+// DayOf is the day an instant belongs to: the wall-clock date of t minus the
+// day rollover (docs/05-time-engine.md#day-boundaries).
+func (c Config) DayOf(t time.Time) string { return dayOf(t, c) }
