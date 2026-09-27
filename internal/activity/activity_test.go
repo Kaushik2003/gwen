@@ -497,3 +497,17 @@ func TestEventKindString(t *testing.T) {
 		require.Equal(t, s, k.String())
 	}
 }
+
+func TestBindRequestEncodesTheStringLength(t *testing.T) {
+	t.Parallel()
+	buf := bindRequest(2, 21, "ext_idle_notifier_v1", 2, 5)
+	le := func(b []byte) uint32 { return uint32(b[0]) | uint32(b[1])<<8 | uint32(b[2])<<16 | uint32(b[3])<<24 }
+	require.Len(t, buf, 8+4+4+24+4+4)
+	require.Equal(t, uint32(2), le(buf[0:4]), "sender: the registry")
+	require.Equal(t, uint32(len(buf))<<16, le(buf[4:8]), "size and opcode 0")
+	require.Equal(t, uint32(21), le(buf[8:12]), "global name")
+	require.Equal(t, uint32(21), le(buf[12:16]), "string length counts the NUL, not the padding")
+	require.Equal(t, "ext_idle_notifier_v1\x00\x00\x00\x00", string(buf[16:40]))
+	require.Equal(t, uint32(2), le(buf[40:44]), "version")
+	require.Equal(t, uint32(5), le(buf[44:48]), "new id")
+}

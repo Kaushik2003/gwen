@@ -54,12 +54,12 @@ func (w waylandIdle) run(ctx context.Context, thresholds []time.Duration, emit f
 	defer conn.close()
 
 	seat := client.NewSeat(conn.ctx())
-	if err := conn.registry.Bind(conn.seat.name, seatIface, 1, seat); err != nil {
+	if err := bind(conn.registry, conn.seat.name, seatIface, 1, seat); err != nil {
 		return fmt.Errorf("bind seat: %w", err)
 	}
 	version := min(conn.notifier.version, notifierVersion)
 	notifier := extidle.NewIdleNotifier(conn.ctx())
-	if err := conn.registry.Bind(conn.notifier.name, notifierIface, version, notifier); err != nil {
+	if err := bind(conn.registry, conn.notifier.name, notifierIface, version, notifier); err != nil {
 		return fmt.Errorf("bind idle notifier: %w", err)
 	}
 	t := &tracker{clk: w.clk, emit: emit}
@@ -159,3 +159,29 @@ func (c *waylandConn) roundtrip() error {
 }
 
 func (c *waylandConn) close() { c.ctx().Close() }
+
+// bind sends wl_registry.bind. It replaces client.Registry.Bind, whose string
+// encoder writes the padded length where the protocol wants the length with
+// the terminating NUL; libwayland rejects that unless the two happen to match,
+// as they do for "wl_seat" and not for "ext_idle_notifier_v1".
+func bind(r *client.Registry, name uint32, iface string, version uint32, id client.Proxy) error {
+	return r.Context().WriteMsg(bindRequest(r.ID(), name, iface, version, id.ID()), nil)
+}
+
+// bindRequest encodes wl_registry.bind (opcode 0): name, the interface as a
+// Wayland string, version, and the new object's id.
+func bindRequest(registry, name uint32, iface string, version, id uint32) []byte {
+	strLen := len(iface) + 1 // with the terminating NUL
+	padded := client.PaddedLen(strLen)
+	size := 8 + 4 + 4 + padded + 4 + 4
+	buf := make([]byte, size)
+	client.PutUint32(buf[0:4], registry)
+	client.PutUint32(buf[4:8], uint32(size<<16)) // opcode 0
+	client.PutUint32(buf[8:12], name)
+	client.PutUint32(buf[12:16], uint32(strLen))
+	copy(buf[16:], iface) // the NUL and padding are already zero
+	off := 16 + padded
+	client.PutUint32(buf[off:off+4], version)
+	client.PutUint32(buf[off+4:off+8], id)
+	return buf
+}
