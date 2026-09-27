@@ -42,6 +42,8 @@ type options struct {
 	// ready, if set, receives nil once the socket accepts connections, or the
 	// startup error.
 	ready chan<- error
+	// onLoop, if set, sees the engine loop before it starts; tests use it.
+	onLoop func(*loop)
 }
 
 func defaultNotifier(cfg config.Config, credDir string) (notifier, []string) {
@@ -98,6 +100,9 @@ func run(ctx context.Context, o options) (err error) {
 
 	hub := api.NewHub(o.clk)
 	l := newLoop(o.clk, db, repos, engine, hub, n, mon, cfg, o.loc, o.level, warnings)
+	if o.onLoop != nil {
+		o.onLoop(l)
+	}
 	srv := &api.Server{DB: db, Repos: repos, Tracker: l, Hub: hub, Notify: n, Clock: o.clk, Loc: o.loc,
 		ConfigPath: o.configPath, Version: o.version, PID: os.Getpid()}
 
