@@ -32,13 +32,13 @@ func (d *decider) apply(in Input) error {
 	case ClockIn:
 		return d.clockIn(in)
 	case ClockOut:
-		return d.clockOut(at)
+		return d.clockOut(at, in.trigger())
 	case BreakStart:
-		return d.breakStart(at)
+		return d.breakStart(at, in.trigger())
 	case BreakEnd:
-		return d.breakEnd(at)
+		return d.breakEnd(at, in.trigger())
 	case Switch:
-		return d.switchTo(in.ProjectID, in.TaskID, at)
+		return d.switchTo(in.ProjectID, in.TaskID, at, in.trigger())
 	case Snooze:
 		if d.s.State == Off {
 			return d.invalid("snooze nudges")
@@ -46,15 +46,15 @@ func (d *decider) apply(in Input) error {
 		until := at.Add(d.s.cfg.Snooze)
 		d.s.SnoozedUntil = &until
 	case Idle:
-		d.idle(in.Threshold, at)
+		d.idle(in.Threshold, at, in.trigger())
 	case Active:
-		d.active(at)
+		d.active(at, in.trigger())
 	case Locked:
-		d.locked(at)
+		d.locked(at, in.trigger())
 	case Unlocked:
-		d.unlocked(at)
+		d.unlocked(at, in.trigger())
 	case Suspend:
-		d.suspend(at)
+		d.suspend(at, in.trigger())
 	case Resume:
 		// A Resume whose own catch-up ended the day (a suspend across the
 		// rollover) is not a reason to prompt; the first input after it is.
@@ -87,7 +87,7 @@ func (d *decider) clockIn(in ClockIn) error {
 	return nil
 }
 
-func (d *decider) clockOut(at time.Time) error {
+func (d *decider) clockOut(at time.Time, trigger string) error {
 	end := at
 	switch d.s.State {
 	case Off:
@@ -99,27 +99,27 @@ func (d *decider) clockOut(at time.Time) error {
 	d.close(end)
 	d.emit(CloseDay{At: end})
 	d.s.nudges.clockedOutDay = d.s.Day
-	d.endDay(end, "clock_out", at)
+	d.endDay(end, trigger, at)
 	return nil
 }
 
-func (d *decider) breakStart(at time.Time) error {
+func (d *decider) breakStart(at time.Time, trigger string) error {
 	switch d.s.State {
 	case Working:
 		d.close(at)
 		d.open(model.KindBreakManual, model.SourceUser, at)
-		d.setState(BreakManual, at, "break_start", at, nil)
+		d.setState(BreakManual, at, trigger, at, nil)
 	case IdlePending:
 		since := *d.s.IdleSince
 		d.s.IdleSince = nil
 		d.close(since)
 		d.open(model.KindBreakManual, model.SourceUser, since)
-		d.setState(BreakManual, since, "break_start", at, nil)
+		d.setState(BreakManual, since, trigger, at, nil)
 		d.withdraw(NudgeIdle)
 	case BreakAuto:
 		d.close(at)
 		d.open(model.KindBreakManual, model.SourceUser, at)
-		d.setState(BreakManual, at, "break_start", at, nil)
+		d.setState(BreakManual, at, trigger, at, nil)
 		d.withdraw(NudgeBreakLong)
 	default:
 		return d.invalid("start a break")
@@ -127,13 +127,13 @@ func (d *decider) breakStart(at time.Time) error {
 	return nil
 }
 
-func (d *decider) breakEnd(at time.Time) error {
+func (d *decider) breakEnd(at time.Time, trigger string) error {
 	if !d.s.State.isBreak() {
 		return d.invalid("end a break")
 	}
 	d.close(at)
 	d.open(model.KindWork, model.SourceUser, at)
-	d.setState(Working, at, "break_end", at, nil)
+	d.setState(Working, at, trigger, at, nil)
 	d.withdraw(NudgeBreakLong)
 	d.withdraw(NudgeBreakActive)
 	return nil
@@ -142,7 +142,7 @@ func (d *decider) breakEnd(at time.Time) error {
 // switchTo changes the attribution. While working it splits the open segment;
 // during a break it only changes what work resumes on. From idle_pending it is
 // presence as well.
-func (d *decider) switchTo(project, task *string, at time.Time) error {
+func (d *decider) switchTo(project, task *string, at time.Time, trigger string) error {
 	if d.s.State == Off {
 		return d.invalid("switch")
 	}
@@ -156,13 +156,13 @@ func (d *decider) switchTo(project, task *string, at time.Time) error {
 	}
 	if wasIdle {
 		d.s.IdleSince = nil
-		d.setState(Working, at, "switch", at, nil)
+		d.setState(Working, at, trigger, at, nil)
 		d.withdraw(NudgeIdle)
 	}
 	return nil
 }
 
-func (d *decider) idle(threshold time.Duration, at time.Time) {
+func (d *decider) idle(threshold time.Duration, at time.Time, trigger string) {
 	c := d.s.cfg
 	switch threshold {
 	case c.SoftIdle:
@@ -171,16 +171,16 @@ func (d *decider) idle(threshold time.Duration, at time.Time) {
 		}
 		since := d.clampIdle(at.Add(-c.SoftIdle))
 		d.s.IdleSince = &since
-		d.setState(IdlePending, at, "idle", at, map[string]any{
+		d.setState(IdlePending, at, trigger, at, map[string]any{
 			"threshold_ms": c.SoftIdle.Milliseconds(), "idle_since": since.UnixMilli(),
 		})
 		d.notify(NudgeIdle, at)
 	case c.HardIdle:
 		switch d.s.State {
 		case Working:
-			d.reclaim(d.clampIdle(at.Add(-c.HardIdle)), model.SourceIdle, "idle", at)
+			d.reclaim(d.clampIdle(at.Add(-c.HardIdle)), model.SourceIdle, trigger, at)
 		case IdlePending:
-			d.reclaim(*d.s.IdleSince, model.SourceIdle, "idle", at)
+			d.reclaim(*d.s.IdleSince, model.SourceIdle, trigger, at)
 		}
 	}
 }
@@ -193,7 +193,7 @@ func (d *decider) clampIdle(t time.Time) time.Time {
 	return t
 }
 
-func (d *decider) active(at time.Time) {
+func (d *decider) active(at time.Time, trigger string) {
 	if d.s.Locked {
 		return // input reaching the lock screen is not presence
 	}
@@ -202,10 +202,10 @@ func (d *decider) active(at time.Time) {
 		d.promptClockIn(at)
 	case IdlePending:
 		d.s.IdleSince = nil
-		d.setState(Working, at, "active", at, nil)
+		d.setState(Working, at, trigger, at, nil)
 		d.withdraw(NudgeIdle)
 	case BreakAuto:
-		d.resumeWork(at, "active")
+		d.resumeWork(at, trigger)
 	case BreakManual:
 		n := &d.s.nudges
 		if !n.breakActiveSent && at.Sub(d.s.Segment.StartedAt) >= breakActiveAfter {
@@ -215,36 +215,36 @@ func (d *decider) active(at time.Time) {
 	}
 }
 
-func (d *decider) locked(at time.Time) {
+func (d *decider) locked(at time.Time, trigger string) {
 	d.s.Locked = true
 	switch d.s.State {
 	case Working:
 		d.close(at)
 		d.open(model.KindBreakAuto, model.SourceLock, at)
-		d.setState(BreakAuto, at, "locked", at, nil)
+		d.setState(BreakAuto, at, trigger, at, nil)
 	case IdlePending:
-		d.reclaim(*d.s.IdleSince, model.SourceLock, "locked", at)
+		d.reclaim(*d.s.IdleSince, model.SourceLock, trigger, at)
 	}
 }
 
-func (d *decider) unlocked(at time.Time) {
+func (d *decider) unlocked(at time.Time, trigger string) {
 	d.s.Locked = false
 	switch d.s.State {
 	case Off:
 		d.promptClockIn(at)
 	case BreakAuto:
-		d.resumeWork(at, "unlocked")
+		d.resumeWork(at, trigger)
 	}
 }
 
-func (d *decider) suspend(at time.Time) {
+func (d *decider) suspend(at time.Time, trigger string) {
 	switch d.s.State {
 	case Working:
 		d.close(at)
 		d.open(model.KindBreakAuto, model.SourceSuspend, at)
-		d.setState(BreakAuto, at, "suspend", at, nil)
+		d.setState(BreakAuto, at, trigger, at, nil)
 	case IdlePending:
-		d.reclaim(*d.s.IdleSince, model.SourceSuspend, "suspend", at)
+		d.reclaim(*d.s.IdleSince, model.SourceSuspend, trigger, at)
 	}
 }
 
@@ -314,10 +314,8 @@ func (d *decider) open(kind, source string, at time.Time) {
 	}
 }
 
+// close ends the open segment. Every state but off has one.
 func (d *decider) close(at time.Time) {
-	if d.s.Segment == nil {
-		return
-	}
 	d.emit(CloseSegment{At: at})
 	d.s.Segment = nil
 }

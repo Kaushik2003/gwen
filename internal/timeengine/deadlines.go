@@ -62,7 +62,7 @@ func (d *decider) catchUp(at time.Time) {
 func (d *decider) fire(kind deadlineKind, dl, at time.Time) {
 	switch kind {
 	case hardIdle:
-		d.reclaim(*d.s.IdleSince, model.SourceIdle, "tick", dl)
+		d.reclaim(*d.s.IdleSince, model.SourceIdle, Tick{}.trigger(), dl)
 	case rollover:
 		d.rollover(dl)
 	case breakLong:
@@ -92,9 +92,9 @@ func (d *decider) rollover(at time.Time) {
 		d.emit(StartDay{Day: day, TZ: d.s.TZ, TargetSeconds: int(c.DailyTarget / time.Second), At: at})
 		d.open(model.KindWork, model.SourceActivity, at)
 		d.s.State, d.s.Since = Working, at
-		d.record("tick", from, Working, at, map[string]any{"rollover_from": oldDay, "rollover_to": day})
+		d.record(Tick{}.trigger(), from, Working, at, map[string]any{"rollover_from": oldDay, "rollover_to": day})
 		d.withdraw(NudgeIdle)
 		return
 	}
-	d.endDay(at, "tick", at)
+	d.endDay(at, Tick{}.trigger(), at)
 }
