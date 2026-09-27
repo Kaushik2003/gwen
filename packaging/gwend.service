@@ -1,0 +1,15 @@
+[Unit]
+Description=Gwen time tracker
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/gwend
+Restart=on-failure
+RestartSec=5
+MemoryHigh=60M
+MemoryMax=100M
+
+[Install]
+WantedBy=graphical-session.target

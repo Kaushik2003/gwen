@@ -1,0 +1,12 @@
+services:
+  ntfy:
+    image: binwiederhier/ntfy:v2.11.0
+    command: serve
+    ports:
+      - "8080:80"
+    environment:
+      NTFY_BASE_URL: "http://PI_ADDRESS:8080"
+      NTFY_CACHE_FILE: /var/cache/ntfy/cache.db
+    volumes:
+      - ./ntfy-cache:/var/cache/ntfy
+    restart: unless-stopped

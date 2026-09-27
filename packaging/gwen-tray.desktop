@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Gwen tray
+Comment=Gwen's tray icon
+Exec=gwen-tray
+Icon=gwen
+Terminal=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
