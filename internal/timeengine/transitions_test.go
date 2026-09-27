@@ -345,3 +345,10 @@ func TestRecoveryQuickRestartKeepsAutoBreak(t *testing.T) {
 	require.Equal(t, te.BreakAuto, e.Status().State)
 	require.Equal(t, "lock", e.Status().Segment.Source)
 }
+
+func TestConfigDayOf(t *testing.T) {
+	t.Parallel()
+	c := defaults()
+	require.Equal(t, "2026-09-15", c.DayOf(on("2026-09-16", "03:59")))
+	require.Equal(t, "2026-09-16", c.DayOf(on("2026-09-16", "04:00")))
+}
