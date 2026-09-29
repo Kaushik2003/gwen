@@ -24,7 +24,7 @@ func TestHealth(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, h.OK)
 	require.Equal(t, "1.0.0-test", h.Version)
-	require.Equal(t, int64(2), h.SchemaVersion)
+	require.Equal(t, int64(3), h.SchemaVersion)
 	require.NotZero(t, h.PID)
 }
 
