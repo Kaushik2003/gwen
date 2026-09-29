@@ -13,6 +13,9 @@ export interface Daemon {
   daysVersion: number;
   tasksVersion: number;
   projectsVersion: number;
+  /** Bumped on plan_changed and goals_changed, so planner screens refetch. */
+  planVersion: number;
+  goalsVersion: number;
   notice: string | null;
   setNotice: (s: string | null) => void;
   /** The daemon's clock now: the local clock minus the skew at the last status. */
@@ -51,6 +54,8 @@ export function DaemonProvider({ children }: { children: ReactNode }) {
   const [daysVersion, setDaysVersion] = useState(0);
   const [tasksVersion, setTasksVersion] = useState(0);
   const [projectsVersion, setProjectsVersion] = useState(0);
+  const [planVersion, setPlanVersion] = useState(0);
+  const [goalsVersion, setGoalsVersion] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
   const skew = useRef(0);
   const configRef = useRef<wire.Config | null>(null);
@@ -81,6 +86,8 @@ export function DaemonProvider({ children }: { children: ReactNode }) {
       setConfig(c);
       await Promise.all([loadProjects(), loadTasks()]);
       setDaysVersion((v) => v + 1);
+      setPlanVersion((v) => v + 1);
+      setGoalsVersion((v) => v + 1);
     } catch (e) {
       if (apiError(e).code === "daemon_not_running") setUp(false);
       else setNotice(apiError(e).message);
@@ -94,6 +101,8 @@ export function DaemonProvider({ children }: { children: ReactNode }) {
       onEvent("day_changed", () => setDaysVersion((v) => v + 1)),
       onEvent("projects_changed", () => loadProjects().catch(() => {})),
       onEvent("tasks_changed", () => loadTasks().catch(() => {})),
+      onEvent("plan_changed", () => setPlanVersion((v) => v + 1)),
+      onEvent("goals_changed", () => setGoalsVersion((v) => v + 1)),
       onEvent("config_changed", (c: wire.Config) => {
         configRef.current = c;
         setConfig(c);
@@ -144,7 +153,7 @@ export function DaemonProvider({ children }: { children: ReactNode }) {
   );
 
   const value: Daemon = {
-    up, status, config, projects, tasks, daysVersion, tasksVersion, projectsVersion,
+    up, status, config, projects, tasks, daysVersion, tasksVersion, projectsVersion, planVersion, goalsVersion,
     notice, setNotice, now, today, refresh, act, fail,
   };
   return <DaemonContext.Provider value={value}>{children}</DaemonContext.Provider>;
