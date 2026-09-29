@@ -24,7 +24,7 @@ func TestAt(t *testing.T) {
 func TestNewDB(t *testing.T) {
 	t.Parallel()
 	db := testutil.NewDB(t)
-	require.Equal(t, int64(1), db.SchemaVersion())
+	require.Equal(t, int64(2), db.SchemaVersion())
 	require.Equal(t, testutil.T0, db.Now())
 	require.Len(t, db.DeviceID(), 36)
 }
