@@ -14,6 +14,10 @@ export function BreakStart() {
   return window['go']['main']['App']['BreakStart']();
 }
 
+export function Briefing() {
+  return window['go']['main']['App']['Briefing']();
+}
+
 export function ClockIn(arg1) {
   return window['go']['main']['App']['ClockIn'](arg1);
 }
@@ -26,6 +30,14 @@ export function CompleteTask(arg1, arg2) {
   return window['go']['main']['App']['CompleteTask'](arg1, arg2);
 }
 
+export function CreateCommitment(arg1) {
+  return window['go']['main']['App']['CreateCommitment'](arg1);
+}
+
+export function CreateGoal(arg1) {
+  return window['go']['main']['App']['CreateGoal'](arg1);
+}
+
 export function CreateProject(arg1) {
   return window['go']['main']['App']['CreateProject'](arg1);
 }
@@ -36,6 +48,14 @@ export function CreateSegment(arg1) {
 
 export function CreateTask(arg1) {
   return window['go']['main']['App']['CreateTask'](arg1);
+}
+
+export function DeleteCommitment(arg1) {
+  return window['go']['main']['App']['DeleteCommitment'](arg1);
+}
+
+export function DeleteGoal(arg1) {
+  return window['go']['main']['App']['DeleteGoal'](arg1);
 }
 
 export function DeleteProject(arg1) {
@@ -54,12 +74,24 @@ export function EnableService() {
   return window['go']['main']['App']['EnableService']();
 }
 
+export function GeneratePlan(arg1) {
+  return window['go']['main']['App']['GeneratePlan'](arg1);
+}
+
 export function GetConfig() {
   return window['go']['main']['App']['GetConfig']();
 }
 
 export function GetDay(arg1) {
   return window['go']['main']['App']['GetDay'](arg1);
+}
+
+export function GetGoal(arg1) {
+  return window['go']['main']['App']['GetGoal'](arg1);
+}
+
+export function GetPlan(arg1) {
+  return window['go']['main']['App']['GetPlan'](arg1);
 }
 
 export function GetProject(arg1) {
@@ -74,8 +106,16 @@ export function Health() {
   return window['go']['main']['App']['Health']();
 }
 
+export function ListCommitments() {
+  return window['go']['main']['App']['ListCommitments']();
+}
+
 export function ListDays(arg1, arg2) {
   return window['go']['main']['App']['ListDays'](arg1, arg2);
+}
+
+export function ListGoals(arg1) {
+  return window['go']['main']['App']['ListGoals'](arg1);
 }
 
 export function ListProjects(arg1) {
@@ -98,12 +138,24 @@ export function OpenURL(arg1) {
   return window['go']['main']['App']['OpenURL'](arg1);
 }
 
+export function PatchCommitment(arg1, arg2) {
+  return window['go']['main']['App']['PatchCommitment'](arg1, arg2);
+}
+
 export function PatchConfig(arg1) {
   return window['go']['main']['App']['PatchConfig'](arg1);
 }
 
 export function PatchDay(arg1, arg2) {
   return window['go']['main']['App']['PatchDay'](arg1, arg2);
+}
+
+export function PatchGoal(arg1, arg2) {
+  return window['go']['main']['App']['PatchGoal'](arg1, arg2);
+}
+
+export function PatchPlanItem(arg1, arg2) {
+  return window['go']['main']['App']['PatchPlanItem'](arg1, arg2);
 }
 
 export function PatchProject(arg1, arg2) {

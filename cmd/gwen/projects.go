@@ -181,8 +181,8 @@ func (c *cli) printProject(p *wire.Project) error {
 
 // taskFlags are the fields task add and task edit share.
 type taskFlags struct {
-	project, due, estimate, notes, title string
-	priority                             int
+	project, due, estimate, notes, title, goal, rrule string
+	priority, quantity                                int
 }
 
 func (f *taskFlags) register(cmd *cobra.Command, withTitle bool) {
@@ -191,6 +191,9 @@ func (f *taskFlags) register(cmd *cobra.Command, withTitle bool) {
 	cmd.Flags().StringVar(&f.due, "due", "", "due date, YYYY-MM-DD; none to clear")
 	cmd.Flags().StringVar(&f.estimate, "estimate", "", "estimated effort like 1h30m; none to clear")
 	cmd.Flags().StringVar(&f.notes, "notes", "", "notes")
+	cmd.Flags().StringVar(&f.goal, "goal", "", "goal id or short id; none to clear")
+	cmd.Flags().StringVar(&f.rrule, "rrule", "", "make it recur, such as FREQ=WEEKLY;BYDAY=MO; none to clear")
+	cmd.Flags().IntVar(&f.quantity, "quantity", 0, "units of its goal this task covers; 0 with edit clears")
 	if withTitle {
 		cmd.Flags().StringVar(&f.title, "title", "", "new title")
 	}
@@ -210,14 +213,22 @@ func estimateMinutes(s string) (int, error) {
 func (c *cli) taskCmd() *cobra.Command {
 	task := group("task", "List and change tasks")
 
-	var lsProject, status, dueBefore string
+	var lsProject, lsGoal, status, dueBefore string
+	var templates bool
 	ls := &cobra.Command{
 		Use:   "ls",
 		Short: "List tasks",
 		Args:  args(0),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
-			q := wire.TaskQuery{Status: status}
+			q := wire.TaskQuery{Status: status, Templates: templates}
+			if lsGoal != "" {
+				g, err := c.goal(ctx, lsGoal)
+				if err != nil {
+					return err
+				}
+				q.GoalID = g.ID
+			}
 			if lsProject != "" {
 				p, err := c.projectFlag(ctx, lsProject)
 				if err != nil {
@@ -256,6 +267,8 @@ func (c *cli) taskCmd() *cobra.Command {
 	ls.Flags().StringVar(&lsProject, "project", "", "only this project")
 	ls.Flags().StringVar(&status, "status", "", "open (default), done, or all")
 	ls.Flags().StringVar(&dueBefore, "due-before", "", "only tasks due before this date")
+	ls.Flags().StringVar(&lsGoal, "goal", "", "only tasks of this goal")
+	ls.Flags().BoolVar(&templates, "templates", false, "list recurring templates too")
 
 	show := &cobra.Command{
 		Use:   "show T",
@@ -306,6 +319,15 @@ func (c *cli) taskCmd() *cobra.Command {
 			}
 			if cmd.Flags().Changed("notes") {
 				req.Notes = &addFlags.notes
+			}
+			if req.GoalID, err = c.goalFlag(ctx, addFlags.goal); err != nil {
+				return err
+			}
+			if addFlags.rrule != "" {
+				req.RRule = &addFlags.rrule
+			}
+			if cmd.Flags().Changed("quantity") {
+				req.Quantity = &addFlags.quantity
 			}
 			t, err := c.api.CreateTask(ctx, req)
 			if err != nil {
@@ -365,6 +387,25 @@ func (c *cli) taskCmd() *cobra.Command {
 					req.EstimateMinutes = wire.Some(m)
 				}
 			}
+			if changed("goal") {
+				g, err := c.goalFlag(ctx, editFlags.goal)
+				if err != nil {
+					return err
+				}
+				req.GoalID = wire.FromPtr(g)
+			}
+			if changed("rrule") {
+				req.RRule = wire.Null[string]()
+				if !strings.EqualFold(editFlags.rrule, "none") {
+					req.RRule = wire.Some(editFlags.rrule)
+				}
+			}
+			if changed("quantity") {
+				req.Quantity = wire.Null[int]()
+				if editFlags.quantity != 0 {
+					req.Quantity = wire.Some(editFlags.quantity)
+				}
+			}
 			got, err := c.api.PatchTask(ctx, t.ID, req)
 			if err != nil {
 				return err
@@ -392,9 +433,16 @@ func (c *cli) taskCmd() *cobra.Command {
 			},
 		}
 	}
-	done := byID("done T", "Mark a task done", func(ctx context.Context, id string) (*wire.Task, error) {
-		return c.api.CompleteTask(ctx, id, wire.CompleteTaskRequest{})
+	var qty int
+	var done *cobra.Command
+	done = byID("done T", "Mark a task done", func(ctx context.Context, id string) (*wire.Task, error) {
+		var req wire.CompleteTaskRequest
+		if done.Flags().Changed("qty") {
+			req.QuantityDone = &qty
+		}
+		return c.api.CompleteTask(ctx, id, req)
 	})
+	done.Flags().IntVar(&qty, "qty", 0, "units done, for a task with a quantity (default: its quantity)")
 	reopen := byID("reopen T", "Reopen a done task", func(ctx context.Context, id string) (*wire.Task, error) {
 		return c.api.ReopenTask(ctx, id) // c.api is set only once a command runs
 	})
@@ -430,8 +478,15 @@ func taskRow(w io.Writer, t wire.Task, names map[string]string) {
 	if t.ProjectID != nil {
 		project = names[*t.ProjectID]
 	}
-	fmt.Fprintf(w, "%s\t%s\tP%s\t%s\t%s\t%s\t%s\n", client.ShortID(t.ID), t.Status, strconv.Itoa(t.Priority),
+	fmt.Fprintf(w, "%s\t%s\tP%s\t%s\t%s\t%s\t%s", client.ShortID(t.ID), t.Status, strconv.Itoa(t.Priority),
 		due, project, t.Title, client.FormatMillis(t.TrackedMs))
+	if t.Quantity != nil {
+		fmt.Fprintf(w, "\t×%d", *t.Quantity)
+	}
+	if t.RRule != nil {
+		fmt.Fprintf(w, "\trepeats %s", *t.RRule)
+	}
+	fmt.Fprintln(w)
 }
 
 func (c *cli) printTask(ctx context.Context, t *wire.Task) error {

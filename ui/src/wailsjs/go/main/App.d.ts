@@ -8,17 +8,27 @@ export function BreakEnd():Promise<wire.Status>;
 
 export function BreakStart():Promise<wire.Status>;
 
+export function Briefing():Promise<wire.Briefing>;
+
 export function ClockIn(arg1:wire.ClockInRequest):Promise<wire.Status>;
 
 export function ClockOut():Promise<wire.Status>;
 
 export function CompleteTask(arg1:string,arg2:wire.CompleteTaskRequest):Promise<wire.Task>;
 
+export function CreateCommitment(arg1:wire.CreateCommitmentRequest):Promise<wire.Commitment>;
+
+export function CreateGoal(arg1:wire.CreateGoalRequest):Promise<wire.Goal>;
+
 export function CreateProject(arg1:wire.CreateProjectRequest):Promise<wire.Project>;
 
 export function CreateSegment(arg1:wire.CreateSegmentRequest):Promise<wire.Segment>;
 
 export function CreateTask(arg1:wire.CreateTaskRequest):Promise<wire.Task>;
+
+export function DeleteCommitment(arg1:string):Promise<void>;
+
+export function DeleteGoal(arg1:string):Promise<void>;
 
 export function DeleteProject(arg1:string):Promise<void>;
 
@@ -28,9 +38,15 @@ export function DeleteTask(arg1:string):Promise<void>;
 
 export function EnableService():Promise<void>;
 
+export function GeneratePlan(arg1:wire.GeneratePlanRequest):Promise<wire.Plan>;
+
 export function GetConfig():Promise<wire.Config>;
 
 export function GetDay(arg1:string):Promise<wire.DayDetail>;
+
+export function GetGoal(arg1:string):Promise<wire.Goal>;
+
+export function GetPlan(arg1:string):Promise<wire.Plan>;
 
 export function GetProject(arg1:string):Promise<wire.Project>;
 
@@ -38,7 +54,11 @@ export function GetTask(arg1:string):Promise<wire.Task>;
 
 export function Health():Promise<wire.Health>;
 
+export function ListCommitments():Promise<wire.CommitmentList>;
+
 export function ListDays(arg1:string,arg2:string):Promise<wire.DayList>;
+
+export function ListGoals(arg1:string):Promise<wire.GoalList>;
 
 export function ListProjects(arg1:string):Promise<wire.ProjectList>;
 
@@ -50,9 +70,15 @@ export function NotifyTest():Promise<wire.NotifyTestResult>;
 
 export function OpenURL(arg1:string):Promise<void>;
 
+export function PatchCommitment(arg1:string,arg2:wire.PatchCommitmentRequest):Promise<wire.Commitment>;
+
 export function PatchConfig(arg1:wire.ConfigPatch):Promise<wire.Config>;
 
 export function PatchDay(arg1:string,arg2:wire.PatchDayRequest):Promise<wire.WorkDay>;
+
+export function PatchGoal(arg1:string,arg2:wire.PatchGoalRequest):Promise<wire.Goal>;
+
+export function PatchPlanItem(arg1:string,arg2:wire.PatchPlanItemRequest):Promise<wire.PlanItem>;
 
 export function PatchProject(arg1:string,arg2:wire.PatchProjectRequest):Promise<wire.Project>;
 

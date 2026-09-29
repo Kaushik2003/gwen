@@ -2,12 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import { App, wire } from "../api";
 import ProgressRing from "../components/ProgressRing";
 import Timeline from "../components/Timeline";
+import { useBriefing } from "../components/Briefing";
 import { Button, Card, Select, stateColor, stateLabel } from "../components/ui";
 import { useDaemon, useTick } from "../daemon";
 import { formatDuration } from "../format";
 
 export default function Today() {
   const d = useDaemon();
+  const openBriefing = useBriefing();
   useTick(1000);
   const st = d.status;
   const [day, setDay] = useState<wire.DayDetail | null>(null);
@@ -101,6 +103,7 @@ export default function Today() {
                 Clock out
               </Button>
             )}
+            <Button onClick={openBriefing}>Briefing</Button>
           </div>
           {st.snoozed_until_at && st.snoozed_until_at > now && (
             <p className="mt-2 text-xs text-zinc-500">Nudges snoozed for {formatDuration(st.snoozed_until_at - now)}</p>
