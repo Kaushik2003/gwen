@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { App, apiError, wire } from "../api";
 import { Button, Card, Input, Label, Select } from "../components/ui";
 import { useDaemon } from "../daemon";
+import CalendarSettings from "../settings/Calendar";
 
 type Kind = "text" | "bool" | { options: string[] };
 interface Field {
@@ -49,6 +50,7 @@ export default function Settings() {
       <Section title="Phone" name="ntfy" fields={ntfy} values={c.ntfy}>
         <Phone config={c} />
       </Section>
+      <CalendarSettings />
       <Section title="Log" name="log" fields={log} values={c.log} />
       <Card title="About">
         <label className="mb-3 flex items-center gap-2 text-sm">

@@ -12,6 +12,8 @@ const (
 	EventConfigChanged   = "config_changed"
 	EventPlanChanged     = "plan_changed"
 	EventGoalsChanged    = "goals_changed"
+	// EventIntegrationChanged carries IntegrationChanged.
+	EventIntegrationChanged = "integration_changed"
 )
 
 // Event is one Server-Sent Events frame. Data is the frame's JSON, undecoded.

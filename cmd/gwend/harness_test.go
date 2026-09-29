@@ -125,9 +125,16 @@ type setup struct {
 	socket    string
 	wrapRepos func(store.Repos) store.Repos
 	monName   string
+	calendar  bool
 }
 
 func startDaemon(t *testing.T, s setup) *daemon {
+	t.Helper()
+	return startDaemonWith(t, s, nil)
+}
+
+// startDaemonWith is startDaemon with a last adjustment of the options.
+func startDaemonWith(t *testing.T, s setup, adjust func(*options)) *daemon {
 	t.Helper()
 	dir := t.TempDir()
 	if s.dataDir == "" {
@@ -148,17 +155,20 @@ func startDaemon(t *testing.T, s setup) *daemon {
 	ready := make(chan error, 1)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() {
-		done <- run(ctx, options{
-			dataDir: d.dataDir, configPath: d.cfgPath, socketPath: d.socket, version: "1.0.0-test",
-			clk: d.clk, loc: time.UTC, level: new(slog.LevelVar),
-			monitor:   func(context.Context, clock.Clock) activity.ActivityMonitor { return d.mon },
-			notifier:  func(config.Config, string) (notifier, []string) { return d.notif, nil },
-			wrapRepos: s.wrapRepos,
-			ready:     ready,
-			onLoop:    func(l *loop) { d.loop = l },
-		})
-	}()
+	o := options{
+		dataDir: d.dataDir, configPath: d.cfgPath, socketPath: d.socket, version: "1.0.0-test",
+		clk: d.clk, loc: time.UTC, level: new(slog.LevelVar),
+		monitor:   func(context.Context, clock.Clock) activity.ActivityMonitor { return d.mon },
+		notifier:  func(config.Config, string) (notifier, []string) { return d.notif, nil },
+		wrapRepos: s.wrapRepos,
+		calendar:  s.calendar,
+		ready:     ready,
+		onLoop:    func(l *loop) { d.loop = l },
+	}
+	if adjust != nil {
+		adjust(&o)
+	}
+	go func() { done <- run(ctx, o) }()
 	require.NoError(t, <-ready)
 	var once sync.Once
 	var stopErr error

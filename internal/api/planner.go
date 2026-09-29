@@ -17,7 +17,7 @@ func NewPlanEnv(cfg config.Config, loc *time.Location, now time.Time) store.Plan
 	return store.PlanEnv{
 		Now: now, Loc: loc, DayOf: timeengine.ConfigFrom(cfg, loc).DayOf,
 		DayStart: int(cfg.Planner.DayStart), DayEnd: int(cfg.Planner.DayEnd), Buffer: cfg.Planner.Buffer,
-		DailyTarget: cfg.Tracking.DailyTarget,
+		DailyTarget: cfg.Tracking.DailyTarget, Busy: cfg.Calendar.Enabled,
 	}
 }
 
