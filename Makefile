@@ -25,8 +25,9 @@ build: ui-stub
 ui:
 	cd ui && npm ci && npm run build
 
-build-hub:
+build-hub: ui-stub
 	@mkdir -p bin/arm64
+	@if [ -d ui/node_modules ]; then cd ui && npm run build:hub; fi
 	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 $(GO) build -trimpath -ldflags '$(LDFLAGS)' -o bin/arm64/gwend ./cmd/gwend
 
 check: ui-stub
@@ -57,10 +58,15 @@ install-dev: build
 clean:
 	rm -rf bin dist
 
-# Package ui embeds ui/dist, which only `make ui` builds. Until then a
-# placeholder page lets every Go package compile.
+# Package ui embeds ui/dist, which only `make ui` builds, and ui/dist-hub,
+# which only `make build-hub` builds. Until then placeholder pages let every
+# Go package compile.
 ui-stub:
 	@if [ -f ui/embed.go ] && [ ! -e ui/dist/index.html ]; then \
 		mkdir -p ui/dist && \
 		printf '<!doctype html><title>Gwen</title><p>Built without the dashboard. Run make ui.</p>\n' > ui/dist/index.html; \
+	fi
+	@if [ -f ui/embed_hub.go ] && [ ! -e ui/dist-hub/index.html ]; then \
+		mkdir -p ui/dist-hub && \
+		printf '<!doctype html><title>Gwen</title><p>Built without the dashboard. Run make build-hub.</p>\n' > ui/dist-hub/index.html; \
 	fi

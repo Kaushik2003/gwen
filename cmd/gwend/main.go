@@ -34,7 +34,15 @@ func mainErr(args []string, stderr io.Writer) int {
 	foreground := fs.Bool("foreground", false, "also log readable text to stderr")
 	dataDir := fs.String("data-dir", "", "database and credentials location (default $XDG_DATA_HOME/gwen)")
 	configPath := fs.String("config", "", "config file (default $XDG_CONFIG_HOME/gwen/config.toml)")
+	hub := fs.Bool("hub", false, "run as the sync hub")
+	listen := fs.String("listen", ":7777", "hub listen address; only with --hub")
 	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	listenSet := false
+	fs.Visit(func(f *flag.Flag) { listenSet = listenSet || f.Name == "listen" })
+	if listenSet && !*hub {
+		fmt.Fprintln(stderr, "gwend: --listen is only valid with --hub")
 		return 2
 	}
 	paths, err := config.DefaultPaths()
@@ -53,6 +61,16 @@ func mainErr(args []string, stderr io.Writer) int {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
+	if *hub {
+		err = runHub(ctx, hubOptions{dataDir: *dataDir, configPath: *configPath, listen: *listen, version: version,
+			clk: clock.Real(), loc: localZone(), level: level})
+		if err != nil {
+			slog.Error("gwend --hub failed", "err", err)
+			fmt.Fprintln(stderr, "gwend:", err)
+			return 1
+		}
+		return 0
+	}
 	err = run(ctx, options{
 		dataDir:    *dataDir,
 		configPath: *configPath,
@@ -65,6 +83,7 @@ func mainErr(args []string, stderr io.Writer) int {
 		notifier:   defaultNotifier,
 		calendar:   true,
 		llm:        true,
+		sync:       true,
 	})
 	if err != nil {
 		slog.Error("gwend failed", "err", err)

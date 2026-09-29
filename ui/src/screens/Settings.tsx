@@ -5,6 +5,7 @@ import { Button, Card, Input, Label, Select } from "../components/ui";
 import { useDaemon } from "../daemon";
 import AISettings from "../settings/AI";
 import CalendarSettings from "../settings/Calendar";
+import SyncSettings from "../settings/Sync";
 
 type Kind = "text" | "bool" | { options: string[] };
 interface Field {
@@ -53,6 +54,7 @@ export default function Settings() {
       </Section>
       <CalendarSettings />
       <AISettings />
+      <SyncSettings />
       <Section title="Log" name="log" fields={log} values={c.log} />
       <Card title="About">
         <label className="mb-3 flex items-center gap-2 text-sm">

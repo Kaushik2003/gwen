@@ -6,8 +6,10 @@ import (
 	"github.com/kzark/gwen/internal/wire"
 )
 
-// syncStatus is the sync hub client's status for integration_changed; this
-// daemon runs no sync client, so sync is not configured.
-func (s *Server) syncStatus(context.Context) wire.SyncStatus {
-	return wire.SyncStatus{}
+// syncStatus is the sync client's status for integration_changed.
+func (s *Server) syncStatus(ctx context.Context) wire.SyncStatus {
+	if s.Sync == nil {
+		return wire.SyncStatus{}
+	}
+	return syncWire(s.Sync.Status(ctx))
 }

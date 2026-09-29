@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { App, wire } from "../api";
+import { App, readOnly, wire } from "../api";
 import { Button, Card, Input } from "../components/ui";
 import { useDaemon } from "../daemon";
 import { addDays, formatDuration, formatTime, instantOn } from "../format";
@@ -26,7 +26,7 @@ export default function Plan() {
     App.ListCommitments().then((l) => setCommitments(l.commitments), d.fail);
   }, [d.goalsVersion, d.fail]);
 
-  const past = day < today;
+  const past = day < today || readOnly; // nothing past, and nothing on the hub, can change
   const rollover = d.config?.tracking.day_rollover ?? "04:00";
   const onDay = commitments.filter((c) => occursOn(c, day));
   const patch = (it: wire.PlanItem, fields: Record<string, unknown>) =>
@@ -85,7 +85,9 @@ export default function Plan() {
 
       <Card title="Plan">
         {plan && plan.items.length === 0 && (
-          <p className="text-sm text-zinc-500">{past ? "Nothing was planned." : "Nothing planned. Regenerate to fill the day."}</p>
+          <p className="text-sm text-zinc-500">
+            {day < today || readOnly ? "Nothing was planned." : "Nothing planned. Regenerate to fill the day."}
+          </p>
         )}
         <ul className="flex flex-col gap-1">
           {plan?.items.map((it) => {
@@ -138,14 +140,16 @@ export default function Plan() {
                   }}
                 />
                 <span className="w-6 text-xs text-zinc-500">min</span>
-                <Button
-                  disabled={past}
-                  onClick={() => patch(it, { pinned: !it.pinned })}
-                  className={it.pinned ? "text-emerald-700 dark:text-emerald-300" : ""}
-                >
-                  {it.pinned ? "Pinned" : "Pin"}
-                </Button>
-                {!done && (
+                {!readOnly && (
+                  <Button
+                    disabled={past}
+                    onClick={() => patch(it, { pinned: !it.pinned })}
+                    className={it.pinned ? "text-emerald-700 dark:text-emerald-300" : ""}
+                  >
+                    {it.pinned ? "Pinned" : "Pin"}
+                  </Button>
+                )}
+                {!done && !readOnly && (
                   <Button disabled={past} onClick={() => patch(it, { status: skipped ? "planned" : "skipped" })}>
                     {skipped ? "Unskip" : "Skip"}
                   </Button>

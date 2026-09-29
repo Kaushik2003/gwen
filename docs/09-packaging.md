@@ -13,7 +13,7 @@ with `go tool <name>`, so their versions are pinned with everything else (see
 |---|---|
 | `make build` | `bin/gwend`, `bin/gwen`, `bin/gwen-tray` with `CGO_ENABLED=0`; then `bin/gwen-ui` via `go tool wails build -tags webkit2_41` in `cmd/gwen-ui/` ([08-clients.md](08-clients.md#gui)) |
 | `make ui` | `npm ci && npm run build` in `ui/` |
-| `make build-hub` | `GOOS=linux GOARCH=arm64 CGO_ENABLED=0` build of `bin/arm64/gwend` |
+| `make build-hub` | `npm run build:hub` in `ui/` when `ui/node_modules` exists, then a `GOOS=linux GOARCH=arm64 CGO_ENABLED=0` build of `bin/arm64/gwend`, which embeds `ui/dist-hub` through `ui/embed_hub.go` |
 | `make check` | `gofmt -s -l` (fails on any output), `go vet ./...`, `go tool staticcheck ./...`, `go test -race ./...` (all with `-tags webkit2_41`; vet and staticcheck also with `manual`), `make docs-check`, and `npx tsc --noEmit` in `ui/` when `ui/node_modules` exists |
 | `make docs-check` | `scripts/docs-check.sh`, the checks in [README.md](README.md#what-make-docs-check-verifies) |
 | `make package` | `make build`, then `go tool nfpm package` for rpm and deb into `dist/`, plus `dist/SHA256SUMS` |

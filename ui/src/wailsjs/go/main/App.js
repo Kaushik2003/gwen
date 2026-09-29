@@ -238,6 +238,14 @@ export function Switch(arg1) {
   return window['go']['main']['App']['Switch'](arg1);
 }
 
+export function SyncNow() {
+  return window['go']['main']['App']['SyncNow']();
+}
+
+export function SyncStatus() {
+  return window['go']['main']['App']['SyncStatus']();
+}
+
 export function Version() {
   return window['go']['main']['App']['Version']();
 }

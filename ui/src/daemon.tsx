@@ -1,10 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
-import { App, apiError, isStale, onEvent, wire, type ApiError } from "./api";
+import { App, apiError, isHub, isStale, onEvent, wire, type ApiError } from "./api";
 import { dayOf } from "./format";
 
 /** What every screen shares: the daemon's status and lists, kept fresh by the event stream. */
 export interface Daemon {
   up: boolean | null; // null until the first health check
+  /** On the hub: the browser must sign in first. */
+  locked: boolean;
   status: wire.Status | null;
   config: wire.Config | null;
   projects: wire.Project[]; // live, not archived
@@ -49,6 +51,7 @@ export function useTick(ms = 1000): number {
 
 export function DaemonProvider({ children }: { children: ReactNode }) {
   const [up, setUp] = useState<boolean | null>(null);
+  const [locked, setLocked] = useState(false);
   const [status, setStatusState] = useState<wire.Status | null>(null);
   const [config, setConfig] = useState<wire.Config | null>(null);
   const [projects, setProjects] = useState<wire.Project[]>([]);
@@ -83,6 +86,16 @@ export function DaemonProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(async () => {
     try {
       await App.Health();
+      if (isHub) {
+        // The hub has no engine and serves no config: lists only.
+        setLocked(false);
+        setUp(true);
+        await Promise.all([loadProjects(), loadTasks()]);
+        setDaysVersion((v) => v + 1);
+        setPlanVersion((v) => v + 1);
+        setGoalsVersion((v) => v + 1);
+        return;
+      }
       const [s, c] = await Promise.all([App.Status(), App.GetConfig()]);
       setStatus(s);
       configRef.current = c;
@@ -92,7 +105,11 @@ export function DaemonProvider({ children }: { children: ReactNode }) {
       setPlanVersion((v) => v + 1);
       setGoalsVersion((v) => v + 1);
     } catch (e) {
-      if (apiError(e).code === "daemon_not_running") setUp(false);
+      const code = apiError(e).code;
+      if (code === "unauthorized") {
+        setLocked(true);
+        setUp(true);
+      } else if (code === "daemon_not_running") setUp(false);
       else setNotice(apiError(e).message);
     }
   }, [loadProjects, loadTasks, setStatus]);
@@ -133,6 +150,7 @@ export function DaemonProvider({ children }: { children: ReactNode }) {
     (e: unknown) => {
       const err = apiError(e);
       if (err.code === "daemon_not_running") setUp(false);
+      else if (err.code === "unauthorized") setLocked(true);
       else if (isStale(err)) {
         setNotice("Changed elsewhere — reloaded");
         refresh();
@@ -157,7 +175,7 @@ export function DaemonProvider({ children }: { children: ReactNode }) {
   );
 
   const value: Daemon = {
-    up, status, config, projects, tasks, daysVersion, tasksVersion, projectsVersion, planVersion, goalsVersion,
+    up, locked, status, config, projects, tasks, daysVersion, tasksVersion, projectsVersion, planVersion, goalsVersion,
     integrationVersion, notice, setNotice, now, today, refresh, act, fail,
   };
   return <DaemonContext.Provider value={value}>{children}</DaemonContext.Provider>;

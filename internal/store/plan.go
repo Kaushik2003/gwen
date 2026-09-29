@@ -75,6 +75,9 @@ type PlanRepo interface {
 	// Get returns the plan for day ("" means today). For today it first runs
 	// rollover and, when today has no live items, generates the plan.
 	Get(ctx context.Context, day string, env PlanEnv) (Plan, Changes, error)
+	// Read returns the stored plan for day ("" means today) and never rolls
+	// over or generates; the sync hub serves plans this way.
+	Read(ctx context.Context, day string, env PlanEnv) (Plan, error)
 	// Generate regenerates the plan for today or a later day.
 	Generate(ctx context.Context, day string, env PlanEnv) (Plan, Changes, error)
 	// UpdateItem edits an item. Changing start_at, position, or
@@ -253,6 +256,18 @@ func (r planRepo) Get(ctx context.Context, day string, env PlanEnv) (Plan, Chang
 		return Plan{}, Changes{}, fmt.Errorf("plan for %s: %w", d, err)
 	}
 	return p, ch, nil
+}
+
+func (r planRepo) Read(ctx context.Context, day string, env PlanEnv) (Plan, error) {
+	d, err := r.parseDay(day, env)
+	if err != nil {
+		return Plan{}, err
+	}
+	p, err := r.read(ctx, r.db.sql, d, env)
+	if err != nil {
+		return Plan{}, fmt.Errorf("plan for %s: %w", d, err)
+	}
+	return p, nil
 }
 
 func (r planRepo) Generate(ctx context.Context, day string, env PlanEnv) (Plan, Changes, error) {
