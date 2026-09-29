@@ -77,10 +77,47 @@ func (s *Server) Handler() http.Handler {
 	route("POST /v1/llm/runs/{id}/accept", s.acceptRun)
 	route("POST /v1/llm/runs/{id}/reject", s.rejectRun)
 
+	route("GET /v1/sync/status", s.syncStatusHandler)
+	route("POST /v1/sync/now", s.syncNow)
+
 	route("GET /v1/config", s.getConfig)
 	route("PATCH /v1/config", s.patchConfig)
 	route("POST /v1/notify/test", s.notifyTest)
 
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		s.fail(w, r, errNotFoundRoute)
+	})
+	return mux
+}
+
+// ReadOnlyHandler returns the router the sync hub serves under /v1: every
+// GET endpoint except status, events, config, and briefing, with plans read
+// as stored (docs/07-integrations.md#read-only-dashboard).
+func (s *Server) ReadOnlyHandler() http.Handler {
+	mux := http.NewServeMux()
+	route := func(pattern string, h func(w http.ResponseWriter, r *http.Request) error) {
+		mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
+			if err := h(w, r); err != nil {
+				s.fail(w, r, err)
+			}
+		})
+	}
+	route("GET /v1/health", s.health)
+	route("GET /v1/days", s.listDays)
+	route("GET /v1/days/{day}", s.getDay)
+	route("GET /v1/projects", s.listProjects)
+	route("GET /v1/projects/{id}", s.getProject)
+	route("GET /v1/tasks", s.listTasks)
+	route("GET /v1/tasks/{id}", s.getTask)
+	route("GET /v1/stats/summary", s.statsSummary)
+	route("GET /v1/stats/heatmap", s.statsHeatmap)
+	route("GET /v1/goals", s.listGoals)
+	route("GET /v1/goals/{id}", s.getGoal)
+	route("GET /v1/commitments", s.listCommitments)
+	route("GET /v1/plan", s.storedPlan)
+	route("GET /v1/calendar/status", s.calendarStatus)
+	route("GET /v1/sync/status", s.syncStatusHandler)
+	route("GET /v1/llm/runs/{id}", s.getRun)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, errNotFoundRoute)
 	})

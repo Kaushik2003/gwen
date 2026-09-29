@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
-import { App, wire } from "../api";
+import { App, isHub, wire } from "../api";
 import { useDaemon } from "../daemon";
 import { formatDuration, formatTime } from "../format";
 import { GoalBar, PaceChip, goalAmount } from "../screens/Goals";
@@ -35,7 +35,7 @@ export function useBriefing(): () => void {
 export function BriefingProvider({ children }: { children: ReactNode }) {
   const d = useDaemon();
   const [open, setOpen] = useState(false);
-  const today = d.up && d.status ? d.today() : null;
+  const today = !isHub && d.up && d.status ? d.today() : null; // the hub serves no briefing
 
   useEffect(() => {
     if (today && dismissedDay() !== today) setOpen(true);

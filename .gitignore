@@ -6,6 +6,7 @@
 # Frontend
 /ui/node_modules/
 /ui/dist/
+/ui/dist-hub/
 /ui/package.json.md5
 
 # Go test artefacts

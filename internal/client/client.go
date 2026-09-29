@@ -93,6 +93,9 @@ type API interface {
 	AcceptLLMRun(ctx context.Context, id string, req wire.AcceptRunRequest) (*wire.TaskList, error)
 	RejectLLMRun(ctx context.Context, id string) (*wire.LlmRun, error)
 
+	SyncStatus(ctx context.Context) (*wire.SyncStatus, error)
+	SyncNow(ctx context.Context) (*wire.SyncStatus, error)
+
 	// Events opens GET /v1/events. The stream does not reconnect; see Follower.
 	Events(ctx context.Context) (EventStream, error)
 }

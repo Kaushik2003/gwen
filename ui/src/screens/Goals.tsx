@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { App, wire } from "../api";
+import { App, readOnly, wire } from "../api";
 import Breakdown from "../components/Breakdown";
 import { Button, Card, Input, Label, Modal, Select } from "../components/ui";
 import { useDaemon } from "../daemon";
@@ -56,9 +56,11 @@ export default function Goals() {
               <option value="abandoned">Abandoned</option>
               <option value="all">All</option>
             </Select>
-            <Button tone="primary" onClick={() => setEditing("new")}>
-              New goal
-            </Button>
+            {!readOnly && (
+              <Button tone="primary" onClick={() => setEditing("new")}>
+                New goal
+              </Button>
+            )}
           </>
         }
       >
@@ -70,14 +72,18 @@ export default function Goals() {
                 <span className="flex-1 font-medium">{g.title}</span>
                 {g.status !== "active" && <span className="text-xs text-zinc-500">{g.status}</span>}
                 <PaceChip pace={g.progress.pace} />
-                <Button onClick={() => setBreakingDown(g)}>Break down</Button>
-                <Button onClick={() => setEditing(g)}>Edit</Button>
-                <Button
-                  tone="danger"
-                  onClick={() => window.confirm(`Delete the goal ${g.title}?`) && d.act(() => App.DeleteGoal(g.id))}
-                >
-                  ✕
-                </Button>
+                {!readOnly && (
+                  <>
+                    <Button onClick={() => setBreakingDown(g)}>Break down</Button>
+                    <Button onClick={() => setEditing(g)}>Edit</Button>
+                    <Button
+                      tone="danger"
+                      onClick={() => window.confirm(`Delete the goal ${g.title}?`) && d.act(() => App.DeleteGoal(g.id))}
+                    >
+                      ✕
+                    </Button>
+                  </>
+                )}
               </div>
               <GoalBar g={g} />
               <div className="flex flex-wrap gap-x-4 text-xs text-zinc-500">
@@ -226,9 +232,11 @@ function Commitments() {
     <Card
       title="Commitments"
       actions={
-        <Button tone="primary" onClick={() => setEditing("new")}>
-          New commitment
-        </Button>
+        !readOnly && (
+          <Button tone="primary" onClick={() => setEditing("new")}>
+            New commitment
+          </Button>
+        )
       }
     >
       <p className="mb-3 text-xs text-zinc-500">Recurring time that is not planned work, such as an internship or a class.</p>
@@ -244,10 +252,14 @@ function Commitments() {
             <span className="text-xs">{formatDuration(c.duration_minutes * 60_000)}</span>
             <span className="font-mono text-xs text-zinc-500">{c.rrule}</span>
             {!c.counts_toward_target && <span className="text-xs text-zinc-500">not counted</span>}
-            <Button onClick={() => setEditing(c)}>Edit</Button>
-            <Button tone="danger" onClick={() => d.act(() => App.DeleteCommitment(c.id))}>
-              ✕
-            </Button>
+            {!readOnly && (
+              <>
+                <Button onClick={() => setEditing(c)}>Edit</Button>
+                <Button tone="danger" onClick={() => d.act(() => App.DeleteCommitment(c.id))}>
+                  ✕
+                </Button>
+              </>
+            )}
           </li>
         ))}
       </ul>

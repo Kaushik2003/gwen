@@ -1492,6 +1492,24 @@ export namespace wire {
 	    }
 	}
 	
+	export class SyncStatus {
+	    configured: boolean;
+	    last_push_at?: number;
+	    last_pull_at?: number;
+	    last_error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SyncStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.configured = source["configured"];
+	        this.last_push_at = source["last_push_at"];
+	        this.last_pull_at = source["last_pull_at"];
+	        this.last_error = source["last_error"];
+	    }
+	}
 	
 	export class TaskList {
 	    tasks: Task[];

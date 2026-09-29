@@ -120,4 +120,8 @@ export function Status():Promise<wire.Status>;
 
 export function Switch(arg1:wire.SwitchRequest):Promise<wire.Status>;
 
+export function SyncNow():Promise<wire.SyncStatus>;
+
+export function SyncStatus():Promise<wire.SyncStatus>;
+
 export function Version():Promise<string>;

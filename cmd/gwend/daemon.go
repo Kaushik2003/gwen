@@ -21,6 +21,7 @@ import (
 	"github.com/kzark/gwen/internal/llm"
 	"github.com/kzark/gwen/internal/notify"
 	"github.com/kzark/gwen/internal/store"
+	gsync "github.com/kzark/gwen/internal/sync"
 	"github.com/kzark/gwen/internal/timeengine"
 )
 
@@ -45,6 +46,8 @@ type options struct {
 	llm bool
 	// anthropicURL overrides the Messages API URL; tests point it at a fake.
 	anthropicURL string
+	// sync runs the sync hub client (docs/07-integrations.md#client).
+	sync bool
 	// calendarEndpoint overrides the Calendar API URL; tests point it at a fake.
 	calendarEndpoint string
 	// wrapRepos lets tests make the store fail inside a decision.
@@ -122,6 +125,11 @@ func run(ctx context.Context, o options) (err error) {
 			return llm.New(cfg, llm.Options{CredDir: credDir, AnthropicURL: o.anthropicURL})
 		}
 	}
+	var syncer *gsync.Client
+	if o.sync {
+		syncer = newSyncClient(db, repos, o, l, srv, hub)
+		srv.Sync = syncer
+	}
 	var cal *gcal.Service
 	if o.calendar {
 		cal = newCalendar(db, repos, o, l, srv, hub)
@@ -136,6 +144,9 @@ func run(ctx context.Context, o options) (err error) {
 	go l.run(loopCtx)
 	if cal != nil {
 		go cal.Run(loopCtx)
+	}
+	if syncer != nil {
+		go syncer.Run(loopCtx)
 	}
 	httpSrv := &http.Server{Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	serveErr := make(chan error, 1)

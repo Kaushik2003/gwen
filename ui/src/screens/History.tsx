@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { App, wire } from "../api";
+import { App, readOnly as readOnlyUI, wire } from "../api";
 import { Button, Card, Input } from "../components/ui";
 import { useDaemon } from "../daemon";
 import { addDays, formatDuration } from "../format";
 import DayDetail from "./DayDetail";
 
 /** Days by project over a range (default the last 7 days); a click opens Day detail. */
-export default function History({ readOnly = false }: { readOnly?: boolean }) {
+export default function History({ readOnly = readOnlyUI }: { readOnly?: boolean }) {
   const d = useDaemon();
   const today = d.today();
   const [from, setFrom] = useState(addDays(today, -6));

@@ -224,8 +224,8 @@ panel, Break down dialog, and Retro view.
 
 ### W14 — Sync hub
 
-**Owns:** `internal/sync/`, `cmd/gwend/hub*.go`, `packaging/pi/gwen-hub.service`, and sync-named
-files as above.
+**Owns:** `internal/sync/`, `cmd/gwend/hub*.go`, `packaging/pi/gwen-hub.service`, `ui/embed_hub.go`,
+the `build-hub` and `ui-stub` Makefile targets, and sync-named files as above.
 
 **Delivers:** [07-integrations.md](07-integrations.md#sync-hub) in full, including hub mode, the hub
 API, login, read-only API subset and dashboard serving; the `VITE_GWEN_TARGET=hub` UI build; sync
