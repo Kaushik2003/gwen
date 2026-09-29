@@ -67,10 +67,10 @@ func TestOpenEmptyDirectory(t *testing.T) {
 	}
 
 	for _, table := range []string{"local_state", "projects", "tasks", "work_days", "segments", "engine_events",
-		"goals", "commitments", "plan_items"} {
+		"goals", "commitments", "plan_items", "gcal_links", "calendar_busy", "llm_runs", "hub_changes"} {
 		require.True(t, tableExists(t, db.SQL(), table), table)
 	}
-	require.Equal(t, int64(2), db.SchemaVersion())
+	require.Equal(t, int64(3), db.SchemaVersion())
 
 	id := db.DeviceID()
 	require.Len(t, id, 36)

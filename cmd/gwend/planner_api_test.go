@@ -244,6 +244,7 @@ func TestBriefingEndpointAndClockInNudge(t *testing.T) {
 	require.NoError(t, err)
 
 	// While off, input prompts a clock-in with the briefing as its body.
+	d.sync() // the loop has started the monitor
 	d.mon.emit(activity.Event{Kind: activity.Active, At: d.clk.Now()})
 	d.sync()
 	require.Equal(t, []string{"clock_in"}, d.notif.kinds())
@@ -263,6 +264,7 @@ func TestBriefingEndpointAndClockInNudge(t *testing.T) {
 func TestClockInNudgeFallsBackWithNothingPlanned(t *testing.T) {
 	t.Parallel()
 	d := startDaemon(t, setup{})
+	d.sync() // the loop has started the monitor
 	d.mon.emit(activity.Event{Kind: activity.Active, At: d.clk.Now()})
 	d.sync()
 	require.Equal(t, []string{"Clock in to start tracking."}, d.notif.bodies())
