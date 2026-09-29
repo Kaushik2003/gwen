@@ -34,6 +34,23 @@ const (
 	TaskDone = "done"
 )
 
+// Goal kinds (goals.kind) and statuses (goals.status).
+const (
+	GoalQuantity  = "quantity"
+	GoalTasks     = "tasks"
+	GoalActive    = "active"
+	GoalDone      = "done"
+	GoalAbandoned = "abandoned"
+)
+
+// Plan item statuses (plan_items.status).
+const (
+	PlanPlanned = "planned"
+	PlanDone    = "done"
+	PlanRolled  = "rolled"
+	PlanSkipped = "skipped"
+)
+
 // DayLayout is the layout of every local calendar date column.
 const DayLayout = "2006-01-02"
 
@@ -97,8 +114,19 @@ type Task struct {
 	DueDay    *string
 	Estimate  *time.Duration // estimate_minutes
 	DoneAt    *time.Time
+	// v2 columns. A task with an RRule is a template; its occurrences carry
+	// TemplateID and OccurrenceDay.
+	GoalID        *string
+	Quantity      *int
+	QuantityDone  *int
+	RRule         *string
+	TemplateID    *string
+	OccurrenceDay *string
 	Envelope
 }
+
+// IsTemplate reports whether the task is a recurring template.
+func (t Task) IsTemplate() bool { return t.RRule != nil }
 
 // WorkDay is a row of work_days.
 type WorkDay struct {
@@ -134,4 +162,48 @@ type EngineEvent struct {
 	FromState string
 	ToState   string
 	Data      map[string]any
+}
+
+// Goal is a row of goals.
+type Goal struct {
+	ID             string
+	Title          string
+	Kind           string
+	Unit           string
+	TargetQuantity *int
+	PerUnit        *time.Duration // minutes_per_unit
+	ProjectID      *string
+	StartDay       string
+	DueDay         string
+	Status         string
+	Envelope
+}
+
+// Commitment is a row of commitments: recurring time that is not planned work.
+type Commitment struct {
+	ID                 string
+	Title              string
+	ProjectID          *string
+	RRule              string
+	StartMinute        *int          // minutes after local midnight; nil when floating
+	Duration           time.Duration // duration_minutes
+	CountsTowardTarget bool
+	ActiveFrom         string
+	ActiveUntil        *string
+	Envelope
+}
+
+// PlanItem is a row of plan_items: one block of a task planned on a day.
+type PlanItem struct {
+	ID            string
+	Day           string
+	TaskID        string
+	Planned       time.Duration // planned_minutes
+	StartAt       *time.Time
+	Position      int
+	Status        string
+	Pinned        bool
+	RolledFromID  *string
+	RolloverCount int
+	Envelope
 }

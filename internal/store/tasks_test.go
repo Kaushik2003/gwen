@@ -70,7 +70,7 @@ func TestTaskListOrderAndFilters(t *testing.T) {
 	soonHigh := mk("soon, high", testutil.Ptr("2026-09-20"), 3, nil)
 	soonHighLater := mk("soon, high, created later", testutil.Ptr("2026-09-20"), 3, nil)
 	done := mk("done", nil, 2, nil)
-	_, err := f.r.Tasks.Complete(f.ctx, done.ID)
+	_, err := f.r.Tasks.Complete(f.ctx, done.ID, nil)
 	require.NoError(t, err)
 
 	ids := func(tasks []model.Task) []string {
@@ -139,28 +139,30 @@ func TestTaskUpdateCompleteReopenDelete(t *testing.T) {
 	_, err = f.r.Tasks.Update(f.ctx, tk.ID, store.TaskPatch{Priority: testutil.Ptr(0)})
 	userErr(t, err, store.ErrInvalid, "priority")
 
-	done, err := f.r.Tasks.Complete(f.ctx, tk.ID)
+	completed, err := f.r.Tasks.Complete(f.ctx, tk.ID, nil)
 	require.NoError(t, err)
+	done := completed.Task
 	require.Equal(t, model.TaskDone, done.Status)
 	require.Equal(t, fxNow.Add(time.Minute), *done.DoneAt)
-	again, err := f.r.Tasks.Complete(f.ctx, tk.ID)
+	again, err := f.r.Tasks.Complete(f.ctx, tk.ID, nil)
 	require.NoError(t, err)
-	require.Equal(t, done, again, "complete is idempotent")
+	require.Equal(t, done, again.Task, "complete is idempotent")
 
-	open, err := f.r.Tasks.Reopen(f.ctx, tk.ID)
+	reopened, err := f.r.Tasks.Reopen(f.ctx, tk.ID, testutil.Day0)
 	require.NoError(t, err)
+	open := reopened.Task
 	require.Equal(t, model.TaskOpen, open.Status)
 	require.Nil(t, open.DoneAt)
 	require.Equal(t, done.Rev+1, open.Rev)
-	againOpen, err := f.r.Tasks.Reopen(f.ctx, tk.ID)
+	againOpen, err := f.r.Tasks.Reopen(f.ctx, tk.ID, testutil.Day0)
 	require.NoError(t, err)
-	require.Equal(t, open, againOpen, "reopen is idempotent")
+	require.Equal(t, open, againOpen.Task, "reopen is idempotent")
 
 	require.NoError(t, f.r.Tasks.Delete(f.ctx, tk.ID))
 	_, err = f.r.Tasks.Get(f.ctx, tk.ID)
 	require.ErrorIs(t, err, store.ErrNotFound)
 	require.ErrorIs(t, f.r.Tasks.Delete(f.ctx, tk.ID), store.ErrNotFound)
-	_, err = f.r.Tasks.Complete(f.ctx, tk.ID)
+	_, err = f.r.Tasks.Complete(f.ctx, tk.ID, nil)
 	require.ErrorIs(t, err, store.ErrNotFound)
 	_, err = f.r.Tasks.Update(f.ctx, tk.ID, store.TaskPatch{})
 	require.ErrorIs(t, err, store.ErrNotFound)

@@ -47,7 +47,7 @@ type Server struct {
 	PID        int
 }
 
-// Handler returns the router for every v1 route.
+// Handler returns the router for every route.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	route := func(pattern string, h func(w http.ResponseWriter, r *http.Request) error) {
@@ -92,6 +92,20 @@ func (s *Server) Handler() http.Handler {
 
 	route("GET /v1/stats/summary", s.statsSummary)
 	route("GET /v1/stats/heatmap", s.statsHeatmap)
+
+	route("GET /v1/goals", s.listGoals)
+	route("POST /v1/goals", s.createGoal)
+	route("GET /v1/goals/{id}", s.getGoal)
+	route("PATCH /v1/goals/{id}", s.patchGoal)
+	route("DELETE /v1/goals/{id}", s.deleteGoal)
+	route("GET /v1/commitments", s.listCommitments)
+	route("POST /v1/commitments", s.createCommitment)
+	route("PATCH /v1/commitments/{id}", s.patchCommitment)
+	route("DELETE /v1/commitments/{id}", s.deleteCommitment)
+	route("GET /v1/plan", s.getPlan)
+	route("POST /v1/plan/generate", s.generatePlan)
+	route("PATCH /v1/plan/items/{id}", s.patchPlanItem)
+	route("GET /v1/briefing", s.briefing)
 
 	route("GET /v1/config", s.getConfig)
 	route("PATCH /v1/config", s.patchConfig)

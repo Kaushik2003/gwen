@@ -124,6 +124,38 @@ func (a *App) PatchConfig(patch wire.ConfigPatch) (*wire.Config, error) {
 
 func (a *App) NotifyTest() (*wire.NotifyTestResult, error) { return call(a.api.NotifyTest(a.ctx)) }
 
+func (a *App) ListGoals(status string) (*wire.GoalList, error) {
+	return call(a.api.ListGoals(a.ctx, status))
+}
+func (a *App) CreateGoal(req wire.CreateGoalRequest) (*wire.Goal, error) {
+	return call(a.api.CreateGoal(a.ctx, req))
+}
+func (a *App) GetGoal(id string) (*wire.Goal, error) { return call(a.api.GetGoal(a.ctx, id)) }
+func (a *App) PatchGoal(id string, req wire.PatchGoalRequest) (*wire.Goal, error) {
+	return call(a.api.PatchGoal(a.ctx, id, req))
+}
+func (a *App) DeleteGoal(id string) error { return wrap(a.api.DeleteGoal(a.ctx, id)) }
+
+func (a *App) ListCommitments() (*wire.CommitmentList, error) {
+	return call(a.api.ListCommitments(a.ctx))
+}
+func (a *App) CreateCommitment(req wire.CreateCommitmentRequest) (*wire.Commitment, error) {
+	return call(a.api.CreateCommitment(a.ctx, req))
+}
+func (a *App) PatchCommitment(id string, req wire.PatchCommitmentRequest) (*wire.Commitment, error) {
+	return call(a.api.PatchCommitment(a.ctx, id, req))
+}
+func (a *App) DeleteCommitment(id string) error { return wrap(a.api.DeleteCommitment(a.ctx, id)) }
+
+func (a *App) GetPlan(day string) (*wire.Plan, error) { return call(a.api.GetPlan(a.ctx, day)) }
+func (a *App) GeneratePlan(req wire.GeneratePlanRequest) (*wire.Plan, error) {
+	return call(a.api.GeneratePlan(a.ctx, req))
+}
+func (a *App) PatchPlanItem(id string, req wire.PatchPlanItemRequest) (*wire.PlanItem, error) {
+	return call(a.api.PatchPlanItem(a.ctx, id, req))
+}
+func (a *App) Briefing() (*wire.Briefing, error) { return call(a.api.Briefing(a.ctx)) }
+
 // Host-only methods.
 
 // Version is the GUI's own version.

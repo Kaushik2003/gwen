@@ -42,8 +42,9 @@ length so far. Durations render as `45s`, `15m`, `1h 5m`.
 | `clock_in` | `Ready to start?` | `Clock in to start tracking.` |
 
 From v2, when the `clock_in` nudge fires, the loop replaces its body with the briefing summary
-`{p} pending from yesterday · {t} planned today · {r} reminders`, omitting zero-count parts, and
-falls back to the v1 body when all three are zero.
+`{p} pending from yesterday · {t} planned today · {r} reminders`, omitting zero-count parts and
+writing `reminder` when `{r}` is 1, and falls back to the v1 body when all three are zero. `{t}`
+counts today's items whose `status` is `planned`.
 
 | Action id | Label |
 |---|---|

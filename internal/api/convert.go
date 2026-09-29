@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/kzark/gwen/internal/model"
+	"github.com/kzark/gwen/internal/planner"
 	"github.com/kzark/gwen/internal/store"
 	"github.com/kzark/gwen/internal/timeengine"
 	"github.com/kzark/gwen/internal/wire"
@@ -114,5 +115,52 @@ func taskWire(t model.Task, tracked time.Duration) wire.Task {
 		Priority: t.Priority, DueDay: t.DueDay, EstimateMinutes: estimate, DoneAt: wire.MillisPtr(t.DoneAt),
 		CreatedAt: wire.Millis(t.CreatedAt), UpdatedAt: wire.Millis(t.UpdatedAt), Rev: t.Rev,
 		TrackedMs: tracked.Milliseconds(),
+		GoalID:    t.GoalID, Quantity: t.Quantity, QuantityDone: t.QuantityDone, RRule: t.RRule,
+		TemplateID: t.TemplateID, OccurrenceDay: t.OccurrenceDay,
+	}
+}
+
+func minutesOf(d *time.Duration) *int {
+	if d == nil {
+		return nil
+	}
+	m := int(*d / time.Minute)
+	return &m
+}
+
+func goalWire(g model.Goal, p planner.GoalProgress) wire.Goal {
+	var finish *string
+	if p.ProjectedFinish != nil {
+		f := p.ProjectedFinish.String()
+		finish = &f
+	}
+	return wire.Goal{
+		ID: g.ID, Title: g.Title, Kind: g.Kind, Unit: g.Unit, TargetQuantity: g.TargetQuantity,
+		MinutesPerUnit: minutesOf(g.PerUnit), ProjectID: g.ProjectID, StartDay: g.StartDay, DueDay: g.DueDay,
+		Status: g.Status, CreatedAt: wire.Millis(g.CreatedAt), UpdatedAt: wire.Millis(g.UpdatedAt), Rev: g.Rev,
+		Progress: wire.GoalProgress{
+			DoneQuantity: p.Done, RemainingQuantity: p.Remaining, RequiredPerDay: p.RequiredPerDay,
+			ActualPerDay: p.ActualPerDay, Pace: p.Pace, ProjectedFinishDay: finish,
+		},
+	}
+}
+
+func commitmentWire(c model.Commitment) wire.Commitment {
+	return wire.Commitment{
+		ID: c.ID, Title: c.Title, ProjectID: c.ProjectID, RRule: c.RRule, StartMinute: c.StartMinute,
+		DurationMinutes: int(c.Duration / time.Minute), CountsTowardTarget: c.CountsTowardTarget,
+		ActiveFrom: c.ActiveFrom, ActiveUntil: c.ActiveUntil,
+		CreatedAt: wire.Millis(c.CreatedAt), UpdatedAt: wire.Millis(c.UpdatedAt), Rev: c.Rev,
+	}
+}
+
+func planItemWire(e store.PlanEntry, tracked time.Duration) wire.PlanItem {
+	it := e.Item
+	return wire.PlanItem{
+		ID: it.ID, Day: it.Day, TaskID: it.TaskID, PlannedMinutes: int(it.Planned / time.Minute),
+		StartAt: wire.MillisPtr(it.StartAt), Position: it.Position, Status: it.Status, Pinned: it.Pinned,
+		RolledFromID: it.RolledFromID, RolloverCount: it.RolloverCount,
+		CreatedAt: wire.Millis(it.CreatedAt), UpdatedAt: wire.Millis(it.UpdatedAt), Rev: it.Rev,
+		Task: taskWire(e.Task, tracked),
 	}
 }

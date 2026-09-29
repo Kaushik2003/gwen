@@ -43,6 +43,21 @@ func stringPtr(n sql.NullString) *string {
 	return &s
 }
 
+func nullInt(n *int) sql.NullInt64 {
+	if n == nil {
+		return sql.NullInt64{}
+	}
+	return sql.NullInt64{Int64: int64(*n), Valid: true}
+}
+
+func intPtr(n sql.NullInt64) *int {
+	if !n.Valid {
+		return nil
+	}
+	v := int(n.Int64)
+	return &v
+}
+
 // scanner is *sql.Row or *sql.Rows.
 type scanner interface{ Scan(dest ...any) error }
 
@@ -77,6 +92,8 @@ func notFound(err error, what, id string) error {
 	}
 	return err
 }
+
+func isNotFound(err error) bool { return errors.Is(err, ErrNotFound) }
 
 // checkRev enforces optimistic concurrency on PATCH: a given rev must match.
 func checkRev(given *int64, stored int64) error {

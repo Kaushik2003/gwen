@@ -64,6 +64,25 @@ type API interface {
 
 	NotifyTest(ctx context.Context) (*wire.NotifyTestResult, error)
 
+	// ListGoals takes wire.GoalActive, GoalDone, GoalAbandoned, or GoalsAll;
+	// "" means the server default, active.
+	ListGoals(ctx context.Context, status string) (*wire.GoalList, error)
+	CreateGoal(ctx context.Context, req wire.CreateGoalRequest) (*wire.Goal, error)
+	GetGoal(ctx context.Context, id string) (*wire.Goal, error)
+	PatchGoal(ctx context.Context, id string, req wire.PatchGoalRequest) (*wire.Goal, error)
+	DeleteGoal(ctx context.Context, id string) error
+
+	ListCommitments(ctx context.Context) (*wire.CommitmentList, error)
+	CreateCommitment(ctx context.Context, req wire.CreateCommitmentRequest) (*wire.Commitment, error)
+	PatchCommitment(ctx context.Context, id string, req wire.PatchCommitmentRequest) (*wire.Commitment, error)
+	DeleteCommitment(ctx context.Context, id string) error
+
+	// GetPlan reads the plan for day; "" means today.
+	GetPlan(ctx context.Context, day string) (*wire.Plan, error)
+	GeneratePlan(ctx context.Context, req wire.GeneratePlanRequest) (*wire.Plan, error)
+	PatchPlanItem(ctx context.Context, id string, req wire.PatchPlanItemRequest) (*wire.PlanItem, error)
+	Briefing(ctx context.Context) (*wire.Briefing, error)
+
 	// Events opens GET /v1/events. The stream does not reconnect; see Follower.
 	Events(ctx context.Context) (EventStream, error)
 }
@@ -196,7 +215,12 @@ func (c *Client) DeleteProject(ctx context.Context, id string) error {
 }
 
 func (c *Client) ListTasks(ctx context.Context, q wire.TaskQuery) (*wire.TaskList, error) {
-	params := query("project_id", q.ProjectID, "status", q.Status, "due_before", q.DueBefore)
+	templates := ""
+	if q.Templates {
+		templates = "true"
+	}
+	params := query("project_id", q.ProjectID, "goal_id", q.GoalID, "status", q.Status, "due_before", q.DueBefore,
+		"templates", templates)
 	return call[wire.TaskList](ctx, c, http.MethodGet, "/v1/tasks", params, nil)
 }
 
@@ -242,6 +266,58 @@ func (c *Client) PatchConfig(ctx context.Context, patch wire.ConfigPatch) (*wire
 
 func (c *Client) NotifyTest(ctx context.Context) (*wire.NotifyTestResult, error) {
 	return call[wire.NotifyTestResult](ctx, c, http.MethodPost, "/v1/notify/test", nil, empty)
+}
+
+func (c *Client) ListGoals(ctx context.Context, status string) (*wire.GoalList, error) {
+	return call[wire.GoalList](ctx, c, http.MethodGet, "/v1/goals", query("status", status), nil)
+}
+
+func (c *Client) CreateGoal(ctx context.Context, req wire.CreateGoalRequest) (*wire.Goal, error) {
+	return call[wire.Goal](ctx, c, http.MethodPost, "/v1/goals", nil, req)
+}
+
+func (c *Client) GetGoal(ctx context.Context, id string) (*wire.Goal, error) {
+	return call[wire.Goal](ctx, c, http.MethodGet, "/v1/goals/"+url.PathEscape(id), nil, nil)
+}
+
+func (c *Client) PatchGoal(ctx context.Context, id string, req wire.PatchGoalRequest) (*wire.Goal, error) {
+	return call[wire.Goal](ctx, c, http.MethodPatch, "/v1/goals/"+url.PathEscape(id), nil, req)
+}
+
+func (c *Client) DeleteGoal(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodDelete, "/v1/goals/"+url.PathEscape(id), nil, nil, nil)
+}
+
+func (c *Client) ListCommitments(ctx context.Context) (*wire.CommitmentList, error) {
+	return call[wire.CommitmentList](ctx, c, http.MethodGet, "/v1/commitments", nil, nil)
+}
+
+func (c *Client) CreateCommitment(ctx context.Context, req wire.CreateCommitmentRequest) (*wire.Commitment, error) {
+	return call[wire.Commitment](ctx, c, http.MethodPost, "/v1/commitments", nil, req)
+}
+
+func (c *Client) PatchCommitment(ctx context.Context, id string, req wire.PatchCommitmentRequest) (*wire.Commitment, error) {
+	return call[wire.Commitment](ctx, c, http.MethodPatch, "/v1/commitments/"+url.PathEscape(id), nil, req)
+}
+
+func (c *Client) DeleteCommitment(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodDelete, "/v1/commitments/"+url.PathEscape(id), nil, nil, nil)
+}
+
+func (c *Client) GetPlan(ctx context.Context, day string) (*wire.Plan, error) {
+	return call[wire.Plan](ctx, c, http.MethodGet, "/v1/plan", query("day", day), nil)
+}
+
+func (c *Client) GeneratePlan(ctx context.Context, req wire.GeneratePlanRequest) (*wire.Plan, error) {
+	return call[wire.Plan](ctx, c, http.MethodPost, "/v1/plan/generate", nil, req)
+}
+
+func (c *Client) PatchPlanItem(ctx context.Context, id string, req wire.PatchPlanItemRequest) (*wire.PlanItem, error) {
+	return call[wire.PlanItem](ctx, c, http.MethodPatch, "/v1/plan/items/"+url.PathEscape(id), nil, req)
+}
+
+func (c *Client) Briefing(ctx context.Context) (*wire.Briefing, error) {
+	return call[wire.Briefing](ctx, c, http.MethodGet, "/v1/briefing", nil, nil)
 }
 
 func (c *Client) Events(ctx context.Context) (EventStream, error) {

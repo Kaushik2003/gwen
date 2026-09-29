@@ -56,7 +56,8 @@ API returns `invalid_request` with `details.field = "rrule"`.
 ### Task templates and occurrences
 
 A task with an `rrule` is a **template**: it is never planned, completed, or listed unless asked for
-(`?templates=true`). For each matching day, an **occurrence** task is materialized: a copy of the
+(`?templates=true`). Completing a template is `invalid_request`, and so is setting an `rrule` on an
+occurrence. For each matching day, an **occurrence** task is materialized: a copy of the
 template's `project_id`, `title`, `notes`, `priority`, `estimate_minutes`, `goal_id`, with
 `template_id` set and `occurrence_day` = the matching day.
 
@@ -108,9 +109,13 @@ transaction. Reopening a task that makes `remaining > 0` again sets a `done` goa
 `abandoned` is only ever set by the user.
 
 **Session quantity.** A session occurrence materialized for day `D` gets
-`quantity = max(1, ceil(remaining / sessions_left))` computed with `T = D`, and
-`estimate_minutes = quantity × minutes_per_unit`. If `remaining = 0` no occurrence is created. On
-completion, `quantity_done` defaults to `quantity` unless the request supplies it.
+`quantity = max(1, ceil(required_per_day))` computed with `T = D` — that is
+`ceil(remaining / sessions_left)`, or all of `remaining` once `D` is past `due_day` — and
+`estimate_minutes = quantity × minutes_per_unit`. No occurrence is created when `remaining = 0`,
+when the goal is not `active`, or when `D` is before `start_day`. On completion, `quantity_done`
+defaults to `quantity` unless the request supplies it.
+
+A goal's `kind` is fixed at creation; a `PATCH` that changes it is `invalid_request`.
 
 Worked example — 300 problems, 30 min each, 2026-09-15 to 2026-12-15, daily: 92 sessions, so the
 first session is `ceil(300/92) = 4` problems, 120 minutes. Solve only 3 that day and the next day's
@@ -131,8 +136,9 @@ Minutes available for planned work on day `D`.
 6. `target_left` = `target_minutes` − the durations of commitments with `counts_toward_target = 1`.
    `target_minutes` is the open work day's `target_seconds / 60` when `D` is today and a work day
    exists, else `tracking.daily_target`. When `D` is today, also subtract minutes already worked
-   today on work segments whose project is **not** the `project_id` of a counting commitment (that
-   time is already represented by the commitment).
+   today on work segments whose project is **not** the `project_id` of a counting commitment on `D`
+   (that time is already represented by the commitment). A commitment with no project matches no
+   segment, so unassigned work is always subtracted.
 7. `capacity_minutes = max(0, min(target_left, slot_minutes) − planner.buffer)`.
 
 For the motivating case — 8 h target, a counting 5 h internship commitment on weekdays, 09:00–23:00
@@ -219,7 +225,7 @@ order; a task gets at most the first that matches.
 
 - `days_left` = days from today to `due_day`. `remaining_minutes` as in step 5 above.
 - `avail` = sum of `capacity_minutes` for each day from today to the day before `due_day`.
-- `{h}` is `remaining_minutes / 60` rounded to one decimal place.
+- `{h}` is `remaining_minutes / 60` rounded to one decimal place, written without a trailing `.0`.
 - At most 5 reminders, ordered by urgency for today.
 
 ## Briefing

@@ -79,22 +79,28 @@ func (r engineEventRepo) List(ctx context.Context, since time.Time) ([]model.Eng
 
 // Repos bundles every repository over one database.
 type Repos struct {
-	Projects ProjectRepo
-	Tasks    TaskRepo
-	WorkDays WorkDayRepo
-	Segments SegmentRepo
-	Stats    StatsRepo
-	Events   EngineEventRepo
+	Projects    ProjectRepo
+	Tasks       TaskRepo
+	WorkDays    WorkDayRepo
+	Segments    SegmentRepo
+	Stats       StatsRepo
+	Events      EngineEventRepo
+	Goals       GoalRepo
+	Commitments CommitmentRepo
+	Plans       PlanRepo
 }
 
 // NewRepos returns the SQLite repositories over db.
 func NewRepos(db *DB) Repos {
 	return Repos{
-		Projects: NewProjectRepo(db),
-		Tasks:    NewTaskRepo(db),
-		WorkDays: NewWorkDayRepo(db),
-		Segments: NewSegmentRepo(db),
-		Stats:    NewStatsRepo(db),
-		Events:   NewEngineEventRepo(db),
+		Projects:    NewProjectRepo(db),
+		Tasks:       NewTaskRepo(db),
+		WorkDays:    NewWorkDayRepo(db),
+		Segments:    NewSegmentRepo(db),
+		Stats:       NewStatsRepo(db),
+		Events:      NewEngineEventRepo(db),
+		Goals:       NewGoalRepo(db),
+		Commitments: NewCommitmentRepo(db),
+		Plans:       NewPlanRepo(db),
 	}
 }

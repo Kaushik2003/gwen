@@ -90,8 +90,7 @@ type Project struct {
 	Rev        int64  `json:"rev"`
 }
 
-// Task is a tasks row plus the computed TrackedMs. The v2 columns are always
-// null in v1.
+// Task is a tasks row plus the computed TrackedMs.
 type Task struct {
 	ID              string  `json:"id"`
 	ProjectID       *string `json:"project_id"`
@@ -256,4 +255,129 @@ type SyncConfig struct {
 // LogConfig is the [log] section.
 type LogConfig struct {
 	Level string `json:"level" toml:"level"`
+}
+
+// Goal kinds and statuses.
+const (
+	GoalQuantity  = "quantity"
+	GoalTasks     = "tasks"
+	GoalActive    = "active"
+	GoalDone      = "done"
+	GoalAbandoned = "abandoned"
+	GoalsAll      = "all"
+)
+
+// Goal pace values.
+const (
+	PaceAhead   = "ahead"
+	PaceOnTrack = "on_track"
+	PaceBehind  = "behind"
+)
+
+// Plan item statuses.
+const (
+	PlanPlanned = "planned"
+	PlanDone    = "done"
+	PlanRolled  = "rolled"
+	PlanSkipped = "skipped"
+)
+
+// Goal is a goals row with its progress today.
+type Goal struct {
+	ID             string       `json:"id"`
+	Title          string       `json:"title"`
+	Kind           string       `json:"kind"`
+	Unit           string       `json:"unit"`
+	TargetQuantity *int         `json:"target_quantity"`
+	MinutesPerUnit *int         `json:"minutes_per_unit"`
+	ProjectID      *string      `json:"project_id"`
+	StartDay       string       `json:"start_day"`
+	DueDay         string       `json:"due_day"`
+	Status         string       `json:"status"`
+	CreatedAt      int64        `json:"created_at"`
+	UpdatedAt      int64        `json:"updated_at"`
+	Rev            int64        `json:"rev"`
+	Progress       GoalProgress `json:"progress"`
+}
+
+// GoalProgress is a goal's progress today. For a tasks goal the quantities
+// count tasks.
+type GoalProgress struct {
+	DoneQuantity       int     `json:"done_quantity"`
+	RemainingQuantity  int     `json:"remaining_quantity"`
+	RequiredPerDay     float64 `json:"required_per_day"`
+	ActualPerDay       float64 `json:"actual_per_day"`
+	Pace               string  `json:"pace"`
+	ProjectedFinishDay *string `json:"projected_finish_day"`
+}
+
+// GoalList is the GET /v1/goals response.
+type GoalList struct {
+	Goals []Goal `json:"goals"`
+}
+
+// Commitment is a commitments row.
+type Commitment struct {
+	ID                 string  `json:"id"`
+	Title              string  `json:"title"`
+	ProjectID          *string `json:"project_id"`
+	RRule              string  `json:"rrule"`
+	StartMinute        *int    `json:"start_minute"`
+	DurationMinutes    int     `json:"duration_minutes"`
+	CountsTowardTarget bool    `json:"counts_toward_target"`
+	ActiveFrom         string  `json:"active_from"`
+	ActiveUntil        *string `json:"active_until"`
+	CreatedAt          int64   `json:"created_at"`
+	UpdatedAt          int64   `json:"updated_at"`
+	Rev                int64   `json:"rev"`
+}
+
+// CommitmentList is the GET /v1/commitments response.
+type CommitmentList struct {
+	Commitments []Commitment `json:"commitments"`
+}
+
+// PlanItem is a plan_items row with its task.
+type PlanItem struct {
+	ID             string  `json:"id"`
+	Day            string  `json:"day"`
+	TaskID         string  `json:"task_id"`
+	PlannedMinutes int     `json:"planned_minutes"`
+	StartAt        *int64  `json:"start_at"`
+	Position       int     `json:"position"`
+	Status         string  `json:"status"`
+	Pinned         bool    `json:"pinned"`
+	RolledFromID   *string `json:"rolled_from_id"`
+	RolloverCount  int     `json:"rollover_count"`
+	CreatedAt      int64   `json:"created_at"`
+	UpdatedAt      int64   `json:"updated_at"`
+	Rev            int64   `json:"rev"`
+	Task           Task    `json:"task"`
+}
+
+// Plan is a day's plan; Items are by position. PlannedMinutes sums the items
+// planned or done.
+type Plan struct {
+	Day             string     `json:"day"`
+	CapacityMinutes int        `json:"capacity_minutes"`
+	PlannedMinutes  int        `json:"planned_minutes"`
+	Items           []PlanItem `json:"items"`
+}
+
+// Briefing is the GET /v1/briefing response.
+type Briefing struct {
+	Day       string     `json:"day"`
+	Pending   []PlanItem `json:"pending"`
+	Today     []PlanItem `json:"today"`
+	Reminders []Reminder `json:"reminders"`
+	Goals     []Goal     `json:"goals"`
+}
+
+// Reminder is a nudge about a task's due day.
+type Reminder struct {
+	TaskID   string `json:"task_id"`
+	Title    string `json:"title"`
+	DueDay   string `json:"due_day"`
+	DaysLeft int    `json:"days_left"`
+	Message  string `json:"message"`
 }

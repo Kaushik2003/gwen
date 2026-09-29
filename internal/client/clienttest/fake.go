@@ -250,6 +250,60 @@ func (f *Fake) NotifyTest(context.Context) (*wire.NotifyTestResult, error) {
 	return result[*wire.NotifyTestResult](f, "NotifyTest")
 }
 
+func (f *Fake) ListGoals(_ context.Context, status string) (*wire.GoalList, error) {
+	return result[*wire.GoalList](f, "ListGoals", status)
+}
+
+func (f *Fake) CreateGoal(_ context.Context, req wire.CreateGoalRequest) (*wire.Goal, error) {
+	return result[*wire.Goal](f, "CreateGoal", req)
+}
+
+func (f *Fake) GetGoal(_ context.Context, id string) (*wire.Goal, error) {
+	return result[*wire.Goal](f, "GetGoal", id)
+}
+
+func (f *Fake) PatchGoal(_ context.Context, id string, req wire.PatchGoalRequest) (*wire.Goal, error) {
+	return result[*wire.Goal](f, "PatchGoal", id, req)
+}
+
+func (f *Fake) DeleteGoal(_ context.Context, id string) error {
+	_, err := f.invoke("DeleteGoal", id)
+	return err
+}
+
+func (f *Fake) ListCommitments(context.Context) (*wire.CommitmentList, error) {
+	return result[*wire.CommitmentList](f, "ListCommitments")
+}
+
+func (f *Fake) CreateCommitment(_ context.Context, req wire.CreateCommitmentRequest) (*wire.Commitment, error) {
+	return result[*wire.Commitment](f, "CreateCommitment", req)
+}
+
+func (f *Fake) PatchCommitment(_ context.Context, id string, req wire.PatchCommitmentRequest) (*wire.Commitment, error) {
+	return result[*wire.Commitment](f, "PatchCommitment", id, req)
+}
+
+func (f *Fake) DeleteCommitment(_ context.Context, id string) error {
+	_, err := f.invoke("DeleteCommitment", id)
+	return err
+}
+
+func (f *Fake) GetPlan(_ context.Context, day string) (*wire.Plan, error) {
+	return result[*wire.Plan](f, "GetPlan", day)
+}
+
+func (f *Fake) GeneratePlan(_ context.Context, req wire.GeneratePlanRequest) (*wire.Plan, error) {
+	return result[*wire.Plan](f, "GeneratePlan", req)
+}
+
+func (f *Fake) PatchPlanItem(_ context.Context, id string, req wire.PatchPlanItemRequest) (*wire.PlanItem, error) {
+	return result[*wire.PlanItem](f, "PatchPlanItem", id, req)
+}
+
+func (f *Fake) Briefing(context.Context) (*wire.Briefing, error) {
+	return result[*wire.Briefing](f, "Briefing")
+}
+
 // Events returns what the "Events" handler returns, typically a *Stream.
 func (f *Fake) Events(context.Context) (client.EventStream, error) {
 	return result[client.EventStream](f, "Events")
