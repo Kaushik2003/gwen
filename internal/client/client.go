@@ -87,6 +87,12 @@ type API interface {
 	CalendarAuthStart(ctx context.Context) (*wire.CalendarAuth, error)
 	CalendarSync(ctx context.Context) (*wire.CalendarStatus, error)
 
+	GoalBreakdown(ctx context.Context, goalID string, req wire.BreakdownRequest) (*wire.LlmRun, error)
+	Retro(ctx context.Context, req wire.RetroRequest) (*wire.LlmRun, error)
+	GetLLMRun(ctx context.Context, id string) (*wire.LlmRun, error)
+	AcceptLLMRun(ctx context.Context, id string, req wire.AcceptRunRequest) (*wire.TaskList, error)
+	RejectLLMRun(ctx context.Context, id string) (*wire.LlmRun, error)
+
 	// Events opens GET /v1/events. The stream does not reconnect; see Follower.
 	Events(ctx context.Context) (EventStream, error)
 }

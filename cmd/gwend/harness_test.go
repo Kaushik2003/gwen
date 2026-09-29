@@ -126,6 +126,7 @@ type setup struct {
 	wrapRepos func(store.Repos) store.Repos
 	monName   string
 	calendar  bool
+	llm       bool
 }
 
 func startDaemon(t *testing.T, s setup) *daemon {
@@ -162,6 +163,7 @@ func startDaemonWith(t *testing.T, s setup, adjust func(*options)) *daemon {
 		notifier:  func(config.Config, string) (notifier, []string) { return d.notif, nil },
 		wrapRepos: s.wrapRepos,
 		calendar:  s.calendar,
+		llm:       s.llm,
 		ready:     ready,
 		onLoop:    func(l *loop) { d.loop = l },
 	}

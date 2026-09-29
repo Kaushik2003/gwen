@@ -131,6 +131,9 @@ v2 adds to v1 commands: `task add/edit --goal G --rrule R --quantity N`, `task l
 | `gwen sync status` | `GET /v1/sync/status` |
 | `gwen sync now` | `POST /v1/sync/now` |
 
+`RUN` is a full run id: runs have no list endpoint to resolve a short id against, so every command
+that creates a run prints its full id.
+
 ## Tray
 
 `cmd/gwen-tray`, `fyne.io/systray`. Starts from the autostart entry, holds the event stream, and never

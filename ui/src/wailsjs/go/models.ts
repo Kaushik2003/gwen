@@ -1,5 +1,29 @@
 export namespace wire {
 	
+	export class AcceptRunRequest {
+	    indexes: number[];
+	
+	    static createFrom(source: any = {}) {
+	        return new AcceptRunRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.indexes = source["indexes"];
+	    }
+	}
+	export class BreakdownRequest {
+	    instructions: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new BreakdownRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.instructions = source["instructions"];
+	    }
+	}
 	export class GoalProgress {
 	    done_quantity: number;
 	    remaining_quantity: number;
@@ -949,6 +973,30 @@ export namespace wire {
 	}
 	
 	
+	export class LlmRun {
+	    id: string;
+	    kind: string;
+	    subject_id: string;
+	    status: string;
+	    output: any;
+	    created_at: number;
+	    updated_at: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new LlmRun(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.kind = source["kind"];
+	        this.subject_id = source["subject_id"];
+	        this.status = source["status"];
+	        this.output = source["output"];
+	        this.created_at = source["created_at"];
+	        this.updated_at = source["updated_at"];
+	    }
+	}
 	
 	export class NotifyTestResult {
 	    desktop: string;
@@ -1274,6 +1322,18 @@ export namespace wire {
 	}
 	
 	
+	export class RetroRequest {
+	    week_start: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new RetroRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.week_start = source["week_start"];
+	    }
+	}
 	
 	export class SegmentList {
 	    segments: Segment[];

@@ -64,6 +64,7 @@ func mainErr(args []string, stderr io.Writer) int {
 		monitor:    func(ctx context.Context, clk clock.Clock) activity.ActivityMonitor { return activity.New(ctx, clk) },
 		notifier:   defaultNotifier,
 		calendar:   true,
+		llm:        true,
 	})
 	if err != nil {
 		slog.Error("gwend failed", "err", err)

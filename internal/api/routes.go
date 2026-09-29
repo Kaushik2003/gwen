@@ -71,6 +71,12 @@ func (s *Server) Handler() http.Handler {
 	route("POST /v1/calendar/auth/start", s.calendarAuthStart)
 	route("POST /v1/calendar/sync", s.calendarSync)
 
+	route("POST /v1/goals/{id}/breakdown", s.breakdown)
+	route("POST /v1/retro", s.retro)
+	route("GET /v1/llm/runs/{id}", s.getRun)
+	route("POST /v1/llm/runs/{id}/accept", s.acceptRun)
+	route("POST /v1/llm/runs/{id}/reject", s.rejectRun)
+
 	route("GET /v1/config", s.getConfig)
 	route("PATCH /v1/config", s.patchConfig)
 	route("POST /v1/notify/test", s.notifyTest)
