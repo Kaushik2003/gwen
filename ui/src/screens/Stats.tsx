@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { App, wire } from "../api";
 import Heatmap from "../components/Heatmap";
+import Retro from "../components/Retro";
 import { Button, Card, Input, Select } from "../components/ui";
 import { useDaemon } from "../daemon";
 import { addDays, formatDuration } from "../format";
@@ -89,6 +90,7 @@ export default function Stats() {
           </Card>
         </>
       )}
+      {range === "week" && <Retro />}
       <Card
         title="Year"
         actions={

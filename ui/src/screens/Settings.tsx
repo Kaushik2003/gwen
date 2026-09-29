@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { App, apiError, wire } from "../api";
 import { Button, Card, Input, Label, Select } from "../components/ui";
 import { useDaemon } from "../daemon";
+import AISettings from "../settings/AI";
 import CalendarSettings from "../settings/Calendar";
 
 type Kind = "text" | "bool" | { options: string[] };
@@ -51,6 +52,7 @@ export default function Settings() {
         <Phone config={c} />
       </Section>
       <CalendarSettings />
+      <AISettings />
       <Section title="Log" name="log" fields={log} values={c.log} />
       <Card title="About">
         <label className="mb-3 flex items-center gap-2 text-sm">

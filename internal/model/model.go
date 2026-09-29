@@ -207,3 +207,24 @@ type PlanItem struct {
 	RolloverCount int
 	Envelope
 }
+
+// LLM run kinds (llm_runs.kind) and statuses (llm_runs.status).
+const (
+	RunBreakdown = "breakdown"
+	RunRetro     = "retro"
+	RunOK        = "ok"
+	RunFailed    = "failed"
+	RunAccepted  = "accepted"
+	RunRejected  = "rejected"
+)
+
+// LLMRun is a row of llm_runs: one LLM job and its JSON output.
+type LLMRun struct {
+	ID        string
+	Kind      string
+	SubjectID string
+	Status    string
+	Output    []byte // a JSON object
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { App, wire } from "../api";
+import Breakdown from "../components/Breakdown";
 import { Button, Card, Input, Label, Modal, Select } from "../components/ui";
 import { useDaemon } from "../daemon";
 import { formatDuration } from "../format";
@@ -37,6 +38,7 @@ export default function Goals() {
   const [status, setStatus] = useState("active");
   const [goals, setGoals] = useState<wire.Goal[]>([]);
   const [editing, setEditing] = useState<wire.Goal | "new" | null>(null);
+  const [breakingDown, setBreakingDown] = useState<wire.Goal | null>(null);
 
   useEffect(() => {
     App.ListGoals(status).then((l) => setGoals(l.goals), d.fail);
@@ -68,6 +70,7 @@ export default function Goals() {
                 <span className="flex-1 font-medium">{g.title}</span>
                 {g.status !== "active" && <span className="text-xs text-zinc-500">{g.status}</span>}
                 <PaceChip pace={g.progress.pace} />
+                <Button onClick={() => setBreakingDown(g)}>Break down</Button>
                 <Button onClick={() => setEditing(g)}>Edit</Button>
                 <Button
                   tone="danger"
@@ -91,6 +94,7 @@ export default function Goals() {
       </Card>
       <Commitments />
       {editing && <GoalForm goal={editing === "new" ? null : editing} onClose={() => setEditing(null)} />}
+      {breakingDown && <Breakdown goal={breakingDown} onClose={() => setBreakingDown(null)} />}
     </div>
   );
 }

@@ -10,6 +10,7 @@ import (
 
 	"github.com/kzark/gwen/internal/clock"
 	"github.com/kzark/gwen/internal/config"
+	"github.com/kzark/gwen/internal/llm"
 	"github.com/kzark/gwen/internal/store"
 	"github.com/kzark/gwen/internal/timeengine"
 	"github.com/kzark/gwen/internal/wire"
@@ -41,7 +42,10 @@ type Server struct {
 	Hub     *Hub
 	Notify  NotifyTester
 	// Calendar is the Google Calendar sync, nil when the daemon runs none.
-	Calendar   CalendarService
+	Calendar CalendarService
+	// LLM builds the LLM adapter for the configuration in effect, nil when
+	// the daemon runs none.
+	LLM        func(cfg config.LLM) (llm.Planner, error)
 	Clock      clock.Clock
 	Loc        *time.Location // the device's zone, recorded on work days that edits create
 	ConfigPath string

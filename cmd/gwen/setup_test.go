@@ -249,7 +249,7 @@ func TestSetupCommandTree(t *testing.T) {
 	for _, c := range cmd.Commands() {
 		names = append(names, c.Name())
 	}
-	require.ElementsMatch(t, []string{"service", "tracking", "autostart", "phone", "calendar"}, names)
+	require.ElementsMatch(t, []string{"service", "tracking", "autostart", "phone", "calendar", "llm"}, names)
 	require.NotNil(t, cmd.PersistentFlags().Lookup("yes"))
 
 	env, err := setupDefaultEnv()

@@ -18,6 +18,7 @@ import (
 	"github.com/kzark/gwen/internal/clock"
 	"github.com/kzark/gwen/internal/config"
 	"github.com/kzark/gwen/internal/gcal"
+	"github.com/kzark/gwen/internal/llm"
 	"github.com/kzark/gwen/internal/notify"
 	"github.com/kzark/gwen/internal/store"
 	"github.com/kzark/gwen/internal/timeengine"
@@ -40,6 +41,10 @@ type options struct {
 	notifier   func(cfg config.Config, credDir string) (notifier, []string)
 	// calendar runs the Google Calendar sync (docs/07-integrations.md#google-calendar).
 	calendar bool
+	// llm runs the LLM adapter (docs/07-integrations.md#llm-adapter).
+	llm bool
+	// anthropicURL overrides the Messages API URL; tests point it at a fake.
+	anthropicURL string
 	// calendarEndpoint overrides the Calendar API URL; tests point it at a fake.
 	calendarEndpoint string
 	// wrapRepos lets tests make the store fail inside a decision.
@@ -111,6 +116,12 @@ func run(ctx context.Context, o options) (err error) {
 	srv := &api.Server{DB: db, Repos: repos, Tracker: l, Hub: hub, Notify: n, Clock: o.clk, Loc: o.loc,
 		ConfigPath: o.configPath, Version: o.version, PID: os.Getpid()}
 
+	if o.llm {
+		credDir := config.CredentialsDir(o.dataDir)
+		srv.LLM = func(cfg config.LLM) (llm.Planner, error) {
+			return llm.New(cfg, llm.Options{CredDir: credDir, AnthropicURL: o.anthropicURL})
+		}
+	}
 	var cal *gcal.Service
 	if o.calendar {
 		cal = newCalendar(db, repos, o, l, srv, hub)

@@ -187,7 +187,7 @@ func setupCommand(envFn func() (setupEnv, error)) *cobra.Command {
 	phone.Flags().StringVar(&fallback, "fallback", "", "ntfy server to try when the first fails")
 	phone.Flags().StringVar(&token, "token", "", "ntfy access token, stored in the credentials directory")
 
-	root.AddCommand(service, tracking, autostart, phone, setupCalendarCmd(begin))
+	root.AddCommand(service, tracking, autostart, phone, setupCalendarCmd(begin), setupLLMCmd(begin))
 	return root
 }
 

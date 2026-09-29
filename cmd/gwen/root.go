@@ -63,7 +63,7 @@ func newRootCmd(c *cli) *cobra.Command {
 		c.todayCmd(), c.logCmd(), c.dayCmd(), c.segCmd(),
 		c.projectCmd(), c.taskCmd(),
 		c.goalCmd(), c.commitCmd(), c.planCmd(), c.briefCmd(),
-		c.calCmd(),
+		c.calCmd(), c.llmCmd(), c.retroCmd(),
 		c.statsCmd(), c.configCmd(), c.notifyCmd(), c.watchCmd(),
 		newSetupCmd(),
 	)

@@ -261,7 +261,7 @@ func (c *cli) goalCmd() *cobra.Command {
 			return nil
 		},
 	}
-	goal.AddCommand(ls, show, add, edit, rm)
+	goal.AddCommand(ls, show, add, edit, rm, c.goalBreakdownCmd())
 	return goal
 }
 
