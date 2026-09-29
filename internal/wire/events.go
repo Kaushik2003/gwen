@@ -10,6 +10,8 @@ const (
 	EventProjectsChanged = "projects_changed"
 	EventTasksChanged    = "tasks_changed"
 	EventConfigChanged   = "config_changed"
+	EventPlanChanged     = "plan_changed"
+	EventGoalsChanged    = "goals_changed"
 )
 
 // Event is one Server-Sent Events frame. Data is the frame's JSON, undecoded.
@@ -39,3 +41,11 @@ type ProjectsChanged struct{}
 type TasksChanged struct {
 	TaskIDs []string `json:"task_ids"`
 }
+
+// PlanChanged is the data of plan_changed.
+type PlanChanged struct {
+	Day string `json:"day"`
+}
+
+// GoalsChanged is the data of goals_changed.
+type GoalsChanged struct{}

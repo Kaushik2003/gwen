@@ -186,7 +186,9 @@ Starts after the v1 release gate passes.
 **Delivers:** everything in [06-planner.md](06-planner.md); migration `00002_planner.sql`; store
 repositories for goals, commitments, and plan items, plus the v2 task columns; every v2 endpoint in
 [04-api-contract.md](04-api-contract.md#endpoints--v2) with `plan_changed` and `goals_changed`
-events; v2 wire types and client methods; the briefing body for the `clock_in` nudge.
+events; v2 wire types and client methods, with the matching pass-through `App` bindings in
+`cmd/gwen-ui/app.go`, whose test requires one per client method; the briefing body for the
+`clock_in` nudge.
 
 ### W11 — Planner clients
 

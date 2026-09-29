@@ -117,8 +117,17 @@ func taskIDs(ts []model.Task) []string {
 
 func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) error {
 	q := r.URL.Query()
+	templates := false
+	switch q.Get("templates") {
+	case "", "false":
+	case "true":
+		templates = true
+	default:
+		return badRequest("templates", "templates must be true or false")
+	}
 	ts, err := s.Repos.Tasks.List(r.Context(), store.TaskFilter{
-		ProjectID: q.Get("project_id"), Status: q.Get("status"), DueBefore: q.Get("due_before"),
+		ProjectID: q.Get("project_id"), GoalID: q.Get("goal_id"), Status: q.Get("status"),
+		DueBefore: q.Get("due_before"), Templates: templates,
 	})
 	if err != nil {
 		return err
@@ -160,7 +169,8 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) error {
 	}
 	t, err := s.Repos.Tasks.Create(r.Context(), store.NewTask{
 		ProjectID: req.ProjectID, Title: req.Title, Notes: req.Notes, Priority: req.Priority,
-		DueDay: req.DueDay, EstimateMinutes: req.EstimateMinutes,
+		DueDay: req.DueDay, EstimateMinutes: req.EstimateMinutes, GoalID: req.GoalID, Quantity: req.Quantity,
+		RRule: req.RRule,
 	})
 	return s.taskChanged(w, r, http.StatusCreated, t, err)
 }
@@ -180,7 +190,8 @@ func (s *Server) patchTask(w http.ResponseWriter, r *http.Request) error {
 	}
 	t, err := s.Repos.Tasks.Update(r.Context(), r.PathValue("id"), store.TaskPatch{
 		ProjectID: nullable(req.ProjectID), Title: req.Title, Notes: req.Notes, Priority: req.Priority,
-		DueDay: nullable(req.DueDay), EstimateMinutes: nullable(req.EstimateMinutes), Rev: req.Rev,
+		DueDay: nullable(req.DueDay), EstimateMinutes: nullable(req.EstimateMinutes),
+		GoalID: nullable(req.GoalID), Quantity: nullable(req.Quantity), RRule: nullable(req.RRule), Rev: req.Rev,
 	})
 	return s.taskChanged(w, r, http.StatusOK, t, err)
 }
@@ -190,8 +201,12 @@ func (s *Server) completeTask(w http.ResponseWriter, r *http.Request) error {
 	if err := decode(r, &req); err != nil {
 		return err
 	}
-	t, err := s.Repos.Tasks.Complete(r.Context(), r.PathValue("id"))
-	return s.taskChanged(w, r, http.StatusOK, t, err)
+	ch, err := s.Repos.Tasks.Complete(r.Context(), r.PathValue("id"), req.QuantityDone)
+	if err != nil {
+		return err
+	}
+	s.publishChanges(ch.Changes)
+	return s.taskChanged(w, r, http.StatusOK, ch.Task, nil)
 }
 
 func (s *Server) reopenTask(w http.ResponseWriter, r *http.Request) error {
@@ -199,8 +214,12 @@ func (s *Server) reopenTask(w http.ResponseWriter, r *http.Request) error {
 	if err := decode(r, &req); err != nil {
 		return err
 	}
-	t, err := s.Repos.Tasks.Reopen(r.Context(), r.PathValue("id"))
-	return s.taskChanged(w, r, http.StatusOK, t, err)
+	ch, err := s.Repos.Tasks.Reopen(r.Context(), r.PathValue("id"), s.today())
+	if err != nil {
+		return err
+	}
+	s.publishChanges(ch.Changes)
+	return s.taskChanged(w, r, http.StatusOK, ch.Task, nil)
 }
 
 func (s *Server) deleteTask(w http.ResponseWriter, r *http.Request) error {
@@ -216,6 +235,7 @@ func (s *Server) deleteTask(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	s.Hub.Publish(wire.EventTasksChanged, wire.TasksChanged{TaskIDs: []string{id}})
+	s.Hub.Publish(wire.EventPlanChanged, wire.PlanChanged{Day: s.today()}) // its items leave today's plan
 	w.WriteHeader(http.StatusNoContent)
 	return nil
 }

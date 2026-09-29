@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"reflect"
+	"strings"
 	"sync"
 	"time"
 
@@ -295,9 +296,22 @@ func (l *loop) apply(ctx context.Context, in timeengine.Input) (wire.Status, err
 	return st, nil
 }
 
-// nudge turns an engine notification into one for the dispatcher.
-func (l *loop) nudge(_ context.Context, e timeengine.Notify) notify.Notification {
+// nudge turns an engine notification into one for the dispatcher. The
+// clock_in nudge carries the briefing summary when there is one
+// (docs/07-integrations.md#notifications).
+func (l *loop) nudge(ctx context.Context, e timeengine.Notify) notify.Notification {
 	n := notify.Notification{Kind: e.Kind, Title: e.Title, Body: e.Body}
+	if e.Kind == timeengine.NudgeClockIn {
+		b, ch, err := l.repos.Plans.Briefing(ctx, api.NewPlanEnv(l.Config(), l.loc, l.now()))
+		if err != nil {
+			slog.Warn("briefing for the clock-in nudge", "err", err)
+		} else {
+			api.PublishChanges(l.hub, ch)
+			if body := briefingSummary(b); body != "" {
+				n.Body = body
+			}
+		}
+	}
 	for _, a := range e.Actions {
 		n.Actions = append(n.Actions, notify.Action{ID: a.ID, Label: a.Label})
 	}
@@ -346,4 +360,29 @@ func (l *loop) writeInstant(key string) {
 	if err := store.SetLocalTime(context.Background(), l.db.SQL(), key, now, now); err != nil {
 		slog.Error("write local state", "key", key, "err", err)
 	}
+}
+
+// briefingSummary is "{p} pending from yesterday · {t} planned today · {r}
+// reminders" without its zero parts, or "" when all three are zero.
+func briefingSummary(b store.Briefing) string {
+	planned := 0
+	for _, e := range b.Today {
+		if e.Item.Status == model.PlanPlanned {
+			planned++
+		}
+	}
+	var parts []string
+	if n := len(b.Pending); n > 0 {
+		parts = append(parts, fmt.Sprintf("%d pending from yesterday", n))
+	}
+	if planned > 0 {
+		parts = append(parts, fmt.Sprintf("%d planned today", planned))
+	}
+	switch n := len(b.Reminders); {
+	case n == 1:
+		parts = append(parts, "1 reminder")
+	case n > 1:
+		parts = append(parts, fmt.Sprintf("%d reminders", n))
+	}
+	return strings.Join(parts, " · ")
 }
