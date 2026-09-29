@@ -16,6 +16,8 @@ export interface Daemon {
   /** Bumped on plan_changed and goals_changed, so planner screens refetch. */
   planVersion: number;
   goalsVersion: number;
+  /** Bumped on integration_changed, so integration panels refetch. */
+  integrationVersion: number;
   notice: string | null;
   setNotice: (s: string | null) => void;
   /** The daemon's clock now: the local clock minus the skew at the last status. */
@@ -56,6 +58,7 @@ export function DaemonProvider({ children }: { children: ReactNode }) {
   const [projectsVersion, setProjectsVersion] = useState(0);
   const [planVersion, setPlanVersion] = useState(0);
   const [goalsVersion, setGoalsVersion] = useState(0);
+  const [integrationVersion, setIntegrationVersion] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
   const skew = useRef(0);
   const configRef = useRef<wire.Config | null>(null);
@@ -103,6 +106,7 @@ export function DaemonProvider({ children }: { children: ReactNode }) {
       onEvent("tasks_changed", () => loadTasks().catch(() => {})),
       onEvent("plan_changed", () => setPlanVersion((v) => v + 1)),
       onEvent("goals_changed", () => setGoalsVersion((v) => v + 1)),
+      onEvent("integration_changed", () => setIntegrationVersion((v) => v + 1)),
       onEvent("config_changed", (c: wire.Config) => {
         configRef.current = c;
         setConfig(c);
@@ -154,7 +158,7 @@ export function DaemonProvider({ children }: { children: ReactNode }) {
 
   const value: Daemon = {
     up, status, config, projects, tasks, daysVersion, tasksVersion, projectsVersion, planVersion, goalsVersion,
-    notice, setNotice, now, today, refresh, act, fail,
+    integrationVersion, notice, setNotice, now, today, refresh, act, fail,
   };
   return <DaemonContext.Provider value={value}>{children}</DaemonContext.Provider>;
 }

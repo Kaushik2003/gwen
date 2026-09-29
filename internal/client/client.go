@@ -83,6 +83,10 @@ type API interface {
 	PatchPlanItem(ctx context.Context, id string, req wire.PatchPlanItemRequest) (*wire.PlanItem, error)
 	Briefing(ctx context.Context) (*wire.Briefing, error)
 
+	CalendarStatus(ctx context.Context) (*wire.CalendarStatus, error)
+	CalendarAuthStart(ctx context.Context) (*wire.CalendarAuth, error)
+	CalendarSync(ctx context.Context) (*wire.CalendarStatus, error)
+
 	// Events opens GET /v1/events. The stream does not reconnect; see Follower.
 	Events(ctx context.Context) (EventStream, error)
 }

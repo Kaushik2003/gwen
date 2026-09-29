@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
 	"strings"
 	"syscall"
@@ -39,6 +40,7 @@ func main() {
 		stderr: os.Stderr,
 		clk:    clock.Real(),
 		loc:    time.Local,
+		open:   func(url string) error { return exec.Command("xdg-open", url).Start() },
 	}
 	os.Exit(c.execute(ctx, os.Args[1:]))
 }

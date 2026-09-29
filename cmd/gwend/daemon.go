@@ -17,6 +17,7 @@ import (
 	"github.com/kzark/gwen/internal/client"
 	"github.com/kzark/gwen/internal/clock"
 	"github.com/kzark/gwen/internal/config"
+	"github.com/kzark/gwen/internal/gcal"
 	"github.com/kzark/gwen/internal/notify"
 	"github.com/kzark/gwen/internal/store"
 	"github.com/kzark/gwen/internal/timeengine"
@@ -37,6 +38,10 @@ type options struct {
 	level      *slog.LevelVar
 	monitor    func(ctx context.Context, clk clock.Clock) activity.ActivityMonitor
 	notifier   func(cfg config.Config, credDir string) (notifier, []string)
+	// calendar runs the Google Calendar sync (docs/07-integrations.md#google-calendar).
+	calendar bool
+	// calendarEndpoint overrides the Calendar API URL; tests point it at a fake.
+	calendarEndpoint string
 	// wrapRepos lets tests make the store fail inside a decision.
 	wrapRepos func(store.Repos) store.Repos
 	// ready, if set, receives nil once the socket accepts connections, or the
@@ -106,12 +111,21 @@ func run(ctx context.Context, o options) (err error) {
 	srv := &api.Server{DB: db, Repos: repos, Tracker: l, Hub: hub, Notify: n, Clock: o.clk, Loc: o.loc,
 		ConfigPath: o.configPath, Version: o.version, PID: os.Getpid()}
 
+	var cal *gcal.Service
+	if o.calendar {
+		cal = newCalendar(db, repos, o, l, srv, hub)
+		srv.Calendar = cal
+	}
+
 	ln, err := bindSocket(ctx, o.socketPath)
 	if err != nil {
 		return err
 	}
 	loopCtx, stopLoop := context.WithCancel(context.Background())
 	go l.run(loopCtx)
+	if cal != nil {
+		go cal.Run(loopCtx)
+	}
 	httpSrv := &http.Server{Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- httpSrv.Serve(ln) }()

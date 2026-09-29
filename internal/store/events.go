@@ -88,6 +88,7 @@ type Repos struct {
 	Goals       GoalRepo
 	Commitments CommitmentRepo
 	Plans       PlanRepo
+	Calendar    CalendarRepo
 }
 
 // NewRepos returns the SQLite repositories over db.
@@ -102,5 +103,6 @@ func NewRepos(db *DB) Repos {
 		Goals:       NewGoalRepo(db),
 		Commitments: NewCommitmentRepo(db),
 		Plans:       NewPlanRepo(db),
+		Calendar:    NewCalendarRepo(db),
 	}
 }

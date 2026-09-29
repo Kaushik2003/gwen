@@ -24,10 +24,20 @@ const subscriberBuffer = 64
 type Hub struct {
 	clk clock.Clock
 
-	mu     sync.Mutex
-	nextID int64
-	subs   map[chan []byte]struct{}
-	closed bool
+	mu        sync.Mutex
+	nextID    int64
+	subs      map[chan []byte]struct{}
+	closed    bool
+	observers []func(name string)
+}
+
+// OnPublish makes fn see the name of every event published from now on, in
+// the publishing goroutine; fn must not block. The daemon's background
+// integrations use it to react to plan changes.
+func (h *Hub) OnPublish(fn func(name string)) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.observers = append(h.observers, fn)
 }
 
 // NewHub returns a hub whose pings follow clk.
@@ -39,6 +49,9 @@ func NewHub(clk clock.Clock) *Hub {
 func (h *Hub) Publish(name string, data any) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	for _, fn := range h.observers {
+		fn(name)
+	}
 	frame, err := h.frame(name, data)
 	if err != nil {
 		slog.Error("encode event", "event", name, "err", err)

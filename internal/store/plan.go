@@ -20,6 +20,9 @@ type PlanEnv struct {
 	DayStart, DayEnd int // planner.day_start and day_end, minutes after midnight
 	Buffer           time.Duration
 	DailyTarget      time.Duration
+	// Busy subtracts calendar busy time from capacity; it is set while the
+	// calendar is enabled.
+	Busy bool
 }
 
 // Today is the day the current instant belongs to.
@@ -541,6 +544,15 @@ func (r planRepo) capacity(ctx context.Context, q Querier, d civil.Day, env Plan
 	in := planner.CapacityInput{
 		Day: d, Loc: env.Loc, Today: d == env.today(), Now: env.Now, DayStart: env.DayStart, DayEnd: env.DayEnd,
 		Buffer: env.Buffer, Target: env.DailyTarget, Commitments: commitments,
+	}
+	if env.Busy {
+		busy, err := busyBetween(ctx, q, d.At(env.DayStart, env.Loc), d.At(env.DayEnd, env.Loc))
+		if err != nil {
+			return planner.CapacityResult{}, err
+		}
+		for _, b := range busy {
+			in.Busy = append(in.Busy, planner.Interval{Start: b.Start, End: b.End})
+		}
 	}
 	if in.Today {
 		w, err := workDayByDay(ctx, q, d.String())

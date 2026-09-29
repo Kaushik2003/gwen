@@ -18,6 +18,18 @@ export function Briefing() {
   return window['go']['main']['App']['Briefing']();
 }
 
+export function CalendarAuthStart() {
+  return window['go']['main']['App']['CalendarAuthStart']();
+}
+
+export function CalendarStatus() {
+  return window['go']['main']['App']['CalendarStatus']();
+}
+
+export function CalendarSync() {
+  return window['go']['main']['App']['CalendarSync']();
+}
+
 export function ClockIn(arg1) {
   return window['go']['main']['App']['ClockIn'](arg1);
 }

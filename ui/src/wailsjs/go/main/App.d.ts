@@ -10,6 +10,12 @@ export function BreakStart():Promise<wire.Status>;
 
 export function Briefing():Promise<wire.Briefing>;
 
+export function CalendarAuthStart():Promise<wire.CalendarAuth>;
+
+export function CalendarStatus():Promise<wire.CalendarStatus>;
+
+export function CalendarSync():Promise<wire.CalendarStatus>;
+
 export function ClockIn(arg1:wire.ClockInRequest):Promise<wire.Status>;
 
 export function ClockOut():Promise<wire.Status>;

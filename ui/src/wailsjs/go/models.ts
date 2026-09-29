@@ -240,6 +240,18 @@ export namespace wire {
 		    return a;
 		}
 	}
+	export class CalendarAuth {
+	    auth_url: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CalendarAuth(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.auth_url = source["auth_url"];
+	    }
+	}
 	export class CalendarConfig {
 	    enabled: boolean;
 	    name: string;
@@ -254,6 +266,26 @@ export namespace wire {
 	        this.enabled = source["enabled"];
 	        this.name = source["name"];
 	        this.busy_calendars = source["busy_calendars"];
+	    }
+	}
+	export class CalendarStatus {
+	    enabled: boolean;
+	    connected: boolean;
+	    calendar_id?: string;
+	    last_sync_at?: number;
+	    last_error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CalendarStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.connected = source["connected"];
+	        this.calendar_id = source["calendar_id"];
+	        this.last_sync_at = source["last_sync_at"];
+	        this.last_error = source["last_error"];
 	    }
 	}
 	export class ClockInRequest {

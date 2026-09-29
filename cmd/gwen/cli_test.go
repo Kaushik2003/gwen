@@ -65,6 +65,7 @@ func runCLI(t *testing.T, f *clienttest.Fake, args ...string) (stdout, stderr st
 		stderr: &errb,
 		clk:    clock.NewFake(now),
 		loc:    time.UTC,
+		open:   func(string) error { return nil },
 	}
 	code = c.execute(context.Background(), args)
 	return out.String(), errb.String(), code

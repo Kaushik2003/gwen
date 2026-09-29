@@ -26,6 +26,8 @@ type cli struct {
 	stderr io.Writer
 	clk    clock.Clock
 	loc    *time.Location
+	// open shows a URL in the default browser.
+	open func(url string) error
 
 	json   bool
 	socket string
@@ -61,6 +63,7 @@ func newRootCmd(c *cli) *cobra.Command {
 		c.todayCmd(), c.logCmd(), c.dayCmd(), c.segCmd(),
 		c.projectCmd(), c.taskCmd(),
 		c.goalCmd(), c.commitCmd(), c.planCmd(), c.briefCmd(),
+		c.calCmd(),
 		c.statsCmd(), c.configCmd(), c.notifyCmd(), c.watchCmd(),
 		newSetupCmd(),
 	)
