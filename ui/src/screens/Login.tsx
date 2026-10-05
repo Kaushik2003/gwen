@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Button, Card, Input, Label } from "../components/ui";
+import BrandMark from "../components/BrandMark";
+import { Button, Field, Input } from "../components/ui";
 import { useDaemon } from "../daemon";
 import { login } from "../hub";
 
@@ -21,21 +22,19 @@ export default function Login() {
 
   return (
     <div className="flex h-full items-center justify-center p-4">
-      <Card className="w-full max-w-sm">
-        <form onSubmit={submit} className="flex flex-col gap-3">
-          <div className="flex items-center gap-2">
-            <span className="inline-block h-6 w-6 rounded-md bg-emerald-500" />
-            <span className="text-lg font-semibold">Gwen</span>
-          </div>
-          <p className="text-sm text-zinc-500">Enter the hub's sync token to see your dashboard.</p>
-          <Label text="Sync token" error={wrong ? "That is not the hub's token." : undefined}>
-            <Input type="password" value={token} onChange={(e) => setToken(e.target.value)} autoFocus autoComplete="current-password" />
-          </Label>
-          <Button tone="primary" type="submit" disabled={!token.trim() || busy}>
-            {busy ? "Signing in…" : "Sign in"}
-          </Button>
-        </form>
-      </Card>
+      <form onSubmit={submit} className="lift flex w-full max-w-sm flex-col gap-5 rounded-2xl border border-line bg-surface-1 p-7">
+        <div className="flex items-center gap-2.5">
+          <BrandMark className="size-7" />
+          <span className="text-lg font-semibold tracking-[-0.01em]">Gwen</span>
+        </div>
+        <p className="text-sm leading-relaxed text-ink-subtle">Enter the hub's sync token to see your dashboard.</p>
+        <Field label="Sync token" error={wrong ? "That is not the hub's token." : undefined}>
+          <Input type="password" value={token} onChange={(e) => setToken(e.target.value)} autoFocus autoComplete="current-password" />
+        </Field>
+        <Button tone="primary" size="lg" type="submit" disabled={!token.trim()} busy={busy}>
+          Sign in
+        </Button>
+      </form>
     </div>
   );
 }

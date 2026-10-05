@@ -10,6 +10,10 @@ func (f *Fake) GoalBreakdown(_ context.Context, goalID string, req wire.Breakdow
 	return result[*wire.LlmRun](f, "GoalBreakdown", goalID, req)
 }
 
+func (f *Fake) PlanChat(_ context.Context, req wire.PlanChatRequest) (*wire.LlmRun, error) {
+	return result[*wire.LlmRun](f, "PlanChat", req)
+}
+
 func (f *Fake) Retro(_ context.Context, req wire.RetroRequest) (*wire.LlmRun, error) {
 	return result[*wire.LlmRun](f, "Retro", req)
 }

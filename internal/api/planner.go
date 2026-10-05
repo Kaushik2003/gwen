@@ -18,6 +18,7 @@ func NewPlanEnv(cfg config.Config, loc *time.Location, now time.Time) store.Plan
 		Now: now, Loc: loc, DayOf: timeengine.ConfigFrom(cfg, loc).DayOf,
 		DayStart: int(cfg.Planner.DayStart), DayEnd: int(cfg.Planner.DayEnd), Buffer: cfg.Planner.Buffer,
 		DailyTarget: cfg.Tracking.DailyTarget, Busy: cfg.Calendar.Enabled,
+		Frog: cfg.Planner.EatTheFrog, Prime: cfg.Planner.Prime(),
 	}
 }
 
@@ -80,7 +81,9 @@ func (s *Server) createGoal(w http.ResponseWriter, r *http.Request) error {
 	}
 	g, ch, err := s.Repos.Goals.Create(r.Context(), store.NewGoal{
 		Title: req.Title, Kind: req.Kind, Unit: req.Unit, TargetQuantity: req.TargetQuantity,
-		MinutesPerUnit: req.MinutesPerUnit, ProjectID: req.ProjectID, StartDay: req.StartDay, DueDay: req.DueDay,
+		MinutesPerUnit: req.MinutesPerUnit, DailyMinutes: req.DailyMinutes, ProjectID: req.ProjectID,
+		StartDay: req.StartDay, DueDay: req.DueDay, SMART: smartOf(req.Specific, req.Measurable, req.Assignable,
+			req.Realistic),
 	})
 	if err != nil {
 		return err
@@ -104,8 +107,10 @@ func (s *Server) patchGoal(w http.ResponseWriter, r *http.Request) error {
 	}
 	g, err := s.Repos.Goals.Update(r.Context(), r.PathValue("id"), store.GoalPatch{
 		Title: req.Title, Kind: req.Kind, Unit: req.Unit, TargetQuantity: nullable(req.TargetQuantity),
-		MinutesPerUnit: nullable(req.MinutesPerUnit), ProjectID: nullable(req.ProjectID), StartDay: req.StartDay,
-		DueDay: req.DueDay, Status: req.Status, Rev: req.Rev,
+		MinutesPerUnit: nullable(req.MinutesPerUnit), DailyMinutes: nullable(req.DailyMinutes),
+		ProjectID: nullable(req.ProjectID), StartDay: req.StartDay,
+		DueDay: req.DueDay, Status: req.Status, Specific: req.Specific, Measurable: req.Measurable,
+		Assignable: req.Assignable, Realistic: req.Realistic, Rev: req.Rev,
 	})
 	if err != nil {
 		return err
@@ -115,16 +120,60 @@ func (s *Server) patchGoal(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (s *Server) deleteGoal(w http.ResponseWriter, r *http.Request) error {
-	ch, err := s.Repos.Goals.Delete(r.Context(), r.PathValue("id"))
+	openTasks := false
+	switch r.URL.Query().Get("tasks") {
+	case "":
+	case wire.GoalTasksOpen:
+		openTasks = true
+	default:
+		return badRequest("tasks", "tasks must be open or absent")
+	}
+	ch, err := s.Repos.Goals.Delete(r.Context(), r.PathValue("id"), openTasks)
 	if err != nil {
 		return err
 	}
-	if len(ch.TaskIDs) > 0 {
-		ch.PlanDays = append(ch.PlanDays, s.today()) // their items leave today's plan
-	}
 	s.publishChanges(ch)
+	s.carryOn(r.Context(), "", ch.Deleted)
 	w.WriteHeader(http.StatusNoContent)
 	return nil
+}
+
+func (s *Server) previewGoal(w http.ResponseWriter, r *http.Request) error {
+	var req wire.GoalPreviewRequest
+	if err := decode(r, &req); err != nil {
+		return err
+	}
+	g := model.Goal{Kind: req.Kind, TargetQuantity: req.TargetQuantity, PerUnit: minutesDuration(req.MinutesPerUnit),
+		Daily: minutesDuration(req.DailyMinutes), StartDay: req.StartDay, DueDay: req.DueDay}
+	existing := ""
+	if req.GoalID != nil {
+		existing = *req.GoalID
+	}
+	p, err := s.Repos.Plans.Preview(r.Context(), g, existing, s.planEnv())
+	if err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, progressWire(p))
+	return nil
+}
+
+func smartOf(specific, measurable, assignable, realistic *string) store.SMART {
+	v := func(s *string) string {
+		if s == nil {
+			return ""
+		}
+		return *s
+	}
+	return store.SMART{Specific: v(specific), Measurable: v(measurable), Assignable: v(assignable),
+		Realistic: v(realistic)}
+}
+
+func minutesDuration(n *int) *time.Duration {
+	if n == nil {
+		return nil
+	}
+	d := time.Duration(*n) * time.Minute
+	return &d
 }
 
 func (s *Server) listCommitments(w http.ResponseWriter, r *http.Request) error {
@@ -207,13 +256,23 @@ func (s *Server) entriesWire(ctx context.Context, entries ...[]store.PlanEntry) 
 	return out, nil
 }
 
+// planWire is p on the wire with its items.
+func planWire(p store.Plan, items []wire.PlanItem) wire.Plan {
+	out := wire.Plan{Day: p.Day, CapacityMinutes: p.Capacity, PlannedMinutes: p.Planned,
+		Window: wire.PlanWindow{StartMinute: p.Start, EndMinute: p.End}, Items: items}
+	if h := p.Hours; h != nil {
+		out.Hours = &wire.DayHours{StartMinute: h.StartMinute, WorkMinutes: minutesOf(h.Work)}
+	}
+	return out
+}
+
 func (s *Server) writePlan(w http.ResponseWriter, r *http.Request, p store.Plan, ch store.Changes) error {
 	s.publishChanges(ch)
 	items, err := s.entriesWire(r.Context(), p.Items)
 	if err != nil {
 		return err
 	}
-	writeJSON(w, http.StatusOK, wire.Plan{Day: p.Day, CapacityMinutes: p.Capacity, PlannedMinutes: p.Planned, Items: items[0]})
+	writeJSON(w, http.StatusOK, planWire(p, items[0]))
 	return nil
 }
 
@@ -234,6 +293,21 @@ func (s *Server) generatePlan(w http.ResponseWriter, r *http.Request) error {
 		return badRequest("day", "day is required")
 	}
 	p, ch, err := s.Repos.Plans.Generate(r.Context(), req.Day, s.planEnv())
+	if err != nil {
+		return err
+	}
+	return s.writePlan(w, r, p, ch)
+}
+
+func (s *Server) setDayHours(w http.ResponseWriter, r *http.Request) error {
+	var req wire.SetDayHoursRequest
+	if err := decode(r, &req); err != nil {
+		return err
+	}
+	if req.Day == "" {
+		return badRequest("day", "day is required")
+	}
+	p, ch, err := s.Repos.Plans.SetHours(r.Context(), req.Day, req.StartMinute, req.WorkMinutes, s.planEnv())
 	if err != nil {
 		return err
 	}

@@ -92,7 +92,7 @@ func (f *fx) project(name string) model.Project {
 
 func (f *fx) task(title string, project *string) model.Task {
 	f.t.Helper()
-	tk, err := f.r.Tasks.Create(f.ctx, store.NewTask{Title: title, ProjectID: project})
+	tk, _, err := f.r.Tasks.Create(f.ctx, store.NewTask{Title: title, ProjectID: project, EstimateMinutes: testutil.Ptr(60)})
 	require.NoError(f.t, err)
 	return tk
 }

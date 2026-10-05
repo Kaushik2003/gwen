@@ -40,9 +40,14 @@ func tasksGoal() store.NewGoal {
 	return store.NewGoal{Title: "Ship the thesis", Kind: model.GoalTasks, StartDay: "2026-09-01", DueDay: "2026-10-31"}
 }
 
+// newTask creates nt, giving a task other than a step an hour's estimate when
+// it has none, so it is planned work rather than a to-do.
 func (f *fx) newTask(nt store.NewTask) model.Task {
 	f.t.Helper()
-	tk, err := f.r.Tasks.Create(f.ctx, nt)
+	if nt.EstimateMinutes == nil && nt.ParentID == nil {
+		nt.EstimateMinutes = testutil.Ptr(60)
+	}
+	tk, _, err := f.r.Tasks.Create(f.ctx, nt)
 	require.NoError(f.t, err)
 	return tk
 }
@@ -171,7 +176,7 @@ func TestGoalUpdateListDelete(t *testing.T) {
 	occ, err := f.r.Tasks.List(f.ctx, store.TaskFilter{GoalID: g.ID})
 	require.NoError(t, err)
 	require.Len(t, occ, 1)
-	ch, err := f.r.Goals.Delete(f.ctx, g.ID)
+	ch, err := f.r.Goals.Delete(f.ctx, g.ID, false)
 	require.NoError(t, err)
 	require.Len(t, ch.TaskIDs, 2)
 	_, err = f.r.Goals.Get(f.ctx, g.ID)
@@ -179,7 +184,7 @@ func TestGoalUpdateListDelete(t *testing.T) {
 	left, err := f.r.Tasks.List(f.ctx, store.TaskFilter{Status: "all", Templates: true})
 	require.NoError(t, err)
 	require.Empty(t, left)
-	_, err = f.r.Goals.Delete(f.ctx, g.ID)
+	_, err = f.r.Goals.Delete(f.ctx, g.ID, false)
 	require.ErrorIs(t, err, store.ErrNotFound)
 }
 
@@ -261,7 +266,7 @@ func TestTaskV2Fields(t *testing.T) {
 		{"goal", store.NewTask{Title: "x", GoalID: testutil.Ptr("nope")}, store.ErrNotFound, "goal_id"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := f.r.Tasks.Create(f.ctx, tc.task)
+			_, _, err := f.r.Tasks.Create(f.ctx, tc.task)
 			userErr(t, err, tc.sentinel, tc.field)
 		})
 	}
@@ -407,7 +412,8 @@ func TestPlanGeneratesTodayOnFirstRead(t *testing.T) {
 	require.Contains(t, titles(future), "templ", "Monday's occurrence")
 
 	// Deleting a task hides its items.
-	require.NoError(t, f.r.Tasks.Delete(f.ctx, urgent.ID))
+	_, err = f.r.Tasks.Delete(f.ctx, urgent.ID)
+	require.NoError(t, err)
 	require.Equal(t, []string{"later"}, titles(f.plan(fxToday)))
 }
 
@@ -429,7 +435,8 @@ func TestSessionOccurrences(t *testing.T) {
 	// first is deleted.
 	_, _, err := f.r.Plans.Generate(f.ctx, fxToday, f.env())
 	require.NoError(t, err)
-	require.NoError(t, f.r.Tasks.Delete(f.ctx, occ.ID))
+	_, err = f.r.Tasks.Delete(f.ctx, occ.ID)
+	require.NoError(t, err)
 	_, _, err = f.r.Plans.Generate(f.ctx, fxToday, f.env())
 	require.NoError(t, err)
 	listed, err := f.r.Tasks.List(f.ctx, store.TaskFilter{GoalID: g.ID, Status: "all"})
@@ -488,7 +495,8 @@ func TestRolloverOnTheNextDay(t *testing.T) {
 	require.Len(t, day1.Items, 4)
 	_, err := f.r.Tasks.Complete(f.ctx, finished.ID, nil)
 	require.NoError(t, err)
-	require.NoError(t, f.r.Tasks.Delete(f.ctx, gone.ID))
+	_, err = f.r.Tasks.Delete(f.ctx, gone.ID)
+	require.NoError(t, err)
 
 	// Undo the completion's own marking so rollover has to decide.
 	_, err = f.db.SQL().Exec(`UPDATE plan_items SET status = 'planned' WHERE task_id = ?`, finished.ID)
@@ -514,7 +522,10 @@ func TestRolloverOnTheNextDay(t *testing.T) {
 		require.NoError(t, f.db.SQL().QueryRow(`SELECT status FROM plan_items WHERE task_id = ?`, taskID).Scan(&status))
 		return status
 	}
-	require.Equal(t, model.PlanSkipped, stored(gone.ID))
+	var goneItemDeleted bool
+	require.NoError(t, f.db.SQL().QueryRow(`SELECT deleted_at IS NOT NULL FROM plan_items WHERE task_id = ?`,
+		gone.ID).Scan(&goneItemDeleted))
+	require.True(t, goneItemDeleted, "deleting a task deletes its planned items")
 	var expired string
 	require.NoError(t, f.db.SQL().QueryRow(`SELECT id FROM tasks WHERE template_id = ? AND deleted_at IS NOT NULL`,
 		daily.ID).Scan(&expired))
@@ -576,4 +587,41 @@ func TestBriefing(t *testing.T) {
 	progress, err := f.r.Plans.Progress(f.ctx, []model.Goal{g}, f.env())
 	require.NoError(t, err)
 	require.Equal(t, b.Goals[0].Progress, progress[g.ID])
+}
+
+func TestTodosAndStarts(t *testing.T) {
+	t.Parallel()
+	f := newFx(t)
+	tomorrow := "2026-09-21"
+	clock := func(day, hour int) time.Time { return time.Date(2026, 9, day, hour, 0, 0, 0, time.UTC) }
+	todo, _, err := f.r.Tasks.Create(f.ctx, store.NewTask{Title: "call the bank", StartDay: testutil.Ptr(fxToday)})
+	require.NoError(t, err)
+	require.True(t, todo.IsTodo())
+	f.newTask(store.NewTask{Title: "next", StartDay: &tomorrow})
+	f.newTask(store.NewTask{Title: "at 15", EstimateMinutes: testutil.Ptr(120), StartDay: testutil.Ptr(fxToday),
+		StartMinute: testutil.Ptr(15 * 60)})
+	f.newTask(store.NewTask{Title: "anytime"})
+	f.newTask(store.NewTask{Title: "daily", RRule: testutil.Ptr("FREQ=DAILY"), EstimateMinutes: testutil.Ptr(30),
+		StartDay: &tomorrow, StartMinute: testutil.Ptr(20 * 60)})
+
+	p := f.plan("")
+	require.Equal(t, []string{"at 15", "anytime"}, titles(p), "no to-do, nothing starting later, timed work first")
+	require.Equal(t, 120*time.Minute, p.Items[0].Item.Planned, "one block at the chosen time, past the 90-minute cap")
+	require.Equal(t, clock(20, 15), *p.Items[0].Item.StartAt)
+	require.Equal(t, clock(20, 12), *p.Items[1].Item.StartAt, "untimed work fills the earliest free time")
+
+	next, _, err := f.r.Plans.Generate(f.ctx, tomorrow, f.env())
+	require.NoError(t, err)
+	require.Contains(t, titles(next), "next")
+	require.Contains(t, titles(next), "daily", "a template recurs from its start day")
+	for _, e := range next.Items {
+		switch e.Task.Title {
+		case "daily":
+			require.Equal(t, tomorrow, *e.Task.StartDay)
+			require.Equal(t, 20*60, *e.Task.StartMinute, "occurrences keep the template's time")
+			require.Equal(t, clock(21, 20), *e.Item.StartAt)
+		case "at 15":
+			require.True(t, e.Item.StartAt.Before(clock(21, 15)), "a start time holds on its day only")
+		}
+	}
 }

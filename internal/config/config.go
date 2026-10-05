@@ -27,7 +27,20 @@ const (
 	ProviderNone             = "none"
 	ProviderAnthropic        = "anthropic"
 	ProviderOpenAICompatible = "openai_compatible"
+	ProviderClaudeCode       = "claude_code"
 )
+
+// Assistant personalities (llm.personality); llm.PersonaPrompt words each.
+const (
+	PersonalityCoach    = "coach"
+	PersonalityFriend   = "friend"
+	PersonalityMentor   = "mentor"
+	PersonalitySergeant = "sergeant"
+	PersonalityZen      = "zen"
+)
+
+// MaxInstructions is the longest llm.instructions, in characters.
+const MaxInstructions = 2000
 
 // Config is the parsed configuration.
 type Config struct {
@@ -70,6 +83,20 @@ type Planner struct {
 	DayStart TimeOfDay
 	DayEnd   TimeOfDay
 	Buffer   time.Duration
+	// EatTheFrog places the hardest work first.
+	EatTheFrog bool
+	// PrimeStart and PrimeEnd are the biological prime time; both nil when
+	// unset.
+	PrimeStart *TimeOfDay
+	PrimeEnd   *TimeOfDay
+}
+
+// Prime is the prime time as minutes after midnight, or nil.
+func (p Planner) Prime() *[2]int {
+	if p.PrimeStart == nil || p.PrimeEnd == nil {
+		return nil
+	}
+	return &[2]int{int(*p.PrimeStart), int(*p.PrimeEnd)}
 }
 
 // Calendar is the [calendar] section.
@@ -84,7 +111,13 @@ type LLM struct {
 	Provider string
 	Model    string
 	Endpoint string
+	Command  string // the Claude Code CLI, for ProviderClaudeCode
 	Timeout  time.Duration
+	// The assistant's name, personality preset, and the user's own
+	// instructions, added to every conversation.
+	AssistantName string
+	Personality   string
+	Instructions  string
 }
 
 // Sync is the [sync] section.
@@ -127,11 +160,12 @@ func Defaults() Config {
 			Snooze:        10 * time.Minute,
 		},
 		Ntfy:     Ntfy{Server: "https://ntfy.sh"},
-		Planner:  Planner{DayStart: 9 * 60, DayEnd: 23 * 60, Buffer: 30 * time.Minute},
+		Planner:  Planner{DayStart: 9 * 60, DayEnd: 23 * 60, Buffer: 30 * time.Minute, EatTheFrog: true},
 		Calendar: Calendar{Enabled: false, Name: "Gwen", BusyCalendars: []string{"primary"}},
-		LLM:      LLM{Provider: ProviderNone, Model: "claude-sonnet-5", Timeout: 30 * time.Second},
-		Sync:     Sync{Interval: 5 * time.Minute},
-		Log:      Log{Level: slog.LevelInfo},
+		LLM: LLM{Provider: ProviderNone, Model: "claude-sonnet-5", Command: "claude", Timeout: 2 * time.Minute,
+			AssistantName: "Gwen", Personality: PersonalityCoach},
+		Sync: Sync{Interval: 5 * time.Minute},
+		Log:  Log{Level: slog.LevelInfo},
 	}
 }
 
@@ -215,9 +249,12 @@ func (c Config) Wire() wire.Config {
 			Topic:          c.Ntfy.Topic,
 		},
 		Planner: wire.PlannerConfig{
-			DayStart: c.Planner.DayStart.String(),
-			DayEnd:   c.Planner.DayEnd.String(),
-			Buffer:   FormatDuration(c.Planner.Buffer),
+			DayStart:   c.Planner.DayStart.String(),
+			DayEnd:     c.Planner.DayEnd.String(),
+			Buffer:     FormatDuration(c.Planner.Buffer),
+			EatTheFrog: c.Planner.EatTheFrog,
+			PrimeStart: optionalTime(c.Planner.PrimeStart),
+			PrimeEnd:   optionalTime(c.Planner.PrimeEnd),
 		},
 		Calendar: wire.CalendarConfig{
 			Enabled:       c.Calendar.Enabled,
@@ -225,10 +262,14 @@ func (c Config) Wire() wire.Config {
 			BusyCalendars: append([]string{}, c.Calendar.BusyCalendars...),
 		},
 		LLM: wire.LLMConfig{
-			Provider: c.LLM.Provider,
-			Model:    c.LLM.Model,
-			Endpoint: c.LLM.Endpoint,
-			Timeout:  FormatDuration(c.LLM.Timeout),
+			Provider:      c.LLM.Provider,
+			Model:         c.LLM.Model,
+			Endpoint:      c.LLM.Endpoint,
+			Command:       c.LLM.Command,
+			Timeout:       FormatDuration(c.LLM.Timeout),
+			AssistantName: c.LLM.AssistantName,
+			Personality:   c.LLM.Personality,
+			Instructions:  c.LLM.Instructions,
 		},
 		Sync: wire.SyncConfig{
 			HubURL:   c.Sync.HubURL,
@@ -261,9 +302,12 @@ func FromWire(w wire.Config) (Config, error) {
 			Topic:          w.Ntfy.Topic,
 		},
 		Planner: Planner{
-			DayStart: p.timeOfDay("planner.day_start", w.Planner.DayStart),
-			DayEnd:   p.timeOfDay("planner.day_end", w.Planner.DayEnd),
-			Buffer:   p.duration("planner.buffer", w.Planner.Buffer),
+			DayStart:   p.timeOfDay("planner.day_start", w.Planner.DayStart),
+			DayEnd:     p.timeOfDay("planner.day_end", w.Planner.DayEnd),
+			Buffer:     p.duration("planner.buffer", w.Planner.Buffer),
+			EatTheFrog: w.Planner.EatTheFrog,
+			PrimeStart: p.optionalTime("planner.prime_start", w.Planner.PrimeStart),
+			PrimeEnd:   p.optionalTime("planner.prime_end", w.Planner.PrimeEnd),
 		},
 		Calendar: Calendar{
 			Enabled:       w.Calendar.Enabled,
@@ -271,10 +315,16 @@ func FromWire(w wire.Config) (Config, error) {
 			BusyCalendars: append([]string{}, w.Calendar.BusyCalendars...),
 		},
 		LLM: LLM{
-			Provider: p.enum("llm.provider", w.LLM.Provider, ProviderNone, ProviderAnthropic, ProviderOpenAICompatible),
-			Model:    w.LLM.Model,
-			Endpoint: p.url("llm.endpoint", w.LLM.Endpoint, true),
-			Timeout:  p.duration("llm.timeout", w.LLM.Timeout),
+			Provider: p.enum("llm.provider", w.LLM.Provider, ProviderNone, ProviderAnthropic, ProviderOpenAICompatible,
+				ProviderClaudeCode),
+			Model:         w.LLM.Model,
+			Endpoint:      p.url("llm.endpoint", w.LLM.Endpoint, true),
+			Command:       p.command("llm.command", w.LLM.Command),
+			Timeout:       p.duration("llm.timeout", w.LLM.Timeout),
+			AssistantName: strings.TrimSpace(w.LLM.AssistantName),
+			Personality: p.enum("llm.personality", w.LLM.Personality, PersonalityCoach, PersonalityFriend,
+				PersonalityMentor, PersonalitySergeant, PersonalityZen),
+			Instructions: strings.TrimSpace(w.LLM.Instructions),
 		},
 		Sync: Sync{
 			HubURL:   p.url("sync.hub_url", w.Sync.HubURL, true),
@@ -318,7 +368,26 @@ func (c Config) Validate() error {
 	if c.Planner.DayStart >= c.Planner.DayEnd {
 		return keyErr("planner.day_start", "must be earlier than planner.day_end")
 	}
+	if (c.Planner.PrimeStart == nil) != (c.Planner.PrimeEnd == nil) {
+		return keyErr("planner.prime_start", "set both planner.prime_start and planner.prime_end, or neither")
+	}
+	if c.Planner.PrimeStart != nil && *c.Planner.PrimeStart >= *c.Planner.PrimeEnd {
+		return keyErr("planner.prime_start", "must be earlier than planner.prime_end")
+	}
+	if n := len([]rune(c.LLM.AssistantName)); n < 1 || n > 40 {
+		return keyErr("llm.assistant_name", "must be 1 to 40 characters")
+	}
+	if len([]rune(c.LLM.Instructions)) > MaxInstructions {
+		return keyErr("llm.instructions", "must be at most %d characters", MaxInstructions)
+	}
 	return nil
+}
+
+func optionalTime(t *TimeOfDay) string {
+	if t == nil {
+		return ""
+	}
+	return t.String()
 }
 
 // LogValue renders c for slog with the ntfy topic redacted.
@@ -338,11 +407,13 @@ func (c Config) LogValue() slog.Value {
 		slog.Group("ntfy",
 			"server", w.Ntfy.Server, "fallback_server", w.Ntfy.FallbackServer, "topic", topic),
 		slog.Group("planner",
-			"day_start", w.Planner.DayStart, "day_end", w.Planner.DayEnd, "buffer", w.Planner.Buffer),
+			"day_start", w.Planner.DayStart, "day_end", w.Planner.DayEnd, "buffer", w.Planner.Buffer,
+			"eat_the_frog", w.Planner.EatTheFrog, "prime_start", w.Planner.PrimeStart, "prime_end", w.Planner.PrimeEnd),
 		slog.Group("calendar",
 			"enabled", w.Calendar.Enabled, "name", w.Calendar.Name, "busy_calendars", w.Calendar.BusyCalendars),
 		slog.Group("llm",
-			"provider", w.LLM.Provider, "model", w.LLM.Model, "endpoint", w.LLM.Endpoint, "timeout", w.LLM.Timeout),
+			"provider", w.LLM.Provider, "model", w.LLM.Model, "endpoint", w.LLM.Endpoint, "command", w.LLM.Command,
+			"timeout", w.LLM.Timeout, "assistant_name", w.LLM.AssistantName, "personality", w.LLM.Personality),
 		slog.Group("sync", "hub_url", w.Sync.HubURL, "interval", w.Sync.Interval),
 		slog.Group("log", "level", w.Log.Level),
 	)
@@ -387,6 +458,15 @@ func (p *parser) timeOfDay(key, s string) TimeOfDay {
 	return t
 }
 
+// optionalTime parses HH:MM, or "" as unset.
+func (p *parser) optionalTime(key, s string) *TimeOfDay {
+	if s == "" {
+		return nil
+	}
+	t := p.timeOfDay(key, s)
+	return &t
+}
+
 func (p *parser) url(key, s string, emptyOK bool) string {
 	if s == "" {
 		if !emptyOK {
@@ -397,6 +477,17 @@ func (p *parser) url(key, s string, emptyOK bool) string {
 	u, err := url.Parse(s)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		p.fail(key, "%q is not an http or https URL", s)
+	}
+	return s
+}
+
+// command accepts a bare command name, looked up when used, or an absolute path.
+func (p *parser) command(key, s string) string {
+	switch {
+	case s == "":
+		p.fail(key, "must not be empty")
+	case strings.ContainsRune(s, '/') && !filepath.IsAbs(s):
+		p.fail(key, "%q must be a command name such as \"claude\" or an absolute path", s)
 	}
 	return s
 }

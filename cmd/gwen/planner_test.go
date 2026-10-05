@@ -97,7 +97,12 @@ func TestPlannerGolden(t *testing.T) {
 		{
 			name: "goal rm", args: []string{"goal", "rm", "0000a0a0"},
 			script: func(f *clienttest.Fake) { f.Returns("DeleteGoal", nil, nil) },
-			method: "DeleteGoal", want: []any{gID}, out: "Deleted goal 300 problems.\n",
+			method: "DeleteGoal", want: []any{gID, false}, out: "Deleted goal 300 problems.\n",
+		},
+		{
+			name: "goal rm with tasks", args: []string{"goal", "rm", "0000a0a0", "--with-tasks"},
+			script: func(f *clienttest.Fake) { f.Returns("DeleteGoal", nil, nil) },
+			method: "DeleteGoal", want: []any{gID, true}, out: "Deleted goal 300 problems.\n",
 		},
 		{
 			name: "commit ls", args: []string{"commit", "ls"}, method: "ListCommitments", out: commitOut,
@@ -149,6 +154,45 @@ func TestPlannerGolden(t *testing.T) {
 			},
 			method: "GeneratePlan", want: []any{wire.GeneratePlanRequest{Day: "2026-09-16"}},
 			out: "2026-09-16 · 0s planned of 7h 30m capacity\nNothing planned.\n",
+		},
+		{
+			name: "plan hours", args: []string{"plan", "hours", "--from", "19:00", "--work", "3h"},
+			script: func(f *clienttest.Fake) {
+				hours := planP
+				hours.Hours = &wire.DayHours{StartMinute: testutil.Ptr(19 * 60), WorkMinutes: testutil.Ptr(180)}
+				f.Returns("SetDayHours", &hours, nil)
+			},
+			method: "SetDayHours",
+			want: []any{wire.SetDayHoursRequest{Day: testutil.Day0, StartMinute: testutil.Ptr(19 * 60),
+				WorkMinutes: testutil.Ptr(180)}},
+			out: "2026-09-15 · 1h 30m planned of 2h 30m capacity\nHours: from 19:00 · 3h for tasks\n" +
+				"0000f1f1  15:00  1h 30m  planned          Two pointers\n" +
+				"0000f2f2  --:--  30m     skipped  pinned  Two pointers\n",
+		},
+		{
+			name: "plan hours keeps what it is not given", args: []string{"plan", "hours", "2026-09-16", "--work", "0"},
+			script: func(f *clienttest.Fake) {
+				hours := planP
+				hours.Hours = &wire.DayHours{StartMinute: testutil.Ptr(19 * 60), WorkMinutes: testutil.Ptr(180)}
+				f.Returns("GetPlan", &hours, nil)
+				off := wire.Plan{Day: "2026-09-16", Hours: &wire.DayHours{StartMinute: testutil.Ptr(19 * 60),
+					WorkMinutes: testutil.Ptr(0)}, Items: []wire.PlanItem{}}
+				f.Returns("SetDayHours", &off, nil)
+			},
+			method: "SetDayHours",
+			want: []any{wire.SetDayHoursRequest{Day: "2026-09-16", StartMinute: testutil.Ptr(19 * 60),
+				WorkMinutes: testutil.Ptr(0)}},
+			out: "2026-09-16 · 0s planned of 0s capacity\nHours: from 19:00 · no time for tasks\nNothing planned.\n",
+		},
+		{
+			name: "plan hours usual", args: []string{"plan", "hours", "--usual"},
+			script: func(f *clienttest.Fake) { f.Returns("SetDayHours", &planP, nil) },
+			method: "SetDayHours", want: []any{wire.SetDayHoursRequest{Day: testutil.Day0}}, out: planOut,
+		},
+		{
+			name: "plan hours from usual", args: []string{"plan", "hours", "--from", "usual"},
+			script: func(f *clienttest.Fake) { f.Returns("SetDayHours", &planP, nil) },
+			method: "SetDayHours", want: []any{wire.SetDayHoursRequest{Day: testutil.Day0}}, out: planOut,
 		},
 		{
 			name: "plan move at", args: []string{"plan", "move", "0000f1f1", "--at", "16:30"},
@@ -258,6 +302,11 @@ func TestPlannerUsageErrors(t *testing.T) {
 		{"commit", "add", "x", "--rrule", "FREQ=DAILY", "--duration", "1h", "--at", "25:00"},
 		{"commit", "edit", "0000c0c0", "--count", "--no-count"},
 		{"plan", "move", "0000f1f1"},
+		{"plan", "hours"},
+		{"plan", "hours", "--usual", "--work", "2h"},
+		{"plan", "hours", "--from", "25:00"},
+		{"plan", "hours", "--work", "soon"},
+		{"plan", "chat"},
 		{"plan", "a", "b"},
 		{"plan", "someday"},
 	} {

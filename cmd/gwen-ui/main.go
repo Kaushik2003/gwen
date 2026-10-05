@@ -10,10 +10,12 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/kzark/gwen/internal/client"
 	"github.com/kzark/gwen/internal/clock"
 	"github.com/kzark/gwen/internal/config"
+	"github.com/kzark/gwen/internal/llm"
 	"github.com/kzark/gwen/internal/wire"
 	"github.com/kzark/gwen/ui"
 	"github.com/wailsapp/wails/v2"
@@ -46,8 +48,8 @@ func run() error {
 		exeDir = filepath.Dir(exe)
 	}
 	api := client.New(paths.SocketPath())
-	app := &App{api: api, host: &host{
-		api: api, clk: clock.Real(), run: runCommand, start: startCommand,
+	app := &App{api: api, screen: screenArg(os.Args[1:]), host: &host{
+		api: api, clk: clock.Real(), run: runCommand, start: startCommand, output: outputCommand, lookPath: llm.FindCommand,
 		configHome: paths.ConfigHome, shareDir: "/usr/share/gwen", exeDir: exeDir, credDir: paths.CredentialsDir(),
 	}}
 	return wails.Run(&options.App{
@@ -56,6 +58,9 @@ func run() error {
 		Height:    720,
 		MinWidth:  900,
 		MinHeight: 600,
+		// The dashboard is always dark (ui/DESIGN.md); the window behind it
+		// matches its canvas, so nothing flashes white while it loads.
+		BackgroundColour: &options.RGBA{R: 1, G: 1, B: 2, A: 255},
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
@@ -66,9 +71,12 @@ func run() error {
 		Bind: []any{app},
 		SingleInstanceLock: &options.SingleInstanceLock{
 			UniqueId: "dev.gwen.ui",
-			OnSecondInstanceLaunch: func(options.SecondInstanceData) {
+			OnSecondInstanceLaunch: func(d options.SecondInstanceData) {
 				runtime.WindowUnminimise(app.ctx)
 				runtime.WindowShow(app.ctx)
+				if screen := screenArg(d.Args); screen != "" {
+					runtime.EventsEmit(app.ctx, "gwen:navigate", screen)
+				}
 			},
 		},
 		Linux: &linux.Options{ProgramName: "gwen-ui", WindowIsTranslucent: false},
@@ -93,4 +101,18 @@ func decode(raw json.RawMessage) any {
 		return nil
 	}
 	return v
+}
+
+// screenArg is the screen named by --screen NAME or --screen=NAME, such as
+// the tray's "assistant" or "inbox", or "".
+func screenArg(args []string) string {
+	for i, a := range args {
+		switch {
+		case a == "--screen" && i+1 < len(args):
+			return args[i+1]
+		case strings.HasPrefix(a, "--screen="):
+			return strings.TrimPrefix(a, "--screen=")
+		}
+	}
+	return ""
 }

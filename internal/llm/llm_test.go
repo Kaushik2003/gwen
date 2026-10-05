@@ -108,7 +108,7 @@ func TestAnthropicRequestShape(t *testing.T) {
 	require.Equal(t, "2023-06-01", r.Header.Get("anthropic-version"))
 	require.Empty(t, r.Header.Get("Authorization"))
 	require.Equal(t, "claude-sonnet-5", body["model"])
-	require.Equal(t, float64(4096), body["max_tokens"])
+	require.Equal(t, float64(16000), body["max_tokens"])
 	require.Contains(t, body["system"], llm.BreakdownSchema, "the schema is sent verbatim")
 	msgs := body["messages"].([]any)
 	require.Len(t, msgs, 1)
@@ -117,7 +117,8 @@ func TestAnthropicRequestShape(t *testing.T) {
 	require.Equal(t, map[string]any{"title": "300 problems", "kind": "quantity", "unit": "problems",
 		"target_quantity": float64(300), "minutes_per_unit": float64(30), "start_day": "2026-09-15",
 		"due_day": "2026-12-15", "existing_tasks": []any{"Arrays"}, "instructions": "focus on graphs",
-		"today": "2026-09-20"}, sent, "exactly the fields of the spec, nothing else")
+		"today": "2026-09-20", "daily_minutes": nil, "done_quantity": float64(0),
+		"remaining_quantity": float64(0)}, sent, "exactly the fields of the spec, nothing else")
 }
 
 func TestOpenAICompatibleRequestShape(t *testing.T) {
@@ -175,14 +176,15 @@ func TestBreakdownValidation(t *testing.T) {
 		b, _ := json.Marshal(base)
 		return string(b)
 	}
-	many := make([]string, 51)
+	many := make([]string, 101)
 	for i := range many {
 		many[i] = task("")
 	}
 	tests := []struct{ name, reply, want string }{
 		{"not JSON", "Sure! Here are some tasks.", "not the breakdown JSON"},
-		{"no tasks", `{"tasks": []}`, "1 to 50 tasks"},
-		{"too many", `{"tasks": [` + strings.Join(many, ",") + `]}`, "1 to 50 tasks"},
+		{"no tasks", `{"tasks": []}`, "1 to 100 tasks"},
+		{"too many", `{"tasks": [` + strings.Join(many, ",") + `]}`, "1 to 100 tasks"},
+		{"long notes", `{"tasks": [` + task(`{"notes": "`+strings.Repeat("x", 2001)+`"}`) + `]}`, "notes"},
 		{"unknown field", `{"tasks": [` + task(`{"colour": "red"}`) + `]}`, "not valid"},
 		{"missing field", `{"tasks": [{"title": "t"}]}`, "lacks"},
 		{"empty title", `{"tasks": [` + task(`{"title": " "}`) + `]}`, "title"},

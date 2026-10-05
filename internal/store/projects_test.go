@@ -38,7 +38,8 @@ func TestProjectDeletedColourIsFreeAgain(t *testing.T) {
 	f := newFx(t)
 	a := f.project("a")
 	f.project("b")
-	require.NoError(t, f.r.Projects.Delete(f.ctx, a.ID))
+	_, err := f.r.Projects.Delete(f.ctx, a.ID)
+	require.NoError(t, err)
 	require.Equal(t, store.Palette[0], f.project("c").Color)
 }
 
@@ -131,8 +132,9 @@ func TestProjectDeleteSoftDeletesItsTasks(t *testing.T) {
 	t2 := f.task("two", &keep.ID)
 	f.clk.Advance(time.Hour)
 
-	require.NoError(t, f.r.Projects.Delete(f.ctx, p.ID))
-	_, err := f.r.Projects.Get(f.ctx, p.ID)
+	_, err := f.r.Projects.Delete(f.ctx, p.ID)
+	require.NoError(t, err)
+	_, err = f.r.Projects.Get(f.ctx, p.ID)
 	require.ErrorIs(t, err, store.ErrNotFound)
 	_, err = f.r.Tasks.Get(f.ctx, t1.ID)
 	require.ErrorIs(t, err, store.ErrNotFound)
@@ -148,7 +150,8 @@ func TestProjectDeleteSoftDeletesItsTasks(t *testing.T) {
 	require.Equal(t, int64(2), rev)
 	require.Equal(t, f.db.DeviceID(), device)
 
-	require.ErrorIs(t, f.r.Projects.Delete(f.ctx, p.ID), store.ErrNotFound, "deleted rows are gone")
+	_, err = f.r.Projects.Delete(f.ctx, p.ID)
+	require.ErrorIs(t, err, store.ErrNotFound, "deleted rows are gone")
 	f.project("P") // the name is free again
 }
 

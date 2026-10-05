@@ -1,6 +1,8 @@
+import { Power, RotateCcw } from "lucide-react";
 import { useEffect, useState } from "react";
+import BrandMark from "../components/BrandMark";
 import { App, apiError } from "../api";
-import { Button, Card } from "../components/ui";
+import { Button, Callout, ToggleRow } from "../components/ui";
 import { useDaemon } from "../daemon";
 
 /** Shown instead of everything else while the daemon is not running. */
@@ -38,31 +40,32 @@ export default function FirstRun() {
 
   return (
     <div className="flex h-full items-center justify-center p-6">
-      <Card className="w-[34rem]">
-        <div className="mb-4 flex items-center gap-3">
-          <span className="inline-block h-10 w-10 rounded-lg bg-emerald-500" />
-          <h1 className="text-2xl font-semibold">Welcome to Gwen</h1>
-        </div>
-        <p className="mb-3 text-sm text-zinc-600 dark:text-zinc-300">
-          Gwen clocks your working day, notices when you step away, nudges you back, and turns your goals into daily
-          plans. Everything stays on this computer.
+      <div className="w-full max-w-120">
+        <BrandMark className="size-12" />
+        <h1 className="mt-6 text-headline font-semibold text-ink">Gwen isn't running yet</h1>
+        <p className="mt-3 text-[15px] leading-relaxed text-ink-muted">
+          Gwen clocks your working day, notices when you step away, nudges you back, and turns your goals into daily plans. Everything stays on this computer.
         </p>
-        <p className="mb-5 text-sm text-zinc-600 dark:text-zinc-300">
-          Gwen isn't running yet. Start its background service so it can track your time; it starts again every time
-          you log in, and closing this window never stops it.
+        <p className="mt-3 text-[15px] leading-relaxed text-ink-subtle">
+          Start its background service so it can track your time. It starts again every time you log in, and closing this window never stops it.
         </p>
-        <div className="flex flex-wrap items-center gap-3">
-          <Button tone="primary" onClick={start} disabled={busy}>
-            {busy ? "Starting…" : "Start and run at login"}
+        <div className="mt-7 flex flex-wrap items-center gap-2">
+          <Button tone="primary" size="lg" icon={Power} onClick={start} busy={busy}>
+            {busy ? "Starting…" : "Start Gwen"}
           </Button>
-          <Button onClick={() => d.refresh()}>Retry</Button>
-          <label className="ml-auto flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={tray} onChange={(e) => toggleTray(e.target.checked)} />
-            Show the tray icon at login
-          </label>
+          <Button size="lg" icon={RotateCcw} onClick={() => d.refresh()}>
+            Try again
+          </Button>
         </div>
-        {error && <p className="mt-4 text-sm text-red-600 dark:text-red-400">{error}</p>}
-      </Card>
+        <div className="mt-7 border-t border-line pt-5">
+          <ToggleRow title="Show the tray icon at login" description="Clock in, take breaks, and clock out from the panel." checked={tray} onChange={toggleTray} />
+        </div>
+        {error && (
+          <Callout tone="danger" className="mt-5">
+            {error}
+          </Callout>
+        )}
+      </div>
     </div>
   );
 }

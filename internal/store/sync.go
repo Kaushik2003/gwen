@@ -15,16 +15,18 @@ import (
 
 // SyncTables are the synced tables in dependency order: a row's parents are
 // in an earlier table, or earlier in its own table by created_at.
-var SyncTables = []string{"projects", "goals", "tasks", "commitments", "work_days", "segments", "plan_items"}
+var SyncTables = []string{"projects", "goals", "tasks", "commitments", "work_days", "segments", "plan_items",
+	"day_hours", "weekly_reviews", "energy_logs"}
 
 // syncColumns is the complete column set of each synced table
 // (docs/03-data-model.md#sync-envelope).
 var syncColumns = map[string][]string{
 	"projects": {"id", "name", "color", "archived_at"},
 	"goals": {"id", "title", "kind", "unit", "target_quantity", "minutes_per_unit", "project_id", "start_day",
-		"due_day", "status"},
+		"due_day", "status", "daily_minutes", "specific", "measurable", "assignable", "realistic"},
 	"tasks": {"id", "project_id", "title", "notes", "status", "priority", "due_day", "estimate_minutes", "done_at",
-		"goal_id", "quantity", "quantity_done", "rrule", "template_id", "occurrence_day"},
+		"goal_id", "quantity", "quantity_done", "rrule", "template_id", "occurrence_day", "parent_id", "start_day",
+		"start_minute", "stage", "effort", "delegated_to"},
 	"commitments": {"id", "title", "project_id", "rrule", "start_minute", "duration_minutes", "counts_toward_target",
 		"active_from", "active_until"},
 	"work_days": {"id", "day", "tz", "clocked_in_at", "clocked_out_at", "target_seconds", "note"},
@@ -32,6 +34,10 @@ var syncColumns = map[string][]string{
 		"truncated"},
 	"plan_items": {"id", "day", "task_id", "planned_minutes", "start_at", "position", "status", "pinned",
 		"rolled_from_id", "rollover_count"},
+	"day_hours": {"id", "day", "start_minute", "work_minutes"},
+	"weekly_reviews": {"id", "week_start", "went_well", "went_badly", "energy", "decisions", "improvements",
+		"checklist"},
+	"energy_logs": {"id", "at", "level"},
 }
 
 // envelope columns end every synced table.
@@ -375,6 +381,16 @@ func (r syncRepo) Days(ctx context.Context, a Applied) (workDays, planDays []str
 		}
 	}
 	slices.Sort(wd)
-	planDays, err = distinct(qPlanDays, a.IDs["plan_items"])
+	if planDays, err = distinct(qPlanDays, a.IDs["plan_items"]); err != nil {
+		return nil, nil, err
+	}
+	const qHoursDays = `SELECT DISTINCT day FROM day_hours WHERE id IN (%s) ORDER BY day`
+	hd, err := distinct(qHoursDays, a.IDs["day_hours"])
+	for _, d := range hd {
+		if !slices.Contains(planDays, d) {
+			planDays = append(planDays, d)
+		}
+	}
+	slices.Sort(planDays)
 	return wd, planDays, err
 }

@@ -26,15 +26,20 @@ type CapacityInput struct {
 	Loc   *time.Location
 	Today bool      // Day is the day Now belongs to
 	Now   time.Time // used only when Today
-	// DayStart and DayEnd bound the window, in minutes after local midnight.
+	// DayStart and DayEnd bound the window, in minutes after local midnight:
+	// DayStart is the day hours' start when set, else planner.day_start.
 	DayStart, DayEnd int
 	Buffer           time.Duration
 	// Target is the open work day's target when Today and a work day exists,
 	// else tracking.daily_target.
-	Target      time.Duration
+	Target time.Duration
+	// Work is the day hours' time for tasks when set; it replaces the target,
+	// the counting commitments, and the buffer (docs/06-planner.md#day-hours).
+	Work        *time.Duration
 	Commitments []Commitment // every live commitment; Capacity picks those on Day
 	Busy        []Interval   // calendar busy time (v3)
-	// WorkedToday is today's work by project; ignored unless Today.
+	// WorkedToday is today's work by project, only since the window's start
+	// when Work is set; ignored unless Today.
 	WorkedToday []ProjectWork
 }
 
@@ -61,7 +66,10 @@ func OnDay(c Commitment, d civil.Day) bool {
 // Capacity computes the minutes available for planned work on in.Day
 // (docs/06-planner.md#capacity).
 func Capacity(in CapacityInput) CapacityResult {
-	free := []Interval{{in.Day.At(in.DayStart, in.Loc), in.Day.At(in.DayEnd, in.Loc)}}
+	var free []Interval
+	if window := (Interval{in.Day.At(in.DayStart, in.Loc), in.Day.At(in.DayEnd, in.Loc)}); !window.empty() {
+		free = []Interval{window}
+	}
 	var floating, counting time.Duration
 	countingProjects := map[string]bool{}
 	for _, c := range in.Commitments {
@@ -84,7 +92,10 @@ func Capacity(in CapacityInput) CapacityResult {
 	for _, b := range in.Busy {
 		free = subtract(free, b)
 	}
-	target := in.Target - counting
+	target, buffer := in.Target-counting, in.Buffer
+	if in.Work != nil {
+		target, buffer = *in.Work, 0
+	}
 	if in.Today {
 		free = subtract(free, Interval{in.Day.At(in.DayStart, in.Loc), ceil5(in.Now)})
 		for _, w := range in.WorkedToday {
@@ -96,7 +107,7 @@ func Capacity(in CapacityInput) CapacityResult {
 	slot := int((total(free) - floating) / time.Minute)
 	targetLeft := int(target / time.Minute)
 	return CapacityResult{
-		Minutes:    max(0, min(targetLeft, slot)-int(in.Buffer/time.Minute)),
+		Minutes:    max(0, min(targetLeft, slot)-int(buffer/time.Minute)),
 		Free:       free,
 		Slot:       slot,
 		TargetLeft: targetLeft,
@@ -141,12 +152,16 @@ func subtract(is []Interval, cut Interval) []Interval {
 	return slices.Clip(out)
 }
 
-// earliestFit is the earliest start at which d fits wholly inside one of the
-// free intervals, and false when it fits nowhere.
-func earliestFit(free []Interval, d time.Duration) (time.Time, bool) {
+// earliestFit is the earliest start, not before notBefore, at which d fits
+// wholly inside one of the free intervals, and false when it fits nowhere.
+func earliestFit(free []Interval, d time.Duration, notBefore time.Time) (time.Time, bool) {
 	for _, i := range free {
-		if i.End.Sub(i.Start) >= d {
-			return i.Start, true
+		start := i.Start
+		if start.Before(notBefore) {
+			start = notBefore
+		}
+		if i.End.Sub(start) >= d {
+			return start, true
 		}
 	}
 	return time.Time{}, false

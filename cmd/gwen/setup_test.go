@@ -23,11 +23,19 @@ import (
 
 // setupRecorder captures the side effects of a setup run.
 type setupRecorder struct {
-	mu     sync.Mutex
-	runs   []string
-	starts []string
-	env    setupEnv
-	out    bytes.Buffer
+	mu      sync.Mutex
+	runs    []string
+	starts  []string
+	outputs map[string]setupOutput // what each command line prints
+	paths   map[string]string      // what each command resolves to
+	env     setupEnv
+	out     bytes.Buffer
+}
+
+// setupOutput is a command's stdout and error.
+type setupOutput struct {
+	stdout string
+	err    error
 }
 
 func (r *setupRecorder) ran() []string {
@@ -53,6 +61,25 @@ func setupTestEnv(t *testing.T, api client.API, stdin string) *setupRecorder {
 			defer r.mu.Unlock()
 			r.runs = append(r.runs, name+" "+strings.Join(args, " "))
 			return nil
+		},
+		output: func(_ context.Context, name string, args ...string) ([]byte, error) {
+			r.mu.Lock()
+			defer r.mu.Unlock()
+			line := name + " " + strings.Join(args, " ")
+			r.runs = append(r.runs, line)
+			o, ok := r.outputs[line]
+			if !ok {
+				return nil, errors.New("exec: " + name + ": not found")
+			}
+			return []byte(o.stdout), o.err
+		},
+		lookPath: func(command string) (string, error) {
+			r.mu.Lock()
+			defer r.mu.Unlock()
+			if path, ok := r.paths[command]; ok {
+				return path, nil
+			}
+			return "", errors.New("exec: " + command + ": not found")
 		},
 		start: func(path string) error {
 			r.mu.Lock()

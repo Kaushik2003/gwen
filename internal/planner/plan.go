@@ -98,6 +98,7 @@ func sortItems(items []PlanItem) {
 // GenerateInput is everything Generate needs for day Day.
 type GenerateInput struct {
 	Day      civil.Day
+	Loc      *time.Location // places tasks' start times on Day
 	Capacity CapacityResult
 	// Existing are the live items on Day whose task is live.
 	Existing []PlanItem
@@ -107,6 +108,16 @@ type GenerateInput struct {
 	Progress map[string]GoalProgress  // active goals
 	// Latest is each task's most recent live item on a day before Day.
 	Latest map[string]PlanItem
+	// Goals are the live goals, which tell items and sessions apart.
+	Goals map[string]Goal
+	// Elsewhere are the tasks pinned to another day from today on: the user
+	// put them there, so this day leaves them alone.
+	Elsewhere map[string]bool
+	// Frog places the hardest work first (eat the frog).
+	Frog bool
+	// Prime is the day's biological prime time, minutes after midnight, or
+	// nil: hard work goes there first.
+	Prime *[2]int
 }
 
 // PlanItemDraft is an item of a generated plan. A kept item carries its id
@@ -119,6 +130,8 @@ type PlanItemDraft struct {
 	Position      int
 	RolledFromID  *string
 	RolloverCount int
+	notBefore     time.Time // its task's start time on the day, when it has one
+	effort        int       // its task's effort, medium when unrated
 }
 
 // Keep reports whether regenerating keeps an item: pinned, or no longer planned.
@@ -146,42 +159,25 @@ func Generate(in GenerateInput) []PlanItemDraft {
 		}
 	}
 
-	pool := []Task{}
-	counts := map[string]int{}
-	rolledFrom := map[string]*string{}
-	score := map[string]float64{}
-	for _, t := range in.Tasks {
-		if !t.live() || !t.open() || t.IsTemplate() || keptTasks[t.ID] {
-			continue
-		}
-		if t.isOccurrence() {
-			if civil.MustParse(*t.OccurrenceDay).After(in.Day) {
-				continue
-			}
-			if d, ok := t.due(); ok && d.Before(in.Day) {
-				continue
-			}
-		}
-		var latest *PlanItem
-		if it, ok := in.Latest[t.ID]; ok {
-			latest = &it
-		}
-		counts[t.ID], rolledFrom[t.ID] = RolloverCount(latest)
-		score[t.ID] = Urgency(t, in.Day, in.Progress, counts[t.ID])
-		pool = append(pool, t)
-	}
-	sortByUrgency(pool, score)
-
 	var fresh []PlanItemDraft
-	for _, t := range pool {
+	for _, c := range Candidates(in, keptTasks) {
+		t := c.Task
 		remaining := RemainingMinutes(t, in.Tracked[t.ID])
-		for blocks := 0; blocks < BlocksPerTask && remaining > 0 && capacityLeft >= MinBlock; blocks++ {
-			block := min(remaining, MaxBlock, capacityLeft) / BlockStep * BlockStep
+		blocks, maxBlock := BlocksPerTask, MaxBlock
+		var notBefore time.Time
+		if minute, ok := t.startOn(in.Day); ok {
+			blocks, maxBlock, notBefore = 1, remaining, in.Day.At(minute, in.Loc) // the time the user chose
+		} else if timedSession(t, in.Goals) {
+			blocks, maxBlock = 1, remaining // the time a day the user chose, in one block
+		}
+		for n := 0; n < blocks && remaining > 0 && capacityLeft >= MinBlock; n++ {
+			block := min(remaining, maxBlock, capacityLeft) / BlockStep * BlockStep
 			if block < MinBlock {
 				break
 			}
 			fresh = append(fresh, PlanItemDraft{TaskID: t.ID, Planned: time.Duration(block) * time.Minute,
-				RolloverCount: counts[t.ID], RolledFromID: rolledFrom[t.ID]})
+				RolloverCount: c.RolloverCount, RolledFromID: c.RolledFromID, notBefore: notBefore,
+				effort: effortOf(t.Task)})
 			remaining -= block
 			capacityLeft -= block
 		}
@@ -205,15 +201,151 @@ func Generate(in GenerateInput) []PlanItemDraft {
 		out = append(out, PlanItemDraft{ExistingID: it.ID, TaskID: it.TaskID, Planned: it.Planned, StartAt: it.StartAt,
 			Position: len(out), RolledFromID: it.RolledFromID, RolloverCount: it.RolloverCount})
 	}
+	if in.Frog || in.Prime != nil {
+		// Eat the frog: after the work with a chosen time, the hardest first.
+		slices.SortStableFunc(fresh, func(a, b PlanItemDraft) int {
+			timed := func(d PlanItemDraft) int {
+				if d.notBefore.IsZero() {
+					return 1
+				}
+				return 0
+			}
+			return cmp.Or(cmp.Compare(timed(a), timed(b)), cmp.Compare(b.effort, a.effort))
+		})
+	}
+	var prime []Interval
+	if in.Prime != nil {
+		prime = within(free, Interval{in.Day.At(in.Prime[0], in.Loc), in.Day.At(in.Prime[1], in.Loc)})
+	}
 	for _, d := range fresh {
 		d.Position = len(out)
-		if at, ok := earliestFit(free, d.Planned); ok {
+		if d.effort == model.EffortHard && prime != nil {
+			// Hard work takes prime time when it fits there.
+			if at, ok := earliestFit(prime, d.Planned, d.notBefore); ok {
+				d.StartAt = &at
+				cut := Interval{at, at.Add(held(d.Planned))}
+				free, prime = subtract(free, cut), subtract(prime, cut)
+				out = append(out, d)
+				continue
+			}
+		}
+		if at, ok := earliestFit(free, d.Planned, d.notBefore); ok {
 			d.StartAt = &at
-			free = subtract(free, Interval{at, at.Add(held(d.Planned))})
+			cut := Interval{at, at.Add(held(d.Planned))}
+			free = subtract(free, cut)
+			if prime != nil {
+				prime = subtract(prime, cut)
+			}
 		}
 		out = append(out, d)
 	}
 	return out
+}
+
+// Candidate is a task of a day's pool, with its urgency and rollover fields.
+type Candidate struct {
+	Task          Task
+	Urgency       float64
+	RolloverCount int
+	RolledFromID  *string
+}
+
+// Candidates is the pool of steps 4 to 6 of
+// docs/06-planner.md#generating-a-plan for in.Day, most urgent first after
+// the tasks with a start time on the day, without the tasks in exclude.
+// To-dos are never candidates.
+func Candidates(in GenerateInput, exclude map[string]bool) []Candidate {
+	pool := []Task{}
+	byID := map[string]Candidate{}
+	score := map[string]float64{}
+	for _, t := range in.Tasks {
+		if !t.live() || !t.open() || t.IsTemplate() || t.IsTodo() || exclude[t.ID] || !ownPlan(t.Task, in.Goals) ||
+			!t.Plannable() || in.Elsewhere[t.ID] {
+			continue
+		}
+		if t.startsAfter(in.Day) {
+			continue
+		}
+		if t.isOccurrence() {
+			if civil.MustParse(*t.OccurrenceDay).After(in.Day) {
+				continue
+			}
+			if d, ok := t.due(); ok && d.Before(in.Day) {
+				continue
+			}
+		}
+		var latest *PlanItem
+		if it, ok := in.Latest[t.ID]; ok {
+			latest = &it
+		}
+		c := Candidate{Task: t}
+		c.RolloverCount, c.RolledFromID = RolloverCount(latest)
+		c.Urgency = Urgency(t, in.Day, in.Progress, c.RolloverCount)
+		byID[t.ID], score[t.ID] = c, c.Urgency
+		pool = append(pool, t)
+	}
+	sortByUrgency(pool, score)
+	slices.SortStableFunc(pool, func(a, b Task) int {
+		am, aok := a.startOn(in.Day)
+		bm, bok := b.startOn(in.Day)
+		switch {
+		case aok && bok:
+			return cmp.Compare(am, bm)
+		case aok:
+			return -1
+		case bok:
+			return 1
+		}
+		return 0
+	})
+	out := make([]Candidate, len(pool))
+	for i, t := range pool {
+		out[i] = byID[t.ID]
+	}
+	return out
+}
+
+// effortOf is a task's effort, medium when unrated.
+func effortOf(t model.Task) int {
+	if t.Effort == nil {
+		return model.EffortMedium
+	}
+	return *t.Effort
+}
+
+// within is the parts of free inside w.
+func within(free []Interval, w Interval) []Interval {
+	var out []Interval
+	for _, f := range free {
+		i := Interval{Start: maxTime(f.Start, w.Start), End: minTime(f.End, w.End)}
+		if !i.empty() {
+			out = append(out, i)
+		}
+	}
+	return out
+}
+
+func maxTime(a, b time.Time) time.Time {
+	if a.After(b) {
+		return a
+	}
+	return b
+}
+
+func minTime(a, b time.Time) time.Time {
+	if a.Before(b) {
+		return a
+	}
+	return b
+}
+
+// timedSession reports whether t is a session of a goal with daily minutes.
+func timedSession(t Task, goals map[string]Goal) bool {
+	if !t.isOccurrence() || t.GoalID == nil {
+		return false
+	}
+	g, ok := goals[*t.GoalID]
+	return ok && g.Kind == model.GoalQuantity && g.Daily != nil
 }
 
 // held is how long a block occupies its slot: a block of 90 minutes, or a

@@ -16,6 +16,7 @@ import (
 	"github.com/kzark/gwen/internal/client"
 	"github.com/kzark/gwen/internal/clock"
 	"github.com/kzark/gwen/internal/config"
+	"github.com/kzark/gwen/internal/llm"
 	"github.com/kzark/gwen/internal/wire"
 	"github.com/spf13/cobra"
 )
@@ -31,8 +32,10 @@ const setupHealthWait = 5 * time.Second
 // setupEnv is everything setup touches outside the process; tests replace it.
 type setupEnv struct {
 	api        func(socket string) client.API
-	run        func(ctx context.Context, name string, args ...string) error // runs to completion
-	start      func(path string) error                                      // starts detached
+	run        func(ctx context.Context, name string, args ...string) error           // runs to completion
+	output     func(ctx context.Context, name string, args ...string) ([]byte, error) // runs, returning stdout
+	lookPath   func(command string) (string, error)                                   // resolves a command like llm.command
+	start      func(path string) error                                                // starts detached
 	stdin      io.Reader
 	stdout     io.Writer
 	clk        clock.Clock
@@ -61,6 +64,10 @@ func setupDefaultEnv() (setupEnv, error) {
 			}
 			return nil
 		},
+		output: func(ctx context.Context, name string, args ...string) ([]byte, error) {
+			return exec.CommandContext(ctx, name, args...).Output()
+		},
+		lookPath: llm.FindCommand,
 		start: func(path string) error {
 			cmd := exec.Command(path)
 			if err := cmd.Start(); err != nil {

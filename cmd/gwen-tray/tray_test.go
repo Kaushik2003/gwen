@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -25,9 +26,17 @@ var (
 	opened = wire.Millis(testutil.At("09:00"))
 )
 
+// status has the open segment since 09:00 and 5h 47m worked of an 8h target
+// today, so the day's total and the segment's age differ.
 func status(state string, project *string) *wire.Status {
 	return &wire.Status{State: state, ProjectID: project, ServerNowAt: wire.Millis(now),
-		OpenSegment: &wire.Segment{StartedAt: opened}}
+		OpenSegment: &wire.Segment{StartedAt: opened},
+		Today:       &wire.DaySummary{WorkedMs: (5*time.Hour + 47*time.Minute).Milliseconds(), TargetSeconds: 8 * 3600}}
+}
+
+func lines(m Menu, l ...string) Menu {
+	m.Lines, m.Tooltip = l, strings.Join(l, "\n")
+	return m
 }
 
 func TestMenuFor(t *testing.T) {
@@ -41,21 +50,49 @@ func TestMenuFor(t *testing.T) {
 	}{
 		{
 			name: "daemon down", status: nil, daemonUp: false,
-			want: Menu{Icon: tray.Off, Tooltip: "Gwen isn't running", StartGwen: true},
+			want: lines(Menu{Icon: tray.Off, StartGwen: true}, "Gwen isn't running"),
 		},
 		{
 			name: "off", status: &wire.Status{State: wire.StateOff}, daemonUp: true,
-			want: Menu{Icon: tray.Off, Tooltip: "Not clocked in", ClockIn: true},
+			want: lines(Menu{Icon: tray.Off, ClockIn: true}, "Not clocked in"),
 		},
 		{
-			name: "working", status: status(wire.StateWorking, &pID), daemonUp: true,
-			want: Menu{Icon: tray.Working, Tooltip: "Working · 3h 12m · Internship", StartBreak: true,
-				SwitchProject: true, Snooze: true, ClockOut: true, Projects: projects},
+			name: "working counts the day, not the segment", status: status(wire.StateWorking, &pID), daemonUp: true,
+			want: lines(Menu{Icon: tray.Working, StartBreak: true, SwitchProject: true, Snooze: true, ClockOut: true, Projects: projects},
+				"Working · 5h 47m today", "Internship", "72% of 8h · 2h 13m left"),
+		},
+		{
+			name: "working goes on from the day's total after a break", status: func() *wire.Status {
+				s := status(wire.StateWorking, &pID)
+				s.OpenSegment.StartedAt = wire.Millis(testutil.At("12:12"))
+				s.Today.WorkedMs = (15 * time.Minute).Milliseconds()
+				return s
+			}(), daemonUp: true,
+			want: lines(Menu{Icon: tray.Working, StartBreak: true, SwitchProject: true, Snooze: true, ClockOut: true, Projects: projects},
+				"Working · 15m today", "Internship", "3% of 8h · 7h 45m left"),
 		},
 		{
 			name: "idle pending", status: status(wire.StateIdlePending, &pID), daemonUp: true,
-			want: Menu{Icon: tray.Idle, Tooltip: "Idle · 3h 12m · Internship", StartBreak: true,
-				SwitchProject: true, Snooze: true, ClockOut: true, Projects: projects},
+			want: lines(Menu{Icon: tray.Idle, StartBreak: true, SwitchProject: true, Snooze: true, ClockOut: true, Projects: projects},
+				"Idle · 5h 47m today", "Internship", "72% of 8h · 2h 13m left"),
+		},
+		{
+			name: "target met", status: func() *wire.Status {
+				s := status(wire.StateWorking, &pID)
+				s.Today.WorkedMs = (8*time.Hour + 30*time.Minute).Milliseconds()
+				return s
+			}(), daemonUp: true,
+			want: lines(Menu{Icon: tray.Working, StartBreak: true, SwitchProject: true, Snooze: true, ClockOut: true, Projects: projects},
+				"Working · 8h 30m today", "Internship", "Target of 8h met"),
+		},
+		{
+			name: "no target", status: func() *wire.Status {
+				s := status(wire.StateWorking, &pID)
+				s.Today.TargetSeconds = 0
+				return s
+			}(), daemonUp: true,
+			want: lines(Menu{Icon: tray.Working, StartBreak: true, SwitchProject: true, Snooze: true, ClockOut: true, Projects: projects},
+				"Working · 5h 47m today", "Internship"),
 		},
 		{
 			name: "automatic break", status: func() *wire.Status {
@@ -63,8 +100,8 @@ func TestMenuFor(t *testing.T) {
 				s.OpenSegment.StartedAt = wire.Millis(testutil.At("12:00"))
 				return s
 			}(), daemonUp: true,
-			want: Menu{Icon: tray.Break, Tooltip: "On break · 12m", StartBreak: true, EndBreak: true,
-				SwitchProject: true, Snooze: true, ClockOut: true, Projects: projects},
+			want: lines(Menu{Icon: tray.Break, StartBreak: true, EndBreak: true, SwitchProject: true, Snooze: true, ClockOut: true, Projects: projects},
+				"On break · 12m", "Worked 5h 47m today", "72% of 8h · 2h 13m left"),
 		},
 		{
 			name: "manual break, unassigned", status: func() *wire.Status {
@@ -72,12 +109,13 @@ func TestMenuFor(t *testing.T) {
 				s.OpenSegment.StartedAt = wire.Millis(testutil.At("12:00"))
 				return s
 			}(), daemonUp: true,
-			want: Menu{Icon: tray.Break, Tooltip: "On break · 12m", EndBreak: true, SwitchProject: true, Snooze: true, ClockOut: true,
+			want: lines(Menu{Icon: tray.Break, EndBreak: true, SwitchProject: true, Snooze: true, ClockOut: true,
 				Projects: []MenuProject{{Name: "Unassigned", Checked: true}, {ID: &pID, Name: "Internship"}, {ID: &qID, Name: "Study"}}},
+				"On break · 12m", "Worked 5h 47m today", "72% of 8h · 2h 13m left"),
 		},
 		{
 			name: "daemon down after a status", status: status(wire.StateWorking, &pID), daemonUp: false,
-			want: Menu{Icon: tray.Off, Tooltip: "Gwen isn't running", StartGwen: true},
+			want: lines(Menu{Icon: tray.Off, StartGwen: true}, "Gwen isn't running"),
 		},
 	}
 	for _, tc := range tests {
@@ -145,22 +183,29 @@ func TestControllerFollowsTheDaemon(t *testing.T) {
 	defer cancel()
 	go c.run(ctx)
 
-	require.Eventually(t, func() bool { return v.last().Tooltip == "Gwen isn't running" }, 5*time.Second, time.Millisecond)
+	headline := func() string {
+		if l := v.last().Lines; len(l) > 0 {
+			return l[0]
+		}
+		return ""
+	}
+	require.Eventually(t, func() bool { return headline() == "Gwen isn't running" }, 5*time.Second, time.Millisecond)
 	data, err := json.Marshal(status(wire.StateWorking, &pID))
 	require.NoError(t, err)
 	stream.Send(wire.Event{ID: 1, Name: wire.EventStateChanged, Data: data})
 	require.Eventually(t, func() bool {
 		m := v.last()
-		return m.Icon == tray.Working && m.Tooltip == "Working · 3h 12m · Internship"
+		return m.Icon == tray.Working && m.Tooltip == "Working · 5h 47m today\nInternship\n72% of 8h · 2h 13m left"
 	}, 5*time.Second, time.Millisecond, "skew-corrected, with the project's name")
 
-	// The tooltip re-renders every 30 s.
+	// The timer re-renders every second and goes on from the day's total.
+	require.Equal(t, time.Second, renderInterval)
+	clk.BlockUntil(1)
+	clk.Advance(59 * time.Second)
+	require.Eventually(t, func() bool { return headline() == "Working · 5h 47m today" }, 5*time.Second, time.Millisecond)
 	clk.BlockUntil(1)
 	clk.Advance(renderInterval)
-	require.Eventually(t, func() bool { return v.last().Tooltip == "Working · 3h 12m · Internship" }, 5*time.Second, time.Millisecond)
-	clk.BlockUntil(1)
-	clk.Advance(renderInterval)
-	require.Eventually(t, func() bool { return v.last().Tooltip == "Working · 3h 13m · Internship" }, 5*time.Second, time.Millisecond)
+	require.Eventually(t, func() bool { return headline() == "Working · 5h 48m today" }, 5*time.Second, time.Millisecond)
 
 	stream.Send(wire.Event{ID: 2, Name: wire.EventProjectsChanged, Data: json.RawMessage(`{}`)})
 	require.Eventually(t, func() bool { return len(f.CallsTo("ListProjects")) >= 2 }, 5*time.Second, time.Millisecond)

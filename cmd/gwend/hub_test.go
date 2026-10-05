@@ -68,7 +68,7 @@ func TestHubServesTheReadOnlySubset(t *testing.T) {
 
 	code, body := hubGet(t, base+"/sync/v1/health", hubToken, nil)
 	require.Equal(t, http.StatusOK, code)
-	require.JSONEq(t, `{"ok": true, "schema_version": 3}`, body)
+	require.JSONEq(t, `{"ok": true, "schema_version": 7}`, body)
 	code, _ = hubGet(t, base+"/sync/v1/health", "wrong", nil)
 	require.Equal(t, http.StatusUnauthorized, code)
 	code, _ = hubGet(t, base+"/v1/health", "", nil)

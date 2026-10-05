@@ -10,12 +10,16 @@ export default function Markdown({ text }: { text: string }) {
   let para: string[] = [];
   const flush = () => {
     if (para.length) {
-      blocks.push(<p key={blocks.length}>{para.join(" ")}</p>);
+      blocks.push(
+        <p key={blocks.length} className="text-ink-muted">
+          {para.join(" ")}
+        </p>,
+      );
       para = [];
     }
     if (list.length) {
       blocks.push(
-        <ul key={blocks.length} className="list-disc pl-5">
+        <ul key={blocks.length} className="flex list-disc flex-col gap-1 pl-5 text-ink-muted marker:text-accent">
           {list.map((item, i) => (
             <li key={i}>{item}</li>
           ))}
@@ -33,7 +37,7 @@ export default function Markdown({ text }: { text: string }) {
     } else if (heading) {
       flush();
       blocks.push(
-        <h3 key={blocks.length} className="font-semibold">
+        <h3 key={blocks.length} className="mt-2 text-[15px] font-semibold tracking-[-0.01em] text-ink first:mt-0">
           {strip(heading[2])}
         </h3>,
       );
@@ -46,10 +50,15 @@ export default function Markdown({ text }: { text: string }) {
     }
   }
   flush();
-  return <div className="flex flex-col gap-2 text-sm">{blocks}</div>;
+  return <div className="flex max-w-[68ch] flex-col gap-3 text-sm leading-relaxed">{blocks}</div>;
 }
 
 /** Drops emphasis markers, which plain text shows as noise. */
 function strip(s: string): string {
-  return s.replace(/\*\*(.+?)\*\*/g, "$1").replace(/__(.+?)__/g, "$1").replace(/`([^`]+)`/g, "$1");
+  return s
+    .replace(/\*\*(.+?)\*\*/g, "$1")
+    .replace(/__(.+?)__/g, "$1")
+    .replace(/\*([^*\s][^*]*?)\*/g, "$1")
+    .replace(/(^|\W)_([^_\s][^_]*?)_(?=\W|$)/g, "$1$2")
+    .replace(/`([^`]+)`/g, "$1");
 }

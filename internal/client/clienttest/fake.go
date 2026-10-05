@@ -230,6 +230,10 @@ func (f *Fake) DeleteTask(_ context.Context, id string) error {
 	return err
 }
 
+func (f *Fake) DeleteTasks(_ context.Context, req wire.DeleteTasksRequest) (*wire.DeletedTasks, error) {
+	return result[*wire.DeletedTasks](f, "DeleteTasks", req)
+}
+
 func (f *Fake) StatsSummary(_ context.Context, from, to string) (*wire.StatsSummary, error) {
 	return result[*wire.StatsSummary](f, "StatsSummary", from, to)
 }
@@ -266,9 +270,13 @@ func (f *Fake) PatchGoal(_ context.Context, id string, req wire.PatchGoalRequest
 	return result[*wire.Goal](f, "PatchGoal", id, req)
 }
 
-func (f *Fake) DeleteGoal(_ context.Context, id string) error {
-	_, err := f.invoke("DeleteGoal", id)
+func (f *Fake) DeleteGoal(_ context.Context, id string, openTasks bool) error {
+	_, err := f.invoke("DeleteGoal", id, openTasks)
 	return err
+}
+
+func (f *Fake) PreviewGoal(_ context.Context, req wire.GoalPreviewRequest) (*wire.GoalProgress, error) {
+	return result[*wire.GoalProgress](f, "PreviewGoal", req)
 }
 
 func (f *Fake) ListCommitments(context.Context) (*wire.CommitmentList, error) {
@@ -294,6 +302,10 @@ func (f *Fake) GetPlan(_ context.Context, day string) (*wire.Plan, error) {
 
 func (f *Fake) GeneratePlan(_ context.Context, req wire.GeneratePlanRequest) (*wire.Plan, error) {
 	return result[*wire.Plan](f, "GeneratePlan", req)
+}
+
+func (f *Fake) SetDayHours(_ context.Context, req wire.SetDayHoursRequest) (*wire.Plan, error) {
+	return result[*wire.Plan](f, "SetDayHours", req)
 }
 
 func (f *Fake) PatchPlanItem(_ context.Context, id string, req wire.PatchPlanItemRequest) (*wire.PlanItem, error) {

@@ -218,3 +218,83 @@ func TestAutostart(t *testing.T) {
 	require.Contains(t, string(got), "Exec="+tray+"\n")
 	require.Equal(t, [][]string{{"gwen-tray"}, {tray}}, r.all())
 }
+
+func TestHasCredential(t *testing.T) {
+	t.Parallel()
+	h, _, _ := newHost(t, clienttest.New())
+	require.False(t, h.hasCredential(config.CredLLMAPIKey))
+	require.NoError(t, h.setCredential(config.CredLLMAPIKey, "sk-test"))
+	require.True(t, h.hasCredential(config.CredLLMAPIKey))
+	require.False(t, h.hasCredential("../gwen.toml"), "only credential names")
+}
+
+func TestClaudeCode(t *testing.T) {
+	t.Parallel()
+	paths := map[string]string{"claude": "/home/u/.local/bin/claude", "gwen": "/usr/bin/gwen"}
+	outputs := map[string]struct {
+		out string
+		err error
+	}{
+		"/home/u/.local/bin/claude": {out: `{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":"Max"}`},
+		"/usr/bin/gwen":             {err: errors.New("exit status 1")},
+	}
+	h, _, _ := newHost(t, clienttest.New())
+	var asked [][]string
+	h.lookPath = func(command string) (string, error) {
+		if p, ok := paths[command]; ok {
+			return p, nil
+		}
+		if p, ok := outputs[command]; ok && p.err == nil {
+			return command, nil
+		}
+		return "", errors.New(`exec: "` + command + `": executable file not found in $PATH`)
+	}
+	h.output = func(_ context.Context, name string, args ...string) ([]byte, error) {
+		asked = append(asked, append([]string{name}, args...))
+		o := outputs[name]
+		return []byte(o.out), o.err
+	}
+
+	// Signed in with a subscription: the path is resolved, as the daemon's PATH may differ.
+	require.Equal(t, ClaudeCodeStatus{Command: "/home/u/.local/bin/claude", Found: true, IsClaude: true, LoggedIn: true,
+		Plan: "max", AuthMethod: "claude.ai"}, h.claudeCode(context.Background(), "claude"))
+	require.Equal(t, []string{"/home/u/.local/bin/claude", "auth", "status", "--json"}, asked[0])
+
+	// Some other program: it is not Claude Code, and claude is suggested.
+	require.Equal(t, ClaudeCodeStatus{Command: "/usr/bin/gwen", Found: true, Detail: "exit status 1",
+		Suggested: "/home/u/.local/bin/claude"}, h.claudeCode(context.Background(), "gwen"))
+
+	// Not installed at all.
+	got := h.claudeCode(context.Background(), "nope")
+	require.False(t, got.Found)
+	require.Equal(t, "nope", got.Command)
+	require.Contains(t, got.Detail, "not found")
+	require.Equal(t, "/home/u/.local/bin/claude", got.Suggested)
+
+	// Signed out: still Claude Code, and nothing else is suggested.
+	outputs["/home/u/.local/bin/claude"] = struct {
+		out string
+		err error
+	}{out: `{"loggedIn":false}`, err: errors.New("exit status 1")}
+	require.Equal(t, ClaudeCodeStatus{Command: "/home/u/.local/bin/claude", Found: true, IsClaude: true},
+		h.claudeCode(context.Background(), "claude"))
+}
+
+func TestInstallGoogleClient(t *testing.T) {
+	t.Parallel()
+	f := clienttest.New().Returns("PatchConfig", &wire.Config{}, nil)
+	h, _, _ := newHost(t, f)
+
+	require.ErrorContains(t, h.installGoogleClient(context.Background(), []byte(`{"web":{"client_id":"x"}}`)),
+		"not the JSON of a Desktop app OAuth client")
+	require.ErrorContains(t, h.installGoogleClient(context.Background(), []byte(`not json`)), "Desktop app")
+	require.False(t, h.hasCredential(config.CredGoogleClient))
+	require.Empty(t, f.CallsTo("PatchConfig"))
+
+	client := `{"installed":{"client_id":"123.apps.googleusercontent.com","client_secret":"s"}}`
+	require.NoError(t, h.installGoogleClient(context.Background(), []byte(client)))
+	got, err := config.ReadCredential(h.credDir, config.CredGoogleClient)
+	require.NoError(t, err)
+	require.Equal(t, client, string(got))
+	require.Equal(t, []any{wire.ConfigPatch{"calendar": {"enabled": true}}}, f.CallsTo("PatchConfig")[0].Args)
+}

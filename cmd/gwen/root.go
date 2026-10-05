@@ -80,6 +80,15 @@ func args(n int) cobra.PositionalArgs {
 	}
 }
 
+func minArgs(n int) cobra.PositionalArgs {
+	return func(_ *cobra.Command, a []string) error {
+		if len(a) < n {
+			return usagef("expected at least %d argument(s), got %d", n, len(a))
+		}
+		return nil
+	}
+}
+
 func maxArgs(n int) cobra.PositionalArgs {
 	return func(_ *cobra.Command, a []string) error {
 		if len(a) > n {

@@ -17,9 +17,9 @@ func ptr[T any](v T) *T { return &v }
 
 func mins(n int) time.Duration { return time.Duration(n) * time.Minute }
 
-// task builds an open task; n orders created_at.
+// task builds an open task of an hour's work; n orders created_at.
 func task(id string, n int, opts ...func(*planner.Task)) planner.Task {
-	t := planner.Task{Task: model.Task{ID: id, Title: id, Status: model.TaskOpen, Priority: 2,
+	t := planner.Task{Task: model.Task{ID: id, Title: id, Status: model.TaskOpen, Priority: 2, Estimate: ptr(mins(60)),
 		Envelope: model.Envelope{CreatedAt: t0.Add(time.Duration(n) * time.Second), Rev: 1}}}
 	for _, o := range opts {
 		o(&t)
@@ -28,6 +28,8 @@ func task(id string, n int, opts ...func(*planner.Task)) planner.Task {
 }
 
 func dueOn(d string) func(*planner.Task)   { return func(t *planner.Task) { t.DueDay = &d } }
+func todo() func(*planner.Task)            { return func(t *planner.Task) { t.Estimate = nil } }
+func startOn(d string) func(*planner.Task) { return func(t *planner.Task) { t.StartDay = &d } }
 func prio(p int) func(*planner.Task)       { return func(t *planner.Task) { t.Priority = p } }
 func estimate(m int) func(*planner.Task)   { return func(t *planner.Task) { t.Estimate = ptr(mins(m)) } }
 func forGoal(g string) func(*planner.Task) { return func(t *planner.Task) { t.GoalID = &g } }
@@ -221,6 +223,37 @@ func TestCapacityToday(t *testing.T) {
 
 	in.Now = time.Date(2026, 9, 15, 22, 50, 0, 0, time.UTC)
 	require.Equal(t, 0, planner.Capacity(in).Minutes, "never negative")
+}
+
+// The day hours example of docs/06-planner.md#day-hours: 3 h from 19:00.
+func TestCapacityDayHours(t *testing.T) {
+	t.Parallel()
+	internship := commitment("FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR", ptr(10*60), 300, true, ptr("intern"))
+	work := 3 * time.Hour
+	in := planner.CapacityInput{Day: day("2026-09-15"), Loc: time.UTC, DayStart: 19 * 60, DayEnd: 23 * 60,
+		Buffer: 30 * time.Minute, Target: 8 * time.Hour, Work: &work, Commitments: []planner.Commitment{internship}}
+	res := planner.Capacity(in)
+	require.Equal(t, 240, res.Slot)
+	require.Equal(t, 180, res.TargetLeft, "commitments do not count against the time for tasks")
+	require.Equal(t, 180, res.Minutes, "and no buffer is taken")
+	require.Equal(t, []planner.Interval{
+		{time.Date(2026, 9, 15, 19, 0, 0, 0, time.UTC), time.Date(2026, 9, 15, 23, 0, 0, 0, time.UTC)},
+	}, res.Free)
+
+	in.Work = nil
+	require.Equal(t, 150, planner.Capacity(in).Minutes, "a start alone keeps the usual formula: min(180, 240) − 30")
+
+	in.Work, in.Today = &work, true
+	in.Now = time.Date(2026, 9, 15, 20, 0, 0, 0, time.UTC)
+	in.WorkedToday = []planner.ProjectWork{{ProjectID: ptr("study"), Worked: 50 * time.Minute}}
+	res = planner.Capacity(in)
+	require.Equal(t, 180, res.Slot, "20:00–23:00")
+	require.Equal(t, 130, res.Minutes, "180 − 50 worked since 19:00")
+
+	in.DayStart = 23 * 60
+	res = planner.Capacity(in)
+	require.Empty(t, res.Free, "a window that does not start before its end is empty")
+	require.Equal(t, 0, res.Minutes)
 }
 
 func TestCommitmentOnDay(t *testing.T) {
@@ -569,4 +602,39 @@ func TestReminders(t *testing.T) {
 
 	in.Tasks = []planner.Task{task("whole hours", 0, dueOn("2026-09-18"), estimate(120))}
 	require.Equal(t, "Start now — due in 3 days, about 2h of work left", planner.Reminders(in)[0].Message)
+}
+
+func TestRemindersOfTodosAndStarts(t *testing.T) {
+	t.Parallel()
+	capacity := make([]int, 14)
+	tasks := []planner.Task{
+		task("todo today", 0, todo(), dueOn("2026-09-15")),
+		task("todo soon", 1, todo(), dueOn("2026-09-18")),
+		task("not yet", 2, dueOn("2026-09-15"), startOn("2026-09-16")),
+	}
+	got := planner.Reminders(planner.ReminderInput{Today: day("2026-09-15"), Tasks: tasks, DayCapacity: capacity})
+	require.Len(t, got, 1, "a to-do gets no head start, and a task starting later none at all")
+	require.Equal(t, "todo today", got[0].TaskID)
+	require.Equal(t, "Due today", got[0].Message)
+}
+
+func TestGenerateEatsTheFrog(t *testing.T) {
+	t.Parallel()
+	effort := func(n int) func(*planner.Task) { return func(t *planner.Task) { t.Effort = &n } }
+	stage := func(s string) func(*planner.Task) { return func(t *planner.Task) { t.Stage = s } }
+	tasks := []planner.Task{task("easy", 0, prio(4), effort(1)), task("unrated", 1, prio(3)),
+		task("frog", 2, prio(1), effort(3)), task("parked", 3, prio(4), stage("someday")),
+		task("waiting", 4, prio(4), stage("waiting")), task("moved", 5, prio(4))}
+	in := func(frog bool, prime *[2]int) planner.GenerateInput {
+		return planner.GenerateInput{Day: slotDay(), Loc: time.UTC, Capacity: planner.CapacityResult{Minutes: 600, Free: free("09:00", "23:00")},
+			Tasks: tasks, Frog: frog, Prime: prime, Elsewhere: map[string]bool{"moved": true}}
+	}
+	require.Equal(t, []block{{task: "easy", minutes: 60, start: "09:00"}, {task: "unrated", minutes: 60, start: "10:00"},
+		{task: "frog", minutes: 60, start: "11:00"}}, blocks(planner.Generate(in(false, nil))),
+		"by urgency, without someday, waiting, or work pinned to another day")
+	require.Equal(t, []block{{task: "frog", minutes: 60, start: "09:00"}, {task: "unrated", minutes: 60, start: "10:00"},
+		{task: "easy", minutes: 60, start: "11:00"}}, blocks(planner.Generate(in(true, nil))), "the hardest first")
+	require.Equal(t, []block{{task: "frog", minutes: 60, start: "14:00"}, {task: "unrated", minutes: 60, start: "09:00"},
+		{task: "easy", minutes: 60, start: "10:00"}}, blocks(planner.Generate(in(true, &[2]int{14 * 60, 17 * 60}))),
+		"hard work takes prime time")
 }

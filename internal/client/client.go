@@ -55,6 +55,8 @@ type API interface {
 	CompleteTask(ctx context.Context, id string, req wire.CompleteTaskRequest) (*wire.Task, error)
 	ReopenTask(ctx context.Context, id string) (*wire.Task, error)
 	DeleteTask(ctx context.Context, id string) error
+	// DeleteTasks deletes several tasks at once, all or none.
+	DeleteTasks(ctx context.Context, req wire.DeleteTasksRequest) (*wire.DeletedTasks, error)
 
 	StatsSummary(ctx context.Context, from, to string) (*wire.StatsSummary, error)
 	StatsHeatmap(ctx context.Context, year int) (*wire.Heatmap, error)
@@ -70,7 +72,9 @@ type API interface {
 	CreateGoal(ctx context.Context, req wire.CreateGoalRequest) (*wire.Goal, error)
 	GetGoal(ctx context.Context, id string) (*wire.Goal, error)
 	PatchGoal(ctx context.Context, id string, req wire.PatchGoalRequest) (*wire.Goal, error)
-	DeleteGoal(ctx context.Context, id string) error
+	// DeleteGoal deletes a goal, and with openTasks its open items and steps.
+	DeleteGoal(ctx context.Context, id string, openTasks bool) error
+	PreviewGoal(ctx context.Context, req wire.GoalPreviewRequest) (*wire.GoalProgress, error)
 
 	ListCommitments(ctx context.Context) (*wire.CommitmentList, error)
 	CreateCommitment(ctx context.Context, req wire.CreateCommitmentRequest) (*wire.Commitment, error)
@@ -80,6 +84,7 @@ type API interface {
 	// GetPlan reads the plan for day; "" means today.
 	GetPlan(ctx context.Context, day string) (*wire.Plan, error)
 	GeneratePlan(ctx context.Context, req wire.GeneratePlanRequest) (*wire.Plan, error)
+	SetDayHours(ctx context.Context, req wire.SetDayHoursRequest) (*wire.Plan, error)
 	PatchPlanItem(ctx context.Context, id string, req wire.PatchPlanItemRequest) (*wire.PlanItem, error)
 	Briefing(ctx context.Context) (*wire.Briefing, error)
 
@@ -88,10 +93,20 @@ type API interface {
 	CalendarSync(ctx context.Context) (*wire.CalendarStatus, error)
 
 	GoalBreakdown(ctx context.Context, goalID string, req wire.BreakdownRequest) (*wire.LlmRun, error)
+	PlanChat(ctx context.Context, req wire.PlanChatRequest) (*wire.LlmRun, error)
 	Retro(ctx context.Context, req wire.RetroRequest) (*wire.LlmRun, error)
 	GetLLMRun(ctx context.Context, id string) (*wire.LlmRun, error)
 	AcceptLLMRun(ctx context.Context, id string, req wire.AcceptRunRequest) (*wire.TaskList, error)
 	RejectLLMRun(ctx context.Context, id string) (*wire.LlmRun, error)
+	AssistantChat(ctx context.Context, req wire.AssistantChatRequest) (*wire.LlmRun, error)
+
+	ScheduleTask(ctx context.Context, req wire.ScheduleRequest) (*wire.PlanItem, error)
+	UnscheduleTask(ctx context.Context, req wire.UnscheduleRequest) (*wire.Unscheduled, error)
+	GetReview(ctx context.Context, weekStart string) (*wire.WeeklyReview, error)
+	SaveReview(ctx context.Context, weekStart string, req wire.SaveReviewRequest) (*wire.WeeklyReview, error)
+	EnergyReport(ctx context.Context, days int) (*wire.EnergyReport, error)
+	LogEnergy(ctx context.Context, req wire.LogEnergyRequest) (*wire.EnergyLog, error)
+	DeleteEnergy(ctx context.Context, id string) error
 
 	SyncStatus(ctx context.Context) (*wire.SyncStatus, error)
 	SyncNow(ctx context.Context) (*wire.SyncStatus, error)
@@ -261,6 +276,10 @@ func (c *Client) DeleteTask(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodDelete, "/v1/tasks/"+url.PathEscape(id), nil, nil, nil)
 }
 
+func (c *Client) DeleteTasks(ctx context.Context, req wire.DeleteTasksRequest) (*wire.DeletedTasks, error) {
+	return call[wire.DeletedTasks](ctx, c, http.MethodPost, "/v1/tasks/delete", nil, req)
+}
+
 func (c *Client) StatsSummary(ctx context.Context, from, to string) (*wire.StatsSummary, error) {
 	return call[wire.StatsSummary](ctx, c, http.MethodGet, "/v1/stats/summary", query("from", from, "to", to), nil)
 }
@@ -297,8 +316,16 @@ func (c *Client) PatchGoal(ctx context.Context, id string, req wire.PatchGoalReq
 	return call[wire.Goal](ctx, c, http.MethodPatch, "/v1/goals/"+url.PathEscape(id), nil, req)
 }
 
-func (c *Client) DeleteGoal(ctx context.Context, id string) error {
-	return c.do(ctx, http.MethodDelete, "/v1/goals/"+url.PathEscape(id), nil, nil, nil)
+func (c *Client) DeleteGoal(ctx context.Context, id string, openTasks bool) error {
+	var q url.Values
+	if openTasks {
+		q = query("tasks", wire.GoalTasksOpen)
+	}
+	return c.do(ctx, http.MethodDelete, "/v1/goals/"+url.PathEscape(id), q, nil, nil)
+}
+
+func (c *Client) PreviewGoal(ctx context.Context, req wire.GoalPreviewRequest) (*wire.GoalProgress, error) {
+	return call[wire.GoalProgress](ctx, c, http.MethodPost, "/v1/goals/preview", nil, req)
 }
 
 func (c *Client) ListCommitments(ctx context.Context) (*wire.CommitmentList, error) {
@@ -323,6 +350,10 @@ func (c *Client) GetPlan(ctx context.Context, day string) (*wire.Plan, error) {
 
 func (c *Client) GeneratePlan(ctx context.Context, req wire.GeneratePlanRequest) (*wire.Plan, error) {
 	return call[wire.Plan](ctx, c, http.MethodPost, "/v1/plan/generate", nil, req)
+}
+
+func (c *Client) SetDayHours(ctx context.Context, req wire.SetDayHoursRequest) (*wire.Plan, error) {
+	return call[wire.Plan](ctx, c, http.MethodPost, "/v1/plan/hours", nil, req)
 }
 
 func (c *Client) PatchPlanItem(ctx context.Context, id string, req wire.PatchPlanItemRequest) (*wire.PlanItem, error) {

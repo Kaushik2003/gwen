@@ -166,8 +166,15 @@ func (c *cli) goalCmd() *cobra.Command {
 					return err
 				}
 				req.Kind, req.TargetQuantity, req.MinutesPerUnit = wire.GoalQuantity, &f.quantity, &m
-			} else if changed("per-unit") || changed("unit") {
-				return usagef("--unit and --per-unit need --quantity")
+				if changed("daily") {
+					d, err := minutesFlag("daily", f.daily)
+					if err != nil {
+						return err
+					}
+					req.DailyMinutes = &d
+				}
+			} else if changed("per-unit") || changed("unit") || changed("daily") {
+				return usagef("--unit, --per-unit, and --daily need --quantity")
 			}
 			if changed("unit") {
 				req.Unit = &f.unit
@@ -231,6 +238,17 @@ func (c *cli) goalCmd() *cobra.Command {
 				}
 				req.MinutesPerUnit = wire.Some(m)
 			}
+			if changed("daily") {
+				if e.daily == "none" {
+					req.DailyMinutes = wire.Null[int]()
+				} else {
+					m, err := minutesFlag("daily", e.daily)
+					if err != nil {
+						return err
+					}
+					req.DailyMinutes = wire.Some(m)
+				}
+			}
 			if changed("status") {
 				req.Status = &e.status
 			}
@@ -243,6 +261,7 @@ func (c *cli) goalCmd() *cobra.Command {
 	}
 	e.register(edit, true)
 
+	var withTasks bool
 	rm := &cobra.Command{
 		Use:   "rm G",
 		Short: "Delete a goal and its session template",
@@ -252,7 +271,7 @@ func (c *cli) goalCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := c.api.DeleteGoal(cmd.Context(), g.ID); err != nil {
+			if err := c.api.DeleteGoal(cmd.Context(), g.ID, withTasks); err != nil {
 				return err
 			}
 			if !c.json {
@@ -261,14 +280,15 @@ func (c *cli) goalCmd() *cobra.Command {
 			return nil
 		},
 	}
+	rm.Flags().BoolVar(&withTasks, "with-tasks", false, "also delete its open tasks and lined-up items")
 	goal.AddCommand(ls, show, add, edit, rm, c.goalBreakdownCmd())
 	return goal
 }
 
 // goalFlags are the fields goal add and goal edit share.
 type goalFlags struct {
-	title, due, start, unit, perUnit, project, status string
-	quantity                                          int
+	title, due, start, unit, perUnit, daily, project, status string
+	quantity                                                 int
 }
 
 func (f *goalFlags) register(cmd *cobra.Command, edit bool) {
@@ -277,6 +297,7 @@ func (f *goalFlags) register(cmd *cobra.Command, edit bool) {
 	cmd.Flags().IntVar(&f.quantity, "quantity", 0, "how many units, such as 300 problems")
 	cmd.Flags().StringVar(&f.unit, "unit", "", "what a unit is called, such as problems")
 	cmd.Flags().StringVar(&f.perUnit, "per-unit", "", "time one unit takes, such as 30m")
+	cmd.Flags().StringVar(&f.daily, "daily", "", "time a day you can give it, such as 2h; none with edit clears")
 	cmd.Flags().StringVar(&f.project, "project", "", "project id, short id, or name; none for no project")
 	if edit {
 		cmd.Flags().StringVar(&f.title, "title", "", "new title")
@@ -650,10 +671,81 @@ func (c *cli) planCmd() *cobra.Command {
 		cmd.Flags().StringVar(&day, "day", "", "the plan's day (default: today)")
 		return cmd
 	}
-	plan.AddCommand(gen, move,
+	plan.AddCommand(gen, move, c.planHoursCmd(), c.planChatCmd(),
 		status("skip ITEM", "Skip a plan item", wire.PlanSkipped),
 		status("unskip ITEM", "Plan a skipped item again", wire.PlanPlanned))
 	return plan
+}
+
+// planHoursCmd is gwen plan hours: a day's own start and time for tasks
+// (docs/06-planner.md#day-hours). A flag left out keeps the day's value.
+func (c *cli) planHoursCmd() *cobra.Command {
+	var from, work string
+	var usual bool
+	cmd := &cobra.Command{
+		Use:   "hours [DAY]",
+		Short: "Set when a day's work starts and how much time it has for tasks, then replan it",
+		Args:  maxArgs(1),
+		RunE: func(cmd *cobra.Command, a []string) error {
+			ctx := cmd.Context()
+			changed := cmd.Flags().Changed
+			switch {
+			case usual && (changed("from") || changed("work")):
+				return usagef("--usual clears both, so give it alone")
+			case !usual && !changed("from") && !changed("work"):
+				return usagef("give --from, --work, or --usual")
+			}
+			day := ""
+			if len(a) == 1 {
+				day = a[0]
+			}
+			d, err := c.day(ctx, day)
+			if err != nil {
+				return err
+			}
+			req := wire.SetDayHoursRequest{Day: d}
+			if !usual {
+				p, err := c.api.GetPlan(ctx, d)
+				if err != nil {
+					return err
+				}
+				if p.Hours != nil {
+					req.StartMinute, req.WorkMinutes = p.Hours.StartMinute, p.Hours.WorkMinutes
+				}
+			}
+			if changed("from") {
+				req.StartMinute = nil
+				if !strings.EqualFold(from, "usual") {
+					tod, err := config.ParseTimeOfDay(from)
+					if err != nil {
+						return usagef("--from %q is not a time like 19:00", from)
+					}
+					m := int(tod)
+					req.StartMinute = &m
+				}
+			}
+			if changed("work") {
+				req.WorkMinutes = nil
+				if !strings.EqualFold(work, "usual") {
+					dur, err := time.ParseDuration(work)
+					if err != nil || dur < 0 {
+						return usagef("--work %q is not a duration like 3h", work)
+					}
+					m := int(dur / time.Minute)
+					req.WorkMinutes = &m
+				}
+			}
+			p, err := c.api.SetDayHours(ctx, req)
+			if err != nil {
+				return err
+			}
+			return c.printPlan(p)
+		},
+	}
+	cmd.Flags().StringVar(&from, "from", "", "when the day's work starts, HH:MM, or usual")
+	cmd.Flags().StringVar(&work, "work", "", "time for tasks, such as 3h, or usual")
+	cmd.Flags().BoolVar(&usual, "usual", false, "go back to the usual hours")
+	return cmd
 }
 
 func (c *cli) patchPlanItem(ctx context.Context, day, arg string, req wire.PatchPlanItemRequest) error {
@@ -691,6 +783,9 @@ func (c *cli) printPlan(p *wire.Plan) error {
 		fmt.Fprintf(w, "%s · %s planned of %s capacity\n", p.Day,
 			client.FormatDuration(time.Duration(p.PlannedMinutes)*time.Minute),
 			client.FormatDuration(time.Duration(p.CapacityMinutes)*time.Minute))
+		if h := hoursLine(p.Hours); h != "" {
+			fmt.Fprintf(w, "Hours: %s\n", h)
+		}
 		if len(p.Items) == 0 {
 			_, err := fmt.Fprintln(w, "Nothing planned.")
 			return err
@@ -701,6 +796,25 @@ func (c *cli) printPlan(p *wire.Plan) error {
 		}
 		return tw.Flush()
 	})
+}
+
+// hoursLine is "from 19:00 · 3h for tasks", or "" for no hours.
+func hoursLine(h *wire.DayHours) string {
+	if h == nil {
+		return ""
+	}
+	var parts []string
+	if h.StartMinute != nil {
+		parts = append(parts, fmt.Sprintf("from %02d:%02d", *h.StartMinute/60, *h.StartMinute%60))
+	}
+	switch {
+	case h.WorkMinutes == nil:
+	case *h.WorkMinutes == 0:
+		parts = append(parts, "no time for tasks")
+	default:
+		parts = append(parts, client.FormatDuration(time.Duration(*h.WorkMinutes)*time.Minute)+" for tasks")
+	}
+	return strings.Join(parts, " · ")
 }
 
 func (c *cli) briefCmd() *cobra.Command {

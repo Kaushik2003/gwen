@@ -4,18 +4,21 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 
 	"github.com/kzark/gwen/internal/client"
 	"github.com/kzark/gwen/internal/wire"
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // App is bound into the frontend. Its methods mirror client.API one to one,
 // with the same names and wire types and without the context, except Events:
 // the host forwards the event stream itself (docs/08-clients.md#gui).
 type App struct {
-	ctx  context.Context
-	api  client.API
-	host *host
+	ctx    context.Context
+	api    client.API
+	host   *host
+	screen string // the screen to open on, from --screen
 }
 
 // hostError carries an API failure to the frontend as JSON, so the UI can
@@ -109,6 +112,9 @@ func (a *App) CompleteTask(id string, req wire.CompleteTaskRequest) (*wire.Task,
 }
 func (a *App) ReopenTask(id string) (*wire.Task, error) { return call(a.api.ReopenTask(a.ctx, id)) }
 func (a *App) DeleteTask(id string) error               { return wrap(a.api.DeleteTask(a.ctx, id)) }
+func (a *App) DeleteTasks(req wire.DeleteTasksRequest) (*wire.DeletedTasks, error) {
+	return call(a.api.DeleteTasks(a.ctx, req))
+}
 
 func (a *App) StatsSummary(from, to string) (*wire.StatsSummary, error) {
 	return call(a.api.StatsSummary(a.ctx, from, to))
@@ -134,7 +140,12 @@ func (a *App) GetGoal(id string) (*wire.Goal, error) { return call(a.api.GetGoal
 func (a *App) PatchGoal(id string, req wire.PatchGoalRequest) (*wire.Goal, error) {
 	return call(a.api.PatchGoal(a.ctx, id, req))
 }
-func (a *App) DeleteGoal(id string) error { return wrap(a.api.DeleteGoal(a.ctx, id)) }
+func (a *App) DeleteGoal(id string, openTasks bool) error {
+	return wrap(a.api.DeleteGoal(a.ctx, id, openTasks))
+}
+func (a *App) PreviewGoal(req wire.GoalPreviewRequest) (*wire.GoalProgress, error) {
+	return call(a.api.PreviewGoal(a.ctx, req))
+}
 
 func (a *App) ListCommitments() (*wire.CommitmentList, error) {
 	return call(a.api.ListCommitments(a.ctx))
@@ -151,12 +162,22 @@ func (a *App) GetPlan(day string) (*wire.Plan, error) { return call(a.api.GetPla
 func (a *App) GeneratePlan(req wire.GeneratePlanRequest) (*wire.Plan, error) {
 	return call(a.api.GeneratePlan(a.ctx, req))
 }
+func (a *App) SetDayHours(req wire.SetDayHoursRequest) (*wire.Plan, error) {
+	return call(a.api.SetDayHours(a.ctx, req))
+}
 func (a *App) PatchPlanItem(id string, req wire.PatchPlanItemRequest) (*wire.PlanItem, error) {
 	return call(a.api.PatchPlanItem(a.ctx, id, req))
 }
 func (a *App) Briefing() (*wire.Briefing, error) { return call(a.api.Briefing(a.ctx)) }
 
 // Host-only methods.
+
+// StartScreen is the screen the dashboard was opened on, once; "" after.
+func (a *App) StartScreen() string {
+	s := a.screen
+	a.screen = ""
+	return s
+}
 
 // Version is the GUI's own version.
 func (a *App) Version() string { return version }
@@ -179,3 +200,27 @@ func (a *App) SetAutostart(enable bool) error { return wrap(a.host.setAutostart(
 
 // Autostart reports whether the tray starts at login.
 func (a *App) Autostart() bool { return a.host.autostart() }
+
+// HasCredential reports whether a credential file is stored, without reading it.
+func (a *App) HasCredential(name string) bool { return a.host.hasCredential(name) }
+
+// ClaudeCode reports whether command is a signed-in Claude Code CLI, as gwen setup llm checks.
+func (a *App) ClaudeCode(command string) ClaudeCodeStatus { return a.host.claudeCode(a.ctx, command) }
+
+// ChooseGoogleClient asks for the Google OAuth client JSON in a file dialog,
+// then installs it and turns the calendar on, as gwen setup calendar
+// --client-file does. It is false when the dialog was cancelled.
+func (a *App) ChooseGoogleClient() (bool, error) {
+	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title:   "Choose the OAuth client file from Google Cloud Console",
+		Filters: []runtime.FileFilter{{DisplayName: "OAuth client (*.json)", Pattern: "*.json"}},
+	})
+	if err != nil || path == "" {
+		return false, wrap(err)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return false, wrap(err)
+	}
+	return true, wrap(a.host.installGoogleClient(a.ctx, b))
+}

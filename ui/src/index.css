@@ -1,20 +1,239 @@
 @import "tailwindcss";
 
+/* The design system is ui/DESIGN.md: a near-black canvas, a surface ladder
+   with hairline borders, light grey ink, and lavender as the only brand
+   accent. State and project colours are data, never decoration. */
 @theme {
-  --font-sans: "Inter", "Noto Sans", system-ui, sans-serif;
+  --font-sans: "Inter Variable", "Inter", "Noto Sans", system-ui, sans-serif;
+
+  --color-canvas: #010102;
+  --color-surface-1: #0f1011;
+  --color-surface-2: #141516;
+  --color-surface-3: #18191a;
+  --color-surface-4: #191a1b;
+  --color-line: #23252a;
+  --color-line-strong: #34343a;
+  --color-line-3: #3e3e44;
+
+  --color-ink: #f7f8f8;
+  --color-ink-muted: #d0d6e0;
+  --color-ink-subtle: #8a8f98;
+  --color-ink-faint: #62666d;
+
+  --color-accent: #5e6ad2;
+  --color-accent-hover: #828fff;
+  --color-accent-focus: #5e69d1;
+
+  /* Tracking states, matching the tray icons. */
+  --color-working: #27a644;
+  --color-idle: #f2c94c;
+  --color-break: #4ea7fc;
+  --color-off: #62666d;
+  --color-danger: #eb5757;
+
+  --text-display: 4.5rem;
+  --text-display--line-height: 1;
+  --text-display--letter-spacing: -0.045em;
+  --text-headline: 1.75rem;
+  --text-headline--line-height: 1.2;
+  --text-headline--letter-spacing: -0.021em;
+  --text-title: 1.375rem;
+  --text-title--line-height: 1.25;
+  --text-title--letter-spacing: -0.018em;
+
+  --animate-live: live 2.4s ease-in-out infinite;
+  --animate-indeterminate: indeterminate 1.6s ease-in-out infinite;
+  --animate-pop: pop 160ms ease-out;
+
+  @keyframes live {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.35;
+    }
+  }
+  @keyframes indeterminate {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(300%);
+    }
+  }
+  @keyframes pop {
+    from {
+      opacity: 0;
+      transform: translateY(6px) scale(0.985);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
 }
 
-html,
-body,
-#root {
-  height: 100%;
+@layer base {
+  /* Always dark: native controls, popups and scrollbars draw dark too, so
+     nothing depends on the GTK theme (light Breeze with prefer-dark used to
+     give light controls with light text). */
+  :root {
+    color-scheme: dark;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    background-color: var(--color-canvas);
+    color: var(--color-ink);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  ::selection {
+    background-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+  }
+
+  :focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--color-accent-focus) 75%, transparent);
+    outline-offset: 2px;
+  }
+
+  ::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+  }
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--color-line-strong);
+    background-clip: content-box;
+    border: 3px solid transparent;
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--color-line-3);
+  }
 }
 
-body {
-  @apply bg-zinc-50 text-zinc-900 antialiased dark:bg-zinc-950 dark:text-zinc-100;
+@layer components {
+  /* Every text field, select, date and time input. */
+  .field {
+    appearance: none;
+    -webkit-appearance: none;
+    min-width: 0;
+    height: 2.125rem;
+    padding: 0 0.75rem;
+    border: 1px solid var(--color-line-strong);
+    border-radius: 0.5rem;
+    background-color: var(--color-surface-2);
+    color: var(--color-ink);
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    transition:
+      border-color 120ms,
+      box-shadow 120ms;
+  }
+  .field:hover:not(:disabled):not(:focus) {
+    border-color: var(--color-line-3);
+  }
+  .field:focus {
+    outline: none;
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 30%, transparent);
+  }
+  .field:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+  .field::placeholder {
+    color: var(--color-ink-faint);
+  }
+  textarea.field {
+    height: auto;
+    padding: 0.5rem 0.75rem;
+    resize: vertical;
+  }
+  select.field {
+    cursor: pointer;
+    padding-right: 2rem;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238a8f98' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-position: right 0.625rem center;
+    background-repeat: no-repeat;
+    background-size: 14px;
+  }
+  select.field option,
+  select.field optgroup {
+    background-color: var(--color-surface-2);
+    color: var(--color-ink);
+  }
+  .field::-webkit-calendar-picker-indicator {
+    cursor: pointer;
+    filter: invert(0.7);
+  }
+  .field::-webkit-inner-spin-button,
+  .field::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type="number"].field {
+    -moz-appearance: textfield;
+  }
+
+  /* A colour input shown as a round swatch. */
+  .swatch {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 1.5rem;
+    height: 1.5rem;
+    padding: 0;
+    border: 0;
+    background: none;
+    cursor: pointer;
+  }
+  .swatch::-webkit-color-swatch-wrapper {
+    padding: 0;
+  }
+  .swatch::-webkit-color-swatch {
+    border: 1px solid var(--color-line-3);
+    border-radius: 9999px;
+  }
+
+  /* The faint top-edge highlight of a lifted panel. */
+  .lift {
+    box-shadow: inset 0 1px 0 0 rgb(255 255 255 / 0.035);
+  }
+
+  /* Breaks are hatched in the break colour; fixed commitments in grey. */
+  .hatched {
+    background-color: color-mix(in srgb, var(--color-break) 14%, transparent);
+    background-image: repeating-linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--color-break) 60%, transparent) 0 2px,
+      transparent 2px 6px
+    );
+  }
+  .hatched-grey {
+    background-color: rgb(255 255 255 / 0.03);
+    background-image: repeating-linear-gradient(135deg, rgb(255 255 255 / 0.13) 0 2px, transparent 2px 6px);
+  }
 }
 
-/* Breaks are hatched on the timeline. */
-.hatched {
-  background-image: repeating-linear-gradient(135deg, rgb(161 161 170 / 0.55) 0 4px, transparent 4px 8px);
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
 }

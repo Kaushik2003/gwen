@@ -12,7 +12,7 @@ import (
 )
 
 // maxTokens bounds every Anthropic reply.
-const maxTokens = 4096
+const maxTokens = 16000
 
 // anthropic calls the Messages API with plain net/http.
 type anthropic struct {
@@ -50,8 +50,8 @@ type apiError struct {
 	} `json:"error"`
 }
 
-func (a anthropic) complete(ctx context.Context, system, user string) (string, error) {
-	body := anthropicRequest{Model: a.model, MaxTokens: maxTokens, System: system,
+func (a anthropic) complete(ctx context.Context, p prompt, user string) (string, error) {
+	body := anthropicRequest{Model: a.model, MaxTokens: maxTokens, System: p.system,
 		Messages: []anthropicMessage{{Role: "user", Content: user}}}
 	headers := map[string]string{"x-api-key": a.key, "anthropic-version": "2023-06-01"}
 	var res anthropicResponse
@@ -105,9 +105,9 @@ type openAIResponse struct {
 	} `json:"choices"`
 }
 
-func (o openAI) complete(ctx context.Context, system, user string) (string, error) {
+func (o openAI) complete(ctx context.Context, p prompt, user string) (string, error) {
 	body := openAIRequest{Model: o.model, ResponseFormat: map[string]string{"type": "json_object"},
-		Messages: []openAIMessage{{Role: "system", Content: system}, {Role: "user", Content: user}}}
+		Messages: []openAIMessage{{Role: "system", Content: p.system}, {Role: "user", Content: user}}}
 	headers := map[string]string{}
 	if o.key != "" {
 		headers["Authorization"] = "Bearer " + o.key

@@ -56,11 +56,12 @@ func TestDefaultsMatchTheSpec(t *testing.T) {
 		Tracking: wire.TrackingConfig{DailyTarget: "8h", SoftIdle: "3m", HardIdle: "10m", DayRollover: "04:00"},
 		Nudge:    wire.NudgeConfig{Desktop: true, Phone: false, BreakReminder: "15m", Repeat: "10m", Snooze: "10m"},
 		Ntfy:     wire.NtfyConfig{Server: "https://ntfy.sh", FallbackServer: "", Topic: ""},
-		Planner:  wire.PlannerConfig{DayStart: "09:00", DayEnd: "23:00", Buffer: "30m"},
+		Planner:  wire.PlannerConfig{DayStart: "09:00", DayEnd: "23:00", Buffer: "30m", EatTheFrog: true},
 		Calendar: wire.CalendarConfig{Enabled: false, Name: "Gwen", BusyCalendars: []string{"primary"}},
-		LLM:      wire.LLMConfig{Provider: "none", Model: "claude-sonnet-5", Endpoint: "", Timeout: "30s"},
-		Sync:     wire.SyncConfig{HubURL: "", Interval: "5m"},
-		Log:      wire.LogConfig{Level: "info"},
+		LLM: wire.LLMConfig{Provider: "none", Model: "claude-sonnet-5", Endpoint: "", Command: "claude", Timeout: "2m",
+			AssistantName: "Gwen", Personality: "coach"},
+		Sync: wire.SyncConfig{HubURL: "", Interval: "5m"},
+		Log:  wire.LogConfig{Level: "info"},
 	}, w)
 }
 
@@ -101,6 +102,8 @@ func TestLoadRejects(t *testing.T) {
 		{name: "negative duration", body: "[planner]\nbuffer = \"-5m\"\n", key: "planner.buffer"},
 		{name: "not a duration", body: "[sync]\ninterval = \"often\"\n", key: "sync.interval"},
 		{name: "unknown enum", body: "[llm]\nprovider = \"skynet\"\n", key: "llm.provider"},
+		{name: "empty command", body: "[llm]\ncommand = \"\"\n", key: "llm.command"},
+		{name: "relative command path", body: "[llm]\ncommand = \"bin/claude\"\n", key: "llm.command"},
 		{name: "unknown log level", body: "[log]\nlevel = \"loud\"\n", key: "log.level"},
 		{name: "bad url", body: "[ntfy]\nfallback_server = \"ntfy.local\"\n", key: "ntfy.fallback_server"},
 		{name: "empty required url", body: "[ntfy]\nserver = \"\"\n", key: "ntfy.server"},
@@ -127,6 +130,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	c.Calendar.BusyCalendars = []string{}
 	c.LLM.Provider = config.ProviderOpenAICompatible
 	c.LLM.Endpoint = "http://localhost:11434/v1"
+	c.LLM.Command = "/home/u/.local/bin/claude"
 	c.Log.Level = slog.LevelDebug
 
 	require.NoError(t, config.Save(path, c))
@@ -183,6 +187,14 @@ func TestPatch(t *testing.T) {
 				require.True(t, c.Nudge.Phone)
 				require.Equal(t, []string{"a", "b"}, c.Calendar.BusyCalendars)
 				require.Equal(t, base.Tracking, c.Tracking)
+			},
+		},
+		{
+			name:  "claude code",
+			patch: wire.ConfigPatch{"llm": {"provider": "claude_code", "command": "/opt/claude/bin/claude"}},
+			check: func(t *testing.T, c config.Config) {
+				require.Equal(t, config.ProviderClaudeCode, c.LLM.Provider)
+				require.Equal(t, "/opt/claude/bin/claude", c.LLM.Command)
 			},
 		},
 		{name: "unknown section", patch: wire.ConfigPatch{"trackng": {"soft_idle": "1m"}}, wantKey: "trackng"},

@@ -78,36 +78,49 @@ func (execRunner) start(name string, args ...string) error {
 // systrayView is the fyne.io/systray menu. Items are created once and shown or
 // hidden, since systray cannot remove them.
 type systrayView struct {
-	mu                                                   sync.Mutex
-	status, clockIn, startBreak, endBreak, switchProject *systray.MenuItem
-	snooze, clockOut, open, startGwen, quit              *systray.MenuItem
-	projectItems                                         []*systray.MenuItem
-	projectIDs                                           []*string
-	icon                                                 string
-	built                                                bool
-	pending                                              *Menu
+	mu                                           sync.Mutex
+	lines                                        []*item
+	clockIn, startBreak, endBreak, switchProject *item
+	snooze, clockOut, startGwen                  *item
+	projectItems                                 []*item
+	projectIDs                                   []*string
+	energy                                       *item
+	icon, tooltip                                string
+	built                                        bool
+	pending                                      *Menu
 }
 
 func (v *systrayView) build(c *controller, quit context.CancelFunc) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	systray.SetTitle("Gwen")
-	v.status = systray.AddMenuItem("", "")
-	v.status.Disable()
-	v.clockIn = systray.AddMenuItem("Clock in", "Start tracking the day")
-	v.startBreak = systray.AddMenuItem("Start break", "")
-	v.endBreak = systray.AddMenuItem("End break", "")
-	v.switchProject = systray.AddMenuItem("Switch project", "")
+	for range maxLines {
+		line := addItem("", "")
+		line.mi.Disable()
+		v.lines = append(v.lines, line)
+	}
+	v.clockIn = addItem("Clock in", "Start tracking the day")
+	v.startBreak = addItem("Start break", "")
+	v.endBreak = addItem("End break", "")
+	v.switchProject = addItem("Switch project", "")
 	for range maxProjects + 1 {
-		v.projectItems = append(v.projectItems, v.switchProject.AddSubMenuItemCheckbox("", "", false))
+		v.projectItems = append(v.projectItems, &item{mi: v.switchProject.mi.AddSubMenuItemCheckbox("", "", false)})
 		v.projectIDs = append(v.projectIDs, nil)
 	}
-	v.snooze = systray.AddMenuItem("Snooze nudges", "")
-	v.clockOut = systray.AddMenuItem("Clock out", "End the work day")
+	v.snooze = addItem("Snooze nudges", "")
+	v.clockOut = addItem("Clock out", "End the work day")
 	systray.AddSeparator()
-	v.open = systray.AddMenuItem("Open dashboard", "")
-	v.startGwen = systray.AddMenuItem("Start Gwen", "Start the Gwen daemon")
-	v.quit = systray.AddMenuItem("Quit tray", "Close the tray; tracking goes on")
+	v.energy = addItem("Log energy", "How is your energy right now? Gwen finds your prime time from these")
+	var levels []*systray.MenuItem
+	for i := len(EnergyLevels) - 1; i >= 0; i-- {
+		levels = append(levels, v.energy.mi.AddSubMenuItem(EnergyLevels[i], ""))
+	}
+	ask := systray.AddMenuItem("Ask the assistant…", "Talk to your AI assistant")
+	capture := systray.AddMenuItem("Capture to inbox…", "Jot down a task to sort out later")
+	board := systray.AddMenuItem("Task board", "Your tasks by stage")
+	open := systray.AddMenuItem("Open dashboard", "")
+	v.startGwen = addItem("Start Gwen", "Start the Gwen daemon")
+	quitItem := systray.AddMenuItem("Quit tray", "Close the tray; tracking goes on")
 
 	on := func(item *systray.MenuItem, fn func()) {
 		go func() {
@@ -116,16 +129,22 @@ func (v *systrayView) build(c *controller, quit context.CancelFunc) {
 			}
 		}()
 	}
-	on(v.clockIn, c.clockIn)
-	on(v.startBreak, c.startBreak)
-	on(v.endBreak, c.endBreak)
-	on(v.snooze, c.snooze)
-	on(v.clockOut, c.clockOut)
-	on(v.open, c.openDashboard)
-	on(v.startGwen, c.startGwen)
-	on(v.quit, func() { quit(); systray.Quit() })
+	on(v.clockIn.mi, c.clockIn)
+	on(v.startBreak.mi, c.startBreak)
+	on(v.endBreak.mi, c.endBreak)
+	on(v.snooze.mi, c.snooze)
+	on(v.clockOut.mi, c.clockOut)
+	on(open, c.openDashboard)
+	on(ask, func() { c.openScreen("assistant") })
+	on(capture, func() { c.openScreen("inbox") })
+	on(board, func() { c.openScreen("board") })
+	for i, mi := range levels {
+		on(mi, func() { c.logEnergy(len(EnergyLevels) - i) })
+	}
+	on(v.startGwen.mi, c.startGwen)
+	on(quitItem, func() { quit(); systray.Quit() })
 	for i, item := range v.projectItems {
-		on(item, func() {
+		on(item.mi, func() {
 			v.mu.Lock()
 			id := v.projectIDs[i]
 			v.mu.Unlock()
@@ -148,7 +167,7 @@ func (v *systrayView) show(m Menu) {
 	v.apply(m)
 }
 
-// apply updates every item; v.mu must be held.
+// apply updates what changed; v.mu must be held.
 func (v *systrayView) apply(m Menu) {
 	if m.Icon != v.icon {
 		if b, err := tray.Icon(m.Icon, 44); err == nil {
@@ -158,31 +177,79 @@ func (v *systrayView) apply(m Menu) {
 			slog.Warn("tray icon", "err", err)
 		}
 	}
-	systray.SetTooltip(m.Tooltip)
-	v.status.SetTitle(m.Tooltip)
-	for item, visible := range map[*systray.MenuItem]bool{
+	if m.Tooltip != v.tooltip {
+		systray.SetTooltip(m.Tooltip)
+		v.tooltip = m.Tooltip
+	}
+	for i, line := range v.lines {
+		if i < len(m.Lines) {
+			line.setTitle(m.Lines[i])
+		}
+		line.setShown(i < len(m.Lines))
+	}
+	for item, shown := range map[*item]bool{
 		v.clockIn: m.ClockIn, v.startBreak: m.StartBreak, v.endBreak: m.EndBreak,
 		v.switchProject: m.SwitchProject, v.snooze: m.Snooze, v.clockOut: m.ClockOut, v.startGwen: m.StartGwen,
+		v.energy: m.Energy,
 	} {
-		if visible {
-			item.Show()
-		} else {
-			item.Hide()
-		}
+		item.setShown(shown)
+	}
+	if m.EnergyTitle != "" {
+		v.energy.setTitle(m.EnergyTitle)
 	}
 	for i, item := range v.projectItems {
 		if i >= len(m.Projects) {
-			item.Hide()
+			item.setShown(false)
 			continue
 		}
 		p := m.Projects[i]
 		v.projectIDs[i] = p.ID
-		item.SetTitle(p.Name)
-		if p.Checked {
-			item.Check()
-		} else {
-			item.Uncheck()
-		}
-		item.Show()
+		item.setTitle(p.Name)
+		item.setChecked(p.Checked)
+		item.setShown(true)
 	}
+}
+
+// item is a menu item and what it shows, so a render sends only what changed:
+// every systray call is a D-Bus signal, and the timer re-renders every second.
+type item struct {
+	mi              *systray.MenuItem
+	title           string
+	hidden, checked bool
+}
+
+// addItem adds a top-level item, which systray shows unchecked.
+func addItem(title, tooltip string) *item {
+	return &item{mi: systray.AddMenuItem(title, tooltip), title: title}
+}
+
+func (i *item) setTitle(title string) {
+	if title != i.title {
+		i.mi.SetTitle(title)
+		i.title = title
+	}
+}
+
+func (i *item) setShown(shown bool) {
+	if shown == !i.hidden {
+		return
+	}
+	if shown {
+		i.mi.Show()
+	} else {
+		i.mi.Hide()
+	}
+	i.hidden = !shown
+}
+
+func (i *item) setChecked(checked bool) {
+	if checked == i.checked {
+		return
+	}
+	if checked {
+		i.mi.Check()
+	} else {
+		i.mi.Uncheck()
+	}
+	i.checked = checked
 }

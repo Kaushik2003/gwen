@@ -34,6 +34,33 @@ const (
 	TaskDone = "done"
 )
 
+// Task stages (tasks.stage): where an open task stands on the board. Inbox
+// holds what is captured but not yet processed (Getting Things Done); the
+// planner never plans waiting or someday tasks.
+const (
+	StageInbox   = "inbox"
+	StageTodo    = "todo"
+	StageDoing   = "doing"
+	StageWaiting = "waiting"
+	StageSomeday = "someday"
+)
+
+// ValidStage reports whether s is a task stage.
+func ValidStage(s string) bool {
+	switch s {
+	case StageInbox, StageTodo, StageDoing, StageWaiting, StageSomeday:
+		return true
+	}
+	return false
+}
+
+// Task efforts (tasks.effort), for eating the frog.
+const (
+	EffortEasy   = 1
+	EffortMedium = 2
+	EffortHard   = 3
+)
+
 // Goal kinds (goals.kind) and statuses (goals.status).
 const (
 	GoalQuantity  = "quantity"
@@ -122,11 +149,31 @@ type Task struct {
 	RRule         *string
 	TemplateID    *string
 	OccurrenceDay *string
+	// v4: a task with a ParentID is a step of that task.
+	ParentID *string
+	// v6: the first day the task is for, and the earliest time on it.
+	StartDay    *string
+	StartMinute *int
+	// v7: the board stage, how hard the task is (nil when unrated), and who
+	// it was handed to.
+	Stage       string
+	Effort      *int
+	DelegatedTo string
 	Envelope
 }
 
+// Plannable reports whether the planner may plan the task by its stage.
+func (t Task) Plannable() bool { return t.Stage != StageWaiting && t.Stage != StageSomeday }
+
+// IsTodo reports whether the task is a quick to-do: one with no estimate,
+// never planned.
+func (t Task) IsTodo() bool { return t.Estimate == nil }
+
 // IsTemplate reports whether the task is a recurring template.
 func (t Task) IsTemplate() bool { return t.RRule != nil }
+
+// IsStep reports whether the task is a step of another task.
+func (t Task) IsStep() bool { return t.ParentID != nil }
 
 // WorkDay is a row of work_days.
 type WorkDay struct {
@@ -176,6 +223,12 @@ type Goal struct {
 	StartDay       string
 	DueDay         string
 	Status         string
+	Daily          *time.Duration // daily_minutes, v4
+	// v7: SMART. Time-related is StartDay and DueDay; the rest is text.
+	Specific   string
+	Measurable string
+	Assignable string
+	Realistic  string
 	Envelope
 }
 
@@ -208,10 +261,44 @@ type PlanItem struct {
 	Envelope
 }
 
+// DayHours is a row of day_hours: a day's own window start and time for
+// tasks (docs/06-planner.md#day-hours). A nil field means the usual value.
+type DayHours struct {
+	ID          string
+	Day         string
+	StartMinute *int
+	Work        *time.Duration // work_minutes
+	Envelope
+}
+
+// WeeklyReview is a row of weekly_reviews: one week's reflection, keyed by
+// its Monday. Checklist is a bit set of the review's steps done.
+type WeeklyReview struct {
+	ID           string
+	WeekStart    string
+	WentWell     string
+	WentBadly    string
+	Energy       string
+	Decisions    string
+	Improvements string
+	Checklist    int
+	Envelope
+}
+
+// EnergyLog is a row of energy_logs: one energy check-in, 1 to 5.
+type EnergyLog struct {
+	ID    string
+	At    time.Time
+	Level int
+	Envelope
+}
+
 // LLM run kinds (llm_runs.kind) and statuses (llm_runs.status).
 const (
 	RunBreakdown = "breakdown"
 	RunRetro     = "retro"
+	RunDayPlan   = "day_plan"
+	RunAssistant = "assistant"
 	RunOK        = "ok"
 	RunFailed    = "failed"
 	RunAccepted  = "accepted"

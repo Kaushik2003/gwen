@@ -36,8 +36,9 @@ type ProjectRepo interface {
 	// Create inserts a project; a nil color takes the next palette colour.
 	Create(ctx context.Context, name string, color *string) (model.Project, error)
 	Update(ctx context.Context, id string, p ProjectPatch) (model.Project, error)
-	// Delete soft-deletes the project and its live tasks in one transaction.
-	Delete(ctx context.Context, id string) error
+	// Delete soft-deletes the project, its tasks, and its goals in one
+	// transaction (docs/06-planner.md#deleting).
+	Delete(ctx context.Context, id string) (Changes, error)
 }
 
 type projectRepo struct{ db *DB }
@@ -238,26 +239,40 @@ func (r projectRepo) Update(ctx context.Context, id string, patch ProjectPatch) 
 	return p, nil
 }
 
-func (r projectRepo) Delete(ctx context.Context, id string) error {
+func (r projectRepo) Delete(ctx context.Context, id string) (Changes, error) {
+	var ch Changes
 	err := r.db.InTx(ctx, func(tx *sql.Tx) error {
 		if _, err := getProject(ctx, tx, id); err != nil {
 			return err
 		}
-		now, dev := r.db.Now().UnixMilli(), r.db.DeviceID()
-		const qDeleteProject = `UPDATE projects SET deleted_at = ?, updated_at = ?, device_id = ?, rev = rev + 1
-			WHERE id = ?`
-		if _, err := tx.ExecContext(ctx, qDeleteProject, now, now, dev, id); err != nil {
+		const qProjectGoals = `SELECT ` + goalCols + ` FROM goals WHERE deleted_at IS NULL AND project_id = ?
+			ORDER BY created_at, id`
+		goals, err := queryGoals(ctx, tx, qProjectGoals, id)
+		if err != nil {
 			return err
 		}
-		const qDeleteProjectTasks = `UPDATE tasks SET deleted_at = ?, updated_at = ?, device_id = ?, rev = rev + 1
-			WHERE project_id = ? AND deleted_at IS NULL`
-		_, err := tx.ExecContext(ctx, qDeleteProjectTasks, now, now, dev, id)
-		return err
+		for _, g := range goals {
+			if err := deleteGoal(ctx, tx, r.db, g, true, &ch); err != nil {
+				return err
+			}
+		}
+		const qProjectTasks = `SELECT ` + taskCols + ` FROM tasks WHERE deleted_at IS NULL AND project_id = ?
+			ORDER BY created_at, id`
+		tasks, err := queryTasks(ctx, tx, qProjectTasks, id)
+		if err != nil {
+			return err
+		}
+		for _, t := range tasks {
+			if err := deleteTask(ctx, tx, r.db, t, &ch); err != nil {
+				return err
+			}
+		}
+		return softDelete(ctx, tx, r.db, "projects", id)
 	})
 	if err != nil {
-		return fmt.Errorf("delete project %s: %w", id, err)
+		return Changes{}, fmt.Errorf("delete project %s: %w", id, err)
 	}
-	return nil
+	return ch, nil
 }
 
 // projectExists checks that a live project exists, for foreign keys.

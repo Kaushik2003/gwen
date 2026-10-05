@@ -79,6 +79,22 @@ type CreateTaskRequest struct {
 	GoalID          *string `json:"goal_id,omitempty"`
 	Quantity        *int    `json:"quantity,omitempty"`
 	RRule           *string `json:"rrule,omitempty"`
+	ParentID        *string `json:"parent_id,omitempty"`
+	StartDay        *string `json:"start_day,omitempty"`
+	StartMinute     *int    `json:"start_minute,omitempty"`
+	Stage           *string `json:"stage,omitempty"`
+	Effort          *int    `json:"effort,omitempty"`
+	DelegatedTo     *string `json:"delegated_to,omitempty"`
+	// Schedule puts the new task on a day at a time the user chose.
+	Schedule *TaskSchedule `json:"schedule,omitempty"`
+}
+
+// TaskSchedule is the block a new task is put on: day, a start (nil leaves
+// the time to the planner), and minutes.
+type TaskSchedule struct {
+	Day            string `json:"day"`
+	StartAt        *int64 `json:"start_at"`
+	PlannedMinutes int    `json:"planned_minutes"`
 }
 
 // PatchTaskRequest is the PATCH /v1/tasks/{id} body.
@@ -92,7 +108,24 @@ type PatchTaskRequest struct {
 	GoalID          Optional[string] `json:"goal_id,omitzero" ts_type:"string | null"`
 	Quantity        Optional[int]    `json:"quantity,omitzero" ts_type:"number | null"`
 	RRule           Optional[string] `json:"rrule,omitzero" ts_type:"string | null"`
+	ParentID        Optional[string] `json:"parent_id,omitzero" ts_type:"string | null"`
+	StartDay        Optional[string] `json:"start_day,omitzero" ts_type:"string | null"`
+	StartMinute     Optional[int]    `json:"start_minute,omitzero" ts_type:"number | null"`
+	Stage           *string          `json:"stage,omitempty"`
+	Effort          Optional[int]    `json:"effort,omitzero" ts_type:"number | null"`
+	DelegatedTo     *string          `json:"delegated_to,omitempty"`
 	Rev             *int64           `json:"rev,omitempty"`
+}
+
+// DeleteTasksRequest is the POST /v1/tasks/delete body.
+type DeleteTasksRequest struct {
+	IDs []string `json:"ids"`
+}
+
+// DeletedTasks is the POST /v1/tasks/delete response: every task deleted,
+// cascades included.
+type DeletedTasks struct {
+	TaskIDs []string `json:"task_ids"`
 }
 
 // CompleteTaskRequest is the POST /v1/tasks/{id}/complete body. A nil
@@ -129,10 +162,30 @@ type CreateGoalRequest struct {
 	Unit           *string `json:"unit,omitempty"`
 	TargetQuantity *int    `json:"target_quantity"`
 	MinutesPerUnit *int    `json:"minutes_per_unit"`
+	DailyMinutes   *int    `json:"daily_minutes,omitempty"`
 	ProjectID      *string `json:"project_id"`
 	StartDay       string  `json:"start_day"`
 	DueDay         string  `json:"due_day"`
+	Specific       *string `json:"specific,omitempty"`
+	Measurable     *string `json:"measurable,omitempty"`
+	Assignable     *string `json:"assignable,omitempty"`
+	Realistic      *string `json:"realistic,omitempty"`
 }
+
+// GoalPreviewRequest is the POST /v1/goals/preview body. A nil GoalID
+// previews a new goal.
+type GoalPreviewRequest struct {
+	GoalID         *string `json:"goal_id"`
+	Kind           string  `json:"kind"`
+	TargetQuantity *int    `json:"target_quantity"`
+	MinutesPerUnit *int    `json:"minutes_per_unit"`
+	DailyMinutes   *int    `json:"daily_minutes"`
+	StartDay       string  `json:"start_day"`
+	DueDay         string  `json:"due_day"`
+}
+
+// Values of the tasks query parameter of DELETE /v1/goals/{id}.
+const GoalTasksOpen = "open"
 
 // PatchGoalRequest is the PATCH /v1/goals/{id} body. Kind cannot change.
 type PatchGoalRequest struct {
@@ -141,10 +194,15 @@ type PatchGoalRequest struct {
 	Unit           *string          `json:"unit,omitempty"`
 	TargetQuantity Optional[int]    `json:"target_quantity,omitzero" ts_type:"number | null"`
 	MinutesPerUnit Optional[int]    `json:"minutes_per_unit,omitzero" ts_type:"number | null"`
+	DailyMinutes   Optional[int]    `json:"daily_minutes,omitzero" ts_type:"number | null"`
 	ProjectID      Optional[string] `json:"project_id,omitzero" ts_type:"string | null"`
 	StartDay       *string          `json:"start_day,omitempty"`
 	DueDay         *string          `json:"due_day,omitempty"`
 	Status         *string          `json:"status,omitempty"`
+	Specific       *string          `json:"specific,omitempty"`
+	Measurable     *string          `json:"measurable,omitempty"`
+	Assignable     *string          `json:"assignable,omitempty"`
+	Realistic      *string          `json:"realistic,omitempty"`
 	Rev            *int64           `json:"rev,omitempty"`
 }
 
@@ -177,6 +235,14 @@ type PatchCommitmentRequest struct {
 // GeneratePlanRequest is the POST /v1/plan/generate body.
 type GeneratePlanRequest struct {
 	Day string `json:"day"`
+}
+
+// SetDayHoursRequest is the POST /v1/plan/hours body. Both fields replace the
+// day's hours; nil is the usual value.
+type SetDayHoursRequest struct {
+	Day         string `json:"day"`
+	StartMinute *int   `json:"start_minute"`
+	WorkMinutes *int   `json:"work_minutes"`
 }
 
 // PatchPlanItemRequest is the PATCH /v1/plan/items/{id} body. Status is only

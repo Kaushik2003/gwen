@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 
@@ -104,4 +106,43 @@ func TestLLMEndpoints(t *testing.T) {
 	apiErr(t, err, wire.CodeNotFound)
 	_, err = d.c.GetLLMRun(d.ctx, "nope")
 	apiErr(t, err, wire.CodeNotFound)
+}
+
+// TestLLMThroughClaudeCode runs both jobs through a fake Claude Code CLI,
+// configured the way gwen setup llm does it.
+func TestLLMThroughClaudeCode(t *testing.T) {
+	t.Setenv("INVOCATION_ID", "") // not a systemd unit, so no scope
+	os.Unsetenv("INVOCATION_ID")
+	cli := filepath.Join(t.TempDir(), "claude")
+	require.NoError(t, os.WriteFile(cli, []byte(`#!/bin/sh
+cat > /dev/null
+case "$*" in
+*'"markdown"'*) echo '{"type": "result", "is_error": false, "result": "", "structured_output": {"markdown": "Steady week."}}' ;;
+*) echo '{"type": "result", "is_error": false, "result": "", "structured_output": {"tasks": [{"title": "Outline", "notes": "", "estimate_minutes": 60, "due_day": "2026-09-20", "priority": 3, "quantity": null}]}}' ;;
+esac
+`), 0o755))
+	d := startDaemon(t, setup{llm: true})
+	g, err := d.c.CreateGoal(d.ctx, wire.CreateGoalRequest{Title: "Thesis", Kind: wire.GoalTasks,
+		StartDay: testutil.Day0, DueDay: "2026-10-31"})
+	require.NoError(t, err)
+	_, err = d.c.PatchConfig(d.ctx, wire.ConfigPatch{"llm": {"provider": "claude_code", "command": cli}})
+	require.NoError(t, err)
+
+	run, err := d.c.GoalBreakdown(d.ctx, g.ID, wire.BreakdownRequest{})
+	require.NoError(t, err)
+	require.Equal(t, wire.RunOK, run.Status, string(run.Output))
+	var out wire.BreakdownOutput
+	require.NoError(t, json.Unmarshal(run.Output, &out))
+	require.Equal(t, "Outline", out.Tasks[0].Title)
+
+	retro, err := d.c.Retro(d.ctx, wire.RetroRequest{WeekStart: "2026-09-07"})
+	require.NoError(t, err)
+	var ro wire.RetroOutput
+	require.NoError(t, json.Unmarshal(retro.Output, &ro))
+	require.Equal(t, wire.RetroOutput{Markdown: "Steady week.", GeneratedBy: "llm"}, ro)
+
+	_, err = d.c.PatchConfig(d.ctx, wire.ConfigPatch{"llm": {"command": filepath.Join(t.TempDir(), "claude")}})
+	require.NoError(t, err)
+	_, err = d.c.GoalBreakdown(d.ctx, g.ID, wire.BreakdownRequest{})
+	require.Contains(t, apiErr(t, err, wire.CodeUnavailable).Message, "was not found")
 }

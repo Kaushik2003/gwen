@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/kzark/gwen/internal/client"
+	"github.com/kzark/gwen/internal/config"
 	"github.com/kzark/gwen/internal/wire"
 	"github.com/spf13/cobra"
 )
@@ -181,21 +182,25 @@ func (c *cli) printProject(p *wire.Project) error {
 
 // taskFlags are the fields task add and task edit share.
 type taskFlags struct {
-	project, due, estimate, notes, title, goal, rrule string
-	priority, quantity                                int
+	project, due, estimate, notes, title, goal, rrule, parent, from, at string
+	priority, quantity                                                  int
 }
 
 func (f *taskFlags) register(cmd *cobra.Command, withTitle bool) {
 	cmd.Flags().StringVar(&f.project, "project", "", "project id, short id, or name; none for no project")
 	cmd.Flags().IntVar(&f.priority, "priority", 2, "1 (low) to 4 (high)")
 	cmd.Flags().StringVar(&f.due, "due", "", "due date, YYYY-MM-DD; none to clear")
-	cmd.Flags().StringVar(&f.estimate, "estimate", "", "estimated effort like 1h30m; none to clear")
+	cmd.Flags().StringVar(&f.estimate, "estimate", "", "estimated effort like 1h30m; none to clear (a quick to-do)")
+	cmd.Flags().StringVar(&f.from, "from", "", "first day it is for, YYYY-MM-DD; none to clear")
+	cmd.Flags().StringVar(&f.at, "at", "", "earliest time on its first day, HH:MM; none to clear")
 	cmd.Flags().StringVar(&f.notes, "notes", "", "notes")
 	cmd.Flags().StringVar(&f.goal, "goal", "", "goal id or short id; none to clear")
 	cmd.Flags().StringVar(&f.rrule, "rrule", "", "make it recur, such as FREQ=WEEKLY;BYDAY=MO; none to clear")
 	cmd.Flags().IntVar(&f.quantity, "quantity", 0, "units of its goal this task covers; 0 with edit clears")
 	if withTitle {
 		cmd.Flags().StringVar(&f.title, "title", "", "new title")
+	} else {
+		cmd.Flags().StringVar(&f.parent, "parent", "", "make it a step of this task")
 	}
 }
 
@@ -257,7 +262,10 @@ func (c *cli) taskCmd() *cobra.Command {
 			}
 			return c.emit(list, func(w io.Writer) error {
 				tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-				for _, t := range list.Tasks {
+				for _, t := range nested(list.Tasks) {
+					if t.ParentID != nil {
+						fmt.Fprint(tw, "  ↳ ")
+					}
 					taskRow(tw, t, names)
 				}
 				return tw.Flush()
@@ -320,6 +328,18 @@ func (c *cli) taskCmd() *cobra.Command {
 			if cmd.Flags().Changed("notes") {
 				req.Notes = &addFlags.notes
 			}
+			if addFlags.from != "" || addFlags.at != "" {
+				d, err := c.day(ctx, addFlags.from)
+				if err != nil {
+					return err
+				}
+				req.StartDay = &d
+			}
+			if addFlags.at != "" {
+				if req.StartMinute, err = startMinute(addFlags.at); err != nil {
+					return err
+				}
+			}
 			if req.GoalID, err = c.goalFlag(ctx, addFlags.goal); err != nil {
 				return err
 			}
@@ -328,6 +348,13 @@ func (c *cli) taskCmd() *cobra.Command {
 			}
 			if cmd.Flags().Changed("quantity") {
 				req.Quantity = &addFlags.quantity
+			}
+			if addFlags.parent != "" {
+				parent, err := c.task(ctx, addFlags.parent)
+				if err != nil {
+					return err
+				}
+				req.ParentID = &parent.ID
 			}
 			t, err := c.api.CreateTask(ctx, req)
 			if err != nil {
@@ -385,6 +412,33 @@ func (c *cli) taskCmd() *cobra.Command {
 						return err
 					}
 					req.EstimateMinutes = wire.Some(m)
+				}
+			}
+			if changed("from") {
+				req.StartDay = wire.Null[string]()
+				if !strings.EqualFold(editFlags.from, "none") {
+					d, err := c.day(ctx, editFlags.from)
+					if err != nil {
+						return err
+					}
+					req.StartDay = wire.Some(d)
+				}
+			}
+			if changed("at") {
+				req.StartMinute = wire.Null[int]()
+				if !strings.EqualFold(editFlags.at, "none") {
+					m, err := startMinute(editFlags.at)
+					if err != nil {
+						return err
+					}
+					req.StartMinute = wire.Some(*m)
+					if !changed("from") && t.StartDay == nil {
+						d, err := c.today(ctx)
+						if err != nil {
+							return err
+						}
+						req.StartDay = wire.Some(d)
+					}
 				}
 			}
 			if changed("goal") {
@@ -447,21 +501,36 @@ func (c *cli) taskCmd() *cobra.Command {
 		return c.api.ReopenTask(ctx, id) // c.api is set only once a command runs
 	})
 	rm := &cobra.Command{
-		Use:   "rm T",
-		Short: "Delete a task",
-		Args:  args(1),
+		Use:   "rm T...",
+		Short: "Delete tasks, with their steps and repeats",
+		Args:  minArgs(1),
 		RunE: func(cmd *cobra.Command, a []string) error {
-			t, err := c.task(cmd.Context(), a[0])
+			ctx := cmd.Context()
+			ids := make([]string, len(a))
+			for i, ref := range a {
+				t, err := c.task(ctx, ref)
+				if err != nil {
+					return err
+				}
+				ids[i] = t.ID
+			}
+			if len(ids) == 1 {
+				if err := c.api.DeleteTask(ctx, ids[0]); err != nil {
+					return err
+				}
+				if !c.json {
+					fmt.Fprintf(c.stdout, "Deleted task %s.\n", client.ShortID(ids[0]))
+				}
+				return nil
+			}
+			out, err := c.api.DeleteTasks(ctx, wire.DeleteTasksRequest{IDs: ids})
 			if err != nil {
 				return err
 			}
-			if err := c.api.DeleteTask(cmd.Context(), t.ID); err != nil {
+			return c.emit(out, func(w io.Writer) error {
+				_, err := fmt.Fprintf(w, "Deleted %d tasks.\n", len(out.TaskIDs))
 				return err
-			}
-			if !c.json {
-				fmt.Fprintf(c.stdout, "Deleted task %s.\n", client.ShortID(t.ID))
-			}
-			return nil
+			})
 		},
 	}
 	task.AddCommand(ls, show, add, edit, done, reopen, rm)
@@ -469,10 +538,37 @@ func (c *cli) taskCmd() *cobra.Command {
 }
 
 // taskRow is "id  open  P2  due 2026-09-20  Internship  Title  1h 5m".
+// nested orders tasks with each step right after its parent, in the list's
+// order; a step whose parent is not listed keeps its place.
+func nested(tasks []wire.Task) []wire.Task {
+	listed := map[string]bool{}
+	steps := map[string][]wire.Task{}
+	for _, t := range tasks {
+		listed[t.ID] = true
+	}
+	for _, t := range tasks {
+		if t.ParentID != nil && listed[*t.ParentID] {
+			steps[*t.ParentID] = append(steps[*t.ParentID], t)
+		}
+	}
+	out := make([]wire.Task, 0, len(tasks))
+	for _, t := range tasks {
+		if t.ParentID != nil && listed[*t.ParentID] {
+			continue
+		}
+		out = append(out, t)
+		out = append(out, steps[t.ID]...)
+	}
+	return out
+}
+
 func taskRow(w io.Writer, t wire.Task, names map[string]string) {
 	due := ""
 	if t.DueDay != nil {
 		due = "due " + *t.DueDay
+	}
+	if t.StartDay != nil {
+		due = strings.TrimSpace("from " + *t.StartDay + startClock(t.StartMinute) + " " + due)
 	}
 	project := ""
 	if t.ProjectID != nil {
@@ -500,4 +596,12 @@ func (c *cli) printTask(ctx context.Context, t *wire.Task) error {
 	tw := tabwriter.NewWriter(c.stdout, 0, 0, 2, ' ', 0)
 	taskRow(tw, *t, names)
 	return tw.Flush()
+}
+
+// startClock is " HH:MM" for a task's start time, or "" without one.
+func startClock(m *int) string {
+	if m == nil {
+		return ""
+	}
+	return " " + config.TimeOfDay(*m).String()
 }

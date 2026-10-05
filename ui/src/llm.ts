@@ -19,6 +19,49 @@ export interface RetroOutput {
   generated_by: "llm" | "rules";
 }
 
+export interface ChatMessage {
+  role: "user" | "assistant";
+  text: string;
+}
+
+export interface ProposedBlock {
+  task_id: string;
+  title: string;
+  project_id: string | null;
+  start_at: number;
+  planned_minutes: number;
+}
+
+/** An ok day plan run's output (docs/07-integrations.md#day-plan). */
+export interface DayPlanOutput {
+  messages: ChatMessage[];
+  items: ProposedBlock[];
+  hours: { start_minute: number | null; work_minutes: number | null } | null;
+}
+
 export interface RunError {
   error: string;
+}
+
+/** One change the assistant made, or tried to. */
+export interface ActionResult {
+  type: string;
+  ok: boolean;
+  summary: string;
+  error?: string;
+  task_id?: string;
+  project_id?: string;
+  goal_id?: string;
+}
+
+export interface AssistantMessage {
+  role: "user" | "assistant";
+  text: string;
+  at: number;
+  actions?: ActionResult[];
+}
+
+/** An ok assistant run's output: the whole conversation. */
+export interface AssistantOutput {
+  messages: AssistantMessage[];
 }

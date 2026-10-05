@@ -12,6 +12,10 @@ func (c *Client) GoalBreakdown(ctx context.Context, goalID string, req wire.Brea
 	return call[wire.LlmRun](ctx, c, http.MethodPost, "/v1/goals/"+url.PathEscape(goalID)+"/breakdown", nil, req)
 }
 
+func (c *Client) PlanChat(ctx context.Context, req wire.PlanChatRequest) (*wire.LlmRun, error) {
+	return call[wire.LlmRun](ctx, c, http.MethodPost, "/v1/plan/chat", nil, req)
+}
+
 func (c *Client) Retro(ctx context.Context, req wire.RetroRequest) (*wire.LlmRun, error) {
 	return call[wire.LlmRun](ctx, c, http.MethodPost, "/v1/retro", nil, req)
 }

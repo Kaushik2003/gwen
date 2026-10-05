@@ -1,7 +1,7 @@
 // Package llm is the optional LLM adapter of docs/07-integrations.md#llm-adapter:
-// it proposes a task breakdown for a goal and writes a weekly retrospective. It
-// never schedules and never writes; the deterministic planner stays
-// authoritative, and a person accepts every proposal.
+// it proposes a task breakdown for a goal, plans a day in a conversation, and
+// writes a weekly retrospective. It never writes; the deterministic planner
+// stays authoritative, and a person accepts every proposal.
 package llm
 
 import (
@@ -15,10 +15,12 @@ import (
 	"github.com/kzark/gwen/internal/config"
 )
 
-// Planner is one provider's implementation of the two jobs.
+// Planner is one provider's implementation of the three jobs.
 type Planner interface {
 	Breakdown(ctx context.Context, req BreakdownRequest) (BreakdownOutput, error)
+	DayPlan(ctx context.Context, req DayPlanRequest) (DayPlanOutput, error)
 	Retro(ctx context.Context, req RetroRequest) (RetroOutput, error)
+	Assistant(ctx context.Context, req AssistantRequest) (AssistantOutput, error)
 	Name() string
 }
 
@@ -49,16 +51,13 @@ func New(cfg config.LLM, o Options) (Planner, error) {
 	if client == nil {
 		client = http.DefaultClient
 	}
-	key, err := config.ReadCredentialLine(o.CredDir, config.CredLLMAPIKey)
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
-		key = ""
-	case err != nil:
-		return nil, err
-	}
-	a := &adapter{model: cfg.Model, timeout: cfg.Timeout}
+	a := &adapter{name: cfg.Provider, timeout: cfg.Timeout, persona: PersonaPrompt(cfg)}
 	switch cfg.Provider {
 	case config.ProviderAnthropic:
+		key, err := apiKey(o.CredDir)
+		if err != nil {
+			return nil, err
+		}
 		if key == "" {
 			return nil, &unavailable{"no API key for Anthropic; run gwen setup llm"}
 		}
@@ -66,42 +65,63 @@ func New(cfg config.LLM, o Options) (Planner, error) {
 		if url == "" {
 			url = AnthropicURL
 		}
-		a.name, a.complete = config.ProviderAnthropic, anthropic{client: client, url: url, key: key, model: cfg.Model}.complete
+		a.complete = anthropic{client: client, url: url, key: key, model: cfg.Model}.complete
 	case config.ProviderOpenAICompatible:
 		if cfg.Endpoint == "" {
 			return nil, &unavailable{"llm.endpoint is not set; run gwen setup llm"}
 		}
-		a.name, a.complete = config.ProviderOpenAICompatible,
-			openAI{client: client, endpoint: cfg.Endpoint, key: key, model: cfg.Model}.complete
+		key, err := apiKey(o.CredDir)
+		if err != nil {
+			return nil, err
+		}
+		a.complete = openAI{client: client, endpoint: cfg.Endpoint, key: key, model: cfg.Model}.complete
+	case config.ProviderClaudeCode:
+		c, err := newClaudeCode(cfg)
+		if err != nil {
+			return nil, err
+		}
+		a.complete = c.complete
 	default:
 		return nil, &unavailable{"no LLM provider is configured; run gwen setup llm"}
 	}
 	return a, nil
 }
 
-// adapter implements both jobs over one provider's completion call.
+// apiKey reads the HTTP providers' key file; a missing file is no key.
+func apiKey(credDir string) (string, error) {
+	key, err := config.ReadCredentialLine(credDir, config.CredLLMAPIKey)
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", nil
+	}
+	return key, err
+}
+
+// adapter implements the jobs over one provider's completion call.
 type adapter struct {
 	name     string
-	model    string
 	timeout  time.Duration
-	complete func(ctx context.Context, system, user string) (string, error)
+	persona  string // opens the prompts that talk to the user
+	complete func(ctx context.Context, p prompt, user string) (string, error)
 }
 
 func (a *adapter) Name() string { return a.name }
 
 // ask sends one request, bounded by llm.timeout, and returns the model's
 // reply with any Markdown code fence around the JSON removed.
-func (a *adapter) ask(ctx context.Context, system string, payload any) (string, error) {
+func (a *adapter) ask(ctx context.Context, p prompt, payload any) (string, error) {
 	user, err := jsonString(payload)
 	if err != nil {
 		return "", err
+	}
+	if p.persona && a.persona != "" {
+		p.system = a.persona + "\n\n" + p.system
 	}
 	if a.timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, a.timeout)
 		defer cancel()
 	}
-	text, err := a.complete(ctx, system, user)
+	text, err := a.complete(ctx, p, user)
 	if err != nil {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			return "", fmt.Errorf("the %s request timed out after %s", a.name, a.timeout)

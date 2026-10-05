@@ -111,7 +111,22 @@ type Task struct {
 	RRule           *string `json:"rrule"`
 	TemplateID      *string `json:"template_id"`
 	OccurrenceDay   *string `json:"occurrence_day"`
+	ParentID        *string `json:"parent_id"`
+	StartDay        *string `json:"start_day"`
+	StartMinute     *int    `json:"start_minute"`
+	Stage           string  `json:"stage"`
+	Effort          *int    `json:"effort"`
+	DelegatedTo     string  `json:"delegated_to"`
 }
+
+// Task stages and efforts.
+const (
+	StageInbox   = "inbox"
+	StageTodo    = "todo"
+	StageDoing   = "doing"
+	StageWaiting = "waiting"
+	StageSomeday = "someday"
+)
 
 // Health is the GET /v1/health response.
 type Health struct {
@@ -226,9 +241,12 @@ type NtfyConfig struct {
 
 // PlannerConfig is the [planner] section.
 type PlannerConfig struct {
-	DayStart string `json:"day_start" toml:"day_start"`
-	DayEnd   string `json:"day_end" toml:"day_end"`
-	Buffer   string `json:"buffer" toml:"buffer"`
+	DayStart   string `json:"day_start" toml:"day_start"`
+	DayEnd     string `json:"day_end" toml:"day_end"`
+	Buffer     string `json:"buffer" toml:"buffer"`
+	EatTheFrog bool   `json:"eat_the_frog" toml:"eat_the_frog"`
+	PrimeStart string `json:"prime_start" toml:"prime_start"` // HH:MM, or "" for none
+	PrimeEnd   string `json:"prime_end" toml:"prime_end"`
 }
 
 // CalendarConfig is the [calendar] section.
@@ -243,7 +261,13 @@ type LLMConfig struct {
 	Provider string `json:"provider" toml:"provider"`
 	Model    string `json:"model" toml:"model"`
 	Endpoint string `json:"endpoint" toml:"endpoint"`
+	Command  string `json:"command" toml:"command"`
 	Timeout  string `json:"timeout" toml:"timeout"`
+	// The assistant's name, personality preset, and the user's own words
+	// added to its prompt.
+	AssistantName string `json:"assistant_name" toml:"assistant_name"`
+	Personality   string `json:"personality" toml:"personality"`
+	Instructions  string `json:"instructions" toml:"instructions"`
 }
 
 // SyncConfig is the [sync] section.
@@ -290,10 +314,15 @@ type Goal struct {
 	Unit           string       `json:"unit"`
 	TargetQuantity *int         `json:"target_quantity"`
 	MinutesPerUnit *int         `json:"minutes_per_unit"`
+	DailyMinutes   *int         `json:"daily_minutes"`
 	ProjectID      *string      `json:"project_id"`
 	StartDay       string       `json:"start_day"`
 	DueDay         string       `json:"due_day"`
 	Status         string       `json:"status"`
+	Specific       string       `json:"specific"`
+	Measurable     string       `json:"measurable"`
+	Assignable     string       `json:"assignable"`
+	Realistic      string       `json:"realistic"`
 	CreatedAt      int64        `json:"created_at"`
 	UpdatedAt      int64        `json:"updated_at"`
 	Rev            int64        `json:"rev"`
@@ -309,6 +338,11 @@ type GoalProgress struct {
 	ActualPerDay       float64 `json:"actual_per_day"`
 	Pace               string  `json:"pace"`
 	ProjectedFinishDay *string `json:"projected_finish_day"`
+	PerSession         *int    `json:"per_session"`
+	ReachableQuantity  int     `json:"reachable_quantity"`
+	NeededDailyMinutes *int    `json:"needed_daily_minutes"`
+	NeededDueDay       *string `json:"needed_due_day"`
+	LinedUp            int     `json:"lined_up"`
 }
 
 // GoalList is the GET /v1/goals response.
@@ -353,15 +387,32 @@ type PlanItem struct {
 	UpdatedAt      int64   `json:"updated_at"`
 	Rev            int64   `json:"rev"`
 	Task           Task    `json:"task"`
+	Steps          []Task  `json:"steps"`
 }
 
 // Plan is a day's plan; Items are by position. PlannedMinutes sums the items
-// planned or done.
+// planned or done. Hours is nil when the day has no hours of its own.
 type Plan struct {
 	Day             string     `json:"day"`
 	CapacityMinutes int        `json:"capacity_minutes"`
 	PlannedMinutes  int        `json:"planned_minutes"`
+	Window          PlanWindow `json:"window"`
+	Hours           *DayHours  `json:"hours"`
 	Items           []PlanItem `json:"items"`
+}
+
+// PlanWindow is the window capacity is computed over, in minutes after local
+// midnight (docs/06-planner.md#capacity).
+type PlanWindow struct {
+	StartMinute int `json:"start_minute"`
+	EndMinute   int `json:"end_minute"`
+}
+
+// DayHours is a day's own start and time for tasks; a nil field is the usual
+// value (docs/06-planner.md#day-hours).
+type DayHours struct {
+	StartMinute *int `json:"start_minute"`
+	WorkMinutes *int `json:"work_minutes"`
 }
 
 // Briefing is the GET /v1/briefing response.

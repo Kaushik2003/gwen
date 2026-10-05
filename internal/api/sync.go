@@ -82,6 +82,6 @@ func (s *Server) storedPlan(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	writeJSON(w, http.StatusOK, wire.Plan{Day: p.Day, CapacityMinutes: p.Capacity, PlannedMinutes: p.Planned, Items: items[0]})
+	writeJSON(w, http.StatusOK, planWire(p, items[0]))
 	return nil
 }

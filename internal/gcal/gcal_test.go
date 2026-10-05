@@ -281,7 +281,7 @@ func at(hm string) time.Time { return testutil.At(hm) }
 func TestFirstSyncCreatesTheCalendarAndPushes(t *testing.T) {
 	t.Parallel()
 	f := newFx(t)
-	tk, err := f.repos.Tasks.Create(f.ctx, store.NewTask{Title: "Report", EstimateMinutes: testutil.Ptr(60)})
+	tk, _, err := f.repos.Tasks.Create(f.ctx, store.NewTask{Title: "Report", EstimateMinutes: testutil.Ptr(60)})
 	require.NoError(t, err)
 	p := f.plan()
 	require.Len(t, p.Items, 1)
@@ -352,7 +352,7 @@ func TestPullAppliesMovesAndCancellations(t *testing.T) {
 	t.Parallel()
 	f := newFx(t)
 	for _, title := range []string{"Moved", "Cancelled"} {
-		_, err := f.repos.Tasks.Create(f.ctx, store.NewTask{Title: title, EstimateMinutes: testutil.Ptr(60)})
+		_, _, err := f.repos.Tasks.Create(f.ctx, store.NewTask{Title: title, EstimateMinutes: testutil.Ptr(60)})
 		require.NoError(t, err)
 		f.clk.Advance(time.Second)
 	}
@@ -414,7 +414,7 @@ func TestExpiredSyncTokenListsEverything(t *testing.T) {
 func TestAMissingCalendarIsCreatedAgain(t *testing.T) {
 	t.Parallel()
 	f := newFx(t)
-	_, err := f.repos.Tasks.Create(f.ctx, store.NewTask{Title: "Report"})
+	_, _, err := f.repos.Tasks.Create(f.ctx, store.NewTask{Title: "Report", EstimateMinutes: testutil.Ptr(60)})
 	require.NoError(t, err)
 	item := f.plan().Items[0].Item
 	f.sync()

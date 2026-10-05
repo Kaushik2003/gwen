@@ -19,12 +19,15 @@ const (
 	KeyGcalSyncToken     = "gcal_sync_token"
 	KeySyncPushWatermark = "sync_push_watermark"
 	KeySyncPullCursor    = "sync_pull_cursor"
+	// KeyPlannedDay is the last day this daemon generated a plan for, so a
+	// day whose only items were placed by hand ahead of time still gets one.
+	KeyPlannedDay = "planned_day"
 )
 
 func knownKey(key string) bool {
 	switch key {
 	case KeyDeviceID, KeyHeartbeatAt, KeyShutdownAt, KeyGcalCalendarID, KeyGcalSyncToken,
-		KeySyncPushWatermark, KeySyncPullCursor:
+		KeySyncPushWatermark, KeySyncPullCursor, KeyPlannedDay:
 		return true
 	}
 	return false

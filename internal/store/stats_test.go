@@ -45,7 +45,8 @@ func TestByProjectResolvesDeletedAndUnassigned(t *testing.T) {
 	add(&gone.ID, "09:00", "09:30")
 	add(&kept.ID, "10:00", "12:00")
 	add(nil, "13:00", "14:00")
-	require.NoError(t, f.r.Projects.Delete(f.ctx, gone.ID))
+	_, err := f.r.Projects.Delete(f.ctx, gone.ID)
+	require.NoError(t, err)
 
 	days, err := f.r.Stats.Days(f.ctx, testutil.Day0, testutil.Day0, fxNow)
 	require.NoError(t, err)

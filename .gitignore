@@ -12,3 +12,6 @@
 # Go test artefacts
 *.test
 *.out
+client_secret_81572436926-bb2jak7ospcr6mrnb94odbvc2310mncn.apps.googleusercontent.com.json
+
+.env

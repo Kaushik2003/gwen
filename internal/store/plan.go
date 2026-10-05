@@ -23,6 +23,10 @@ type PlanEnv struct {
 	// Busy subtracts calendar busy time from capacity; it is set while the
 	// calendar is enabled.
 	Busy bool
+	// Frog places the hardest work first (planner.eat_the_frog).
+	Frog bool
+	// Prime is the biological prime time, minutes after midnight, or nil.
+	Prime *[2]int
 }
 
 // Today is the day the current instant belongs to.
@@ -30,18 +34,21 @@ func (e PlanEnv) Today() string { return e.DayOf(e.Now) }
 
 func (e PlanEnv) today() civil.Day { return civil.MustParse(e.Today()) }
 
-// PlanEntry is a plan item with its task.
+// PlanEntry is a plan item with its task and the task's live steps.
 type PlanEntry struct {
-	Item model.PlanItem
-	Task model.Task
+	Item  model.PlanItem
+	Task  model.Task
+	Steps []model.Task
 }
 
 // Plan is a day's plan.
 type Plan struct {
-	Day      string
-	Capacity int // minutes
-	Planned  int // minutes over items planned or done
-	Items    []PlanEntry
+	Day        string
+	Capacity   int // minutes
+	Planned    int // minutes over items planned or done
+	Start, End int // the capacity window, minutes after local midnight
+	Hours      *model.DayHours
+	Items      []PlanEntry
 }
 
 // GoalProgress is a goal with its progress today.
@@ -88,6 +95,30 @@ type PlanRepo interface {
 	Briefing(ctx context.Context, env PlanEnv) (Briefing, Changes, error)
 	// Progress computes the goals' progress today.
 	Progress(ctx context.Context, goals []model.Goal, env PlanEnv) (map[string]planner.GoalProgress, error)
+	// Preview computes the progress g would have today without writing it:
+	// with the tasks and session rule of the live goal existingID, or as a
+	// new goal with a daily session when existingID is "".
+	Preview(ctx context.Context, g model.Goal, existingID string, env PlanEnv) (planner.GoalProgress, error)
+	// Slots lists the next n sessions of a quantity goal that still need
+	// items, with the goal's progress today.
+	Slots(ctx context.Context, g model.Goal, n int, env PlanEnv) ([]planner.SessionSlot, planner.GoalProgress, error)
+	// SetHours replaces day's hours, a nil field meaning the usual value and
+	// both nil none, then regenerates its plan (docs/06-planner.md#day-hours).
+	SetHours(ctx context.Context, day string, startMinute, workMinutes *int, env PlanEnv) (Plan, Changes, error)
+	// DayPlan prepares day as GET /v1/plan does and returns what a day plan
+	// conversation plans from (docs/07-integrations.md#day-plan).
+	DayPlan(ctx context.Context, day string, env PlanEnv) (DayPlanContext, Changes, error)
+	// Schedule puts a task on day at start (nil leaves it to the planner's
+	// order) for minutes, pinned: the user's own time for it. Its other
+	// planned blocks from today on are removed, so scheduling also moves a
+	// task. Today's plan is then regenerated around it.
+	Schedule(ctx context.Context, taskID, day string, start *time.Time, minutes int, env PlanEnv) (PlanEntry, Changes, error)
+	// Unschedule removes a task's planned blocks from today on, or on day
+	// only when day is not "", and regenerates today's plan.
+	Unschedule(ctx context.Context, taskID, day string, env PlanEnv) (Changes, error)
+	// Refresh regenerates today's plan after tasks changed, so new and edited
+	// tasks show up without asking. It keeps pinned items.
+	Refresh(ctx context.Context, env PlanEnv) (Changes, error)
 }
 
 type planRepo struct{ db *DB }
@@ -183,14 +214,18 @@ func setItemStatus(ctx context.Context, tx *sql.Tx, db *DB, taskID, from, to, da
 	return days, nil
 }
 
-// planTasks wraps tasks for the planner, anchoring templates at the day their
-// created_at belongs to. A nil dayOf leaves anchors zero, for callers that
-// need no recurrence.
+// planTasks wraps tasks for the planner, anchoring templates at their
+// start_day, else the day their created_at belongs to. A nil dayOf leaves
+// anchors zero, for callers that need no recurrence.
 func planTasks(tasks []model.Task, dayOf func(time.Time) string) []planner.Task {
 	out := make([]planner.Task, len(tasks))
 	for i, t := range tasks {
 		out[i] = planner.Task{Task: t}
-		if dayOf != nil && t.IsTemplate() {
+		switch {
+		case !t.IsTemplate():
+		case t.StartDay != nil:
+			out[i].Anchor = civil.MustParse(*t.StartDay)
+		case dayOf != nil:
 			out[i].Anchor = civil.MustParse(dayOf(t.CreatedAt))
 		}
 	}
@@ -309,12 +344,17 @@ func (r planRepo) prepareToday(ctx context.Context, tx *sql.Tx, env PlanEnv, ch 
 	if err := r.rollover(ctx, tx, today, ch); err != nil {
 		return err
 	}
-	const qCountItems = `SELECT count(*) FROM plan_items WHERE day = ? AND deleted_at IS NULL`
+	const qCountItems = `SELECT count(*) FROM plan_items p JOIN tasks t ON t.id = p.task_id
+		WHERE p.day = ? AND p.deleted_at IS NULL AND t.deleted_at IS NULL`
 	var n int
 	if err := tx.QueryRowContext(ctx, qCountItems, today.String()).Scan(&n); err != nil {
 		return fmt.Errorf("count plan items: %w", err)
 	}
-	if n > 0 {
+	planned, err := GetLocal(ctx, tx, KeyPlannedDay)
+	if err != nil && !isNotFound(err) {
+		return err
+	}
+	if n > 0 && planned == today.String() {
 		return nil
 	}
 	return r.generate(ctx, tx, today, env, ch)
@@ -323,6 +363,9 @@ func (r planRepo) prepareToday(ctx context.Context, tx *sql.Tx, env PlanEnv, ch 
 // rollover settles the planned items of earlier days and expires overdue
 // occurrences (docs/06-planner.md#rollover).
 func (r planRepo) rollover(ctx context.Context, tx *sql.Tx, today civil.Day, ch *Changes) error {
+	if err := r.settleSessions(ctx, tx, today, ch); err != nil {
+		return fmt.Errorf("rollover: %w", err)
+	}
 	const qStale = `SELECT ` + planItemCols + ` FROM plan_items
 		WHERE deleted_at IS NULL AND status = 'planned' AND day < ?`
 	items, err := queryPlanItems(ctx, tx, qStale, today.String())
@@ -353,10 +396,49 @@ func (r planRepo) rollover(ctx context.Context, tx *sql.Tx, today civil.Day, ch 
 		ch.plan(c.Day)
 	}
 	for _, id := range res.Expire {
-		if err := softDelete(ctx, tx, r.db, "tasks", id); err != nil {
+		t, err := getTask(ctx, tx, id)
+		if err != nil {
 			return fmt.Errorf("rollover: %w", err)
 		}
-		ch.task(id)
+		if err := deleteTask(ctx, tx, r.db, t, ch); err != nil {
+			return fmt.Errorf("rollover: %w", err)
+		}
+	}
+	return nil
+}
+
+// settleSessions returns the open steps of expired sessions to their goals'
+// queues and completes those with a done step, whose steps already count.
+func (r planRepo) settleSessions(ctx context.Context, tx *sql.Tx, today civil.Day, ch *Changes) error {
+	const qExpiredSessions = `SELECT ` + taskCols + ` FROM tasks WHERE deleted_at IS NULL AND status = 'open'
+		AND template_id IS NOT NULL AND goal_id IS NOT NULL AND due_day < ? ORDER BY occurrence_day, id`
+	expired, err := queryTasks(ctx, tx, qExpiredSessions, today.String())
+	if err != nil {
+		return err
+	}
+	for _, t := range expired {
+		session, err := isSession(ctx, tx, t)
+		if err != nil {
+			return err
+		}
+		if !session {
+			continue
+		}
+		steps, err := stepsOf(ctx, tx, t.ID)
+		if err != nil {
+			return err
+		}
+		if err := detach(ctx, tx, r.db, openOnly(steps), ch); err != nil {
+			return err
+		}
+		if len(openOnly(steps)) == len(steps) {
+			continue // nothing done: it expires
+		}
+		zero := 0
+		if _, err := completeTask(ctx, tx, r.db, t, &zero, ch); err != nil {
+			return err
+		}
+		ch.task(t.ID)
 	}
 	return nil
 }
@@ -391,6 +473,9 @@ func (r planRepo) materialize(ctx context.Context, tx *sql.Tx, d civil.Day, env 
 			TemplateID: &tmpl.ID, OccurrenceDay: &day,
 			Envelope: model.Envelope{CreatedAt: now, UpdatedAt: now, DeviceID: r.db.DeviceID(), Rev: 1},
 		}
+		if tmpl.StartMinute != nil {
+			occ.StartDay, occ.StartMinute = &day, tmpl.StartMinute
+		}
 		if tmpl.GoalID != nil {
 			ok, err := r.session(ctx, tx, *tmpl.GoalID, d, env, &occ)
 			if err != nil {
@@ -404,6 +489,9 @@ func (r planRepo) materialize(ctx context.Context, tx *sql.Tx, d civil.Day, env 
 			return fmt.Errorf("materialize %s on %s: %w", tmpl.ID, day, err)
 		}
 		ch.task(occ.ID)
+		if err := fill(ctx, tx, r.db, occ, ch); err != nil {
+			return fmt.Errorf("materialize %s on %s: %w", tmpl.ID, day, err)
+		}
 	}
 	return nil
 }
@@ -428,54 +516,77 @@ func (r planRepo) session(ctx context.Context, tx *sql.Tx, goalID string, d civi
 	return true, nil
 }
 
+// generateInput loads the planner's input for d, with every live item on d
+// (Existing holds those whose task is live).
+func (r planRepo) generateInput(ctx context.Context, q Querier, d civil.Day, env PlanEnv) (planner.GenerateInput, []model.PlanItem, error) {
+	const qDayItems = `SELECT ` + planItemCols + ` FROM plan_items WHERE day = ? AND deleted_at IS NULL`
+	onDay, err := queryPlanItems(ctx, q, qDayItems, d.String())
+	if err != nil {
+		return planner.GenerateInput{}, nil, err
+	}
+	const qOpenTasks = `SELECT ` + taskCols + ` FROM tasks WHERE deleted_at IS NULL AND status = 'open'
+		ORDER BY created_at, id`
+	open, err := queryTasks(ctx, q, qOpenTasks)
+	if err != nil {
+		return planner.GenerateInput{}, nil, err
+	}
+	live, err := liveTaskIDs(ctx, q, ids(onDay, func(it model.PlanItem) string { return it.TaskID }))
+	if err != nil {
+		return planner.GenerateInput{}, nil, err
+	}
+	in := planner.GenerateInput{Day: d, Loc: env.Loc, Tasks: planTasks(open, env.DayOf), Frog: env.Frog,
+		Prime: env.Prime, Elsewhere: map[string]bool{}}
+	const qElsewhere = `SELECT DISTINCT task_id FROM plan_items WHERE deleted_at IS NULL AND status = 'planned'
+		AND pinned = 1 AND day <> ? AND day >= ?`
+	elsewhere, err := queryIDs(ctx, q, qElsewhere, d.String(), env.Today())
+	if err != nil {
+		return planner.GenerateInput{}, nil, err
+	}
+	for _, id := range elsewhere {
+		in.Elsewhere[id] = true
+	}
+	for _, it := range onDay {
+		if live[it.TaskID] {
+			in.Existing = append(in.Existing, it)
+		}
+	}
+	capacity, err := r.capacity(ctx, q, d, env, nil)
+	if err != nil {
+		return planner.GenerateInput{}, nil, err
+	}
+	in.Capacity = capacity.CapacityResult
+	openIDs := ids(open, func(t model.Task) string { return t.ID })
+	if in.Tracked, err = trackedTime(ctx, q, openIDs, env.Now); err != nil {
+		return planner.GenerateInput{}, nil, err
+	}
+	if in.Progress, err = r.activeProgress(ctx, q, d, env); err != nil {
+		return planner.GenerateInput{}, nil, err
+	}
+	if in.Latest, err = latestBefore(ctx, q, d, openIDs); err != nil {
+		return planner.GenerateInput{}, nil, err
+	}
+	if in.Goals, err = liveGoals(ctx, q); err != nil {
+		return planner.GenerateInput{}, nil, err
+	}
+	return in, onDay, nil
+}
+
 // generate runs steps 1 to 9 of docs/06-planner.md#generating-a-plan for d,
 // after rollover.
 func (r planRepo) generate(ctx context.Context, tx *sql.Tx, d civil.Day, env PlanEnv, ch *Changes) error {
 	if err := r.materialize(ctx, tx, d, env, ch); err != nil {
 		return err
 	}
-	const qDayItems = `SELECT ` + planItemCols + ` FROM plan_items WHERE day = ? AND deleted_at IS NULL`
-	onDay, err := queryPlanItems(ctx, tx, qDayItems, d.String())
+	in, onDay, err := r.generateInput(ctx, tx, d, env)
 	if err != nil {
 		return fmt.Errorf("generate: %w", err)
 	}
-	const qOpenTasks = `SELECT ` + taskCols + ` FROM tasks WHERE deleted_at IS NULL AND status = 'open'
-		ORDER BY created_at, id`
-	open, err := queryTasks(ctx, tx, qOpenTasks)
-	if err != nil {
-		return fmt.Errorf("generate: %w", err)
-	}
-	live, err := liveTaskIDs(ctx, tx, ids(onDay, func(it model.PlanItem) string { return it.TaskID }))
-	if err != nil {
-		return fmt.Errorf("generate: %w", err)
-	}
-	var existing []model.PlanItem
-	for _, it := range onDay {
-		if live[it.TaskID] {
-			existing = append(existing, it)
+	drafts := planner.Generate(in)
+	if d == env.today() {
+		if err := SetLocal(ctx, tx, KeyPlannedDay, d.String(), r.db.Now()); err != nil {
+			return fmt.Errorf("generate: %w", err)
 		}
 	}
-	capacity, err := r.capacity(ctx, tx, d, env, nil)
-	if err != nil {
-		return err
-	}
-	openIDs := ids(open, func(t model.Task) string { return t.ID })
-	tracked, err := trackedTime(ctx, tx, openIDs, env.Now)
-	if err != nil {
-		return err
-	}
-	progress, err := r.activeProgress(ctx, tx, d, env)
-	if err != nil {
-		return err
-	}
-	latest, err := latestBefore(ctx, tx, d, openIDs)
-	if err != nil {
-		return err
-	}
-	drafts := planner.Generate(planner.GenerateInput{
-		Day: d, Capacity: capacity, Existing: existing, Tasks: planTasks(open, env.DayOf),
-		Tracked: tracked, Progress: progress, Latest: latest,
-	})
 
 	ch.plan(d.String())
 	kept := map[string]planner.PlanItemDraft{}
@@ -484,14 +595,15 @@ func (r planRepo) generate(ctx context.Context, tx *sql.Tx, d civil.Day, env Pla
 			kept[dr.ExistingID] = dr
 		}
 	}
+	// An item the plan drops is reused for a new block of its task, so that
+	// regenerating rewrites rows rather than piling up deleted ones.
+	reusable := map[string][]*model.PlanItem{}
 	for i := range onDay {
 		it := &onDay[i]
 		dr, ok := kept[it.ID]
 		switch {
 		case !ok:
-			if err := softDelete(ctx, tx, r.db, "plan_items", it.ID); err != nil {
-				return fmt.Errorf("generate: %w", err)
-			}
+			reusable[it.TaskID] = append(reusable[it.TaskID], it)
 		case dr.Position != it.Position:
 			it.Position = dr.Position
 			if err := writePlanItem(ctx, tx, r.db, it); err != nil {
@@ -503,6 +615,18 @@ func (r planRepo) generate(ctx context.Context, tx *sql.Tx, d civil.Day, env Pla
 		if dr.ExistingID != "" {
 			continue
 		}
+		if old := reusable[dr.TaskID]; len(old) > 0 && old[0].Status == model.PlanPlanned && !old[0].Pinned {
+			it := old[0]
+			reusable[dr.TaskID] = old[1:]
+			if it.Planned == dr.Planned && it.Position == dr.Position && sameTime(it.StartAt, dr.StartAt) {
+				continue
+			}
+			it.Planned, it.StartAt, it.Position = dr.Planned, dr.StartAt, dr.Position
+			if err := writePlanItem(ctx, tx, r.db, it); err != nil {
+				return fmt.Errorf("generate: %w", err)
+			}
+			continue
+		}
 		it := model.PlanItem{ID: model.NewID(), Day: d.String(), TaskID: dr.TaskID, Planned: dr.Planned,
 			StartAt: dr.StartAt, Position: dr.Position, Status: model.PlanPlanned, RolledFromID: dr.RolledFromID,
 			RolloverCount: dr.RolloverCount}
@@ -510,7 +634,21 @@ func (r planRepo) generate(ctx context.Context, tx *sql.Tx, d civil.Day, env Pla
 			return fmt.Errorf("generate: %w", err)
 		}
 	}
+	for _, old := range reusable {
+		for _, it := range old {
+			if err := softDelete(ctx, tx, r.db, "plan_items", it.ID); err != nil {
+				return fmt.Errorf("generate: %w", err)
+			}
+		}
+	}
 	return nil
+}
+
+func sameTime(a, b *time.Time) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.Equal(*b)
 }
 
 // liveTaskIDs reports which of the tasks are live.
@@ -548,22 +686,50 @@ func latestBefore(ctx context.Context, q Querier, d civil.Day, taskIDs []string)
 	return out, nil
 }
 
+// dayCapacity is a day's capacity with the window and hours it came from.
+type dayCapacity struct {
+	planner.CapacityResult
+	Start, End int // the window, minutes after local midnight
+	Hours      *model.DayHours
+}
+
 // capacity computes d's capacity. commitments, when nil, are loaded.
-func (r planRepo) capacity(ctx context.Context, q Querier, d civil.Day, env PlanEnv, commitments []model.Commitment) (planner.CapacityResult, error) {
+func (r planRepo) capacity(ctx context.Context, q Querier, d civil.Day, env PlanEnv, commitments []model.Commitment) (dayCapacity, error) {
+	in, hours, err := capacityInput(ctx, q, d, env, commitments)
+	if err != nil {
+		return dayCapacity{}, err
+	}
+	return dayCapacity{CapacityResult: planner.Capacity(in), Start: in.DayStart, End: in.DayEnd, Hours: hours}, nil
+}
+
+// capacityInput loads Capacity's input for d under its day hours, which it
+// also returns. Busy time is loaded from the earlier of planner.day_start and
+// the window's start, so the input serves that wider window too.
+func capacityInput(ctx context.Context, q Querier, d civil.Day, env PlanEnv, commitments []model.Commitment) (planner.CapacityInput, *model.DayHours, error) {
 	if commitments == nil {
 		var err error
 		if commitments, err = listCommitments(ctx, q); err != nil {
-			return planner.CapacityResult{}, err
+			return planner.CapacityInput{}, nil, err
 		}
+	}
+	hours, err := dayHoursOn(ctx, q, d.String())
+	if err != nil {
+		return planner.CapacityInput{}, nil, err
 	}
 	in := planner.CapacityInput{
 		Day: d, Loc: env.Loc, Today: d == env.today(), Now: env.Now, DayStart: env.DayStart, DayEnd: env.DayEnd,
 		Buffer: env.Buffer, Target: env.DailyTarget, Commitments: commitments,
 	}
+	if hours != nil {
+		if hours.StartMinute != nil {
+			in.DayStart = *hours.StartMinute
+		}
+		in.Work = hours.Work
+	}
 	if env.Busy {
-		busy, err := busyBetween(ctx, q, d.At(env.DayStart, env.Loc), d.At(env.DayEnd, env.Loc))
+		busy, err := busyBetween(ctx, q, d.At(min(env.DayStart, in.DayStart), env.Loc), d.At(env.DayEnd, env.Loc))
 		if err != nil {
-			return planner.CapacityResult{}, err
+			return planner.CapacityInput{}, nil, err
 		}
 		for _, b := range busy {
 			in.Busy = append(in.Busy, planner.Interval{Start: b.Start, End: b.End})
@@ -574,21 +740,30 @@ func (r planRepo) capacity(ctx context.Context, q Querier, d civil.Day, env Plan
 		switch {
 		case err == nil:
 			in.Target = w.Target
-			if in.WorkedToday, err = projectWork(ctx, q, w.ID, env.Now); err != nil {
-				return planner.CapacityResult{}, err
+			var since time.Time // all of today's work, unless the day has its own time for tasks
+			if in.Work != nil {
+				since = d.At(in.DayStart, env.Loc)
+			}
+			if in.WorkedToday, err = projectWork(ctx, q, w.ID, since, env.Now); err != nil {
+				return planner.CapacityInput{}, nil, err
 			}
 		case !isNotFound(err):
-			return planner.CapacityResult{}, err
+			return planner.CapacityInput{}, nil, err
 		}
 	}
-	return planner.Capacity(in), nil
+	return in, hours, nil
 }
 
-// projectWork is a work day's work by project, the open segment counting up to now.
-func projectWork(ctx context.Context, q Querier, workDayID string, now time.Time) ([]planner.ProjectWork, error) {
-	const qProjectWork = `SELECT project_id, SUM(COALESCE(ended_at, ?) - started_at) FROM segments
+// projectWork is a work day's work by project from since (the zero time for
+// all of it), the open segment counting up to now.
+func projectWork(ctx context.Context, q Querier, workDayID string, since, now time.Time) ([]planner.ProjectWork, error) {
+	var from int64
+	if !since.IsZero() {
+		from = since.UnixMilli()
+	}
+	const qProjectWork = `SELECT project_id, SUM(MAX(0, COALESCE(ended_at, ?) - MAX(started_at, ?))) FROM segments
 		WHERE work_day_id = ? AND kind = 'work' AND deleted_at IS NULL GROUP BY project_id`
-	rows, err := q.QueryContext(ctx, qProjectWork, now.UnixMilli(), workDayID)
+	rows, err := q.QueryContext(ctx, qProjectWork, now.UnixMilli(), from, workDayID)
 	if err != nil {
 		return nil, fmt.Errorf("work by project: %w", err)
 	}
@@ -633,6 +808,66 @@ func (r planRepo) Progress(ctx context.Context, goals []model.Goal, env PlanEnv)
 	return progressOf(ctx, r.db.sql, goals, env.today(), env)
 }
 
+// liveGoals returns every live goal by id.
+func liveGoals(ctx context.Context, q Querier) (map[string]model.Goal, error) {
+	goals, err := queryGoals(ctx, q, `SELECT `+goalCols+` FROM goals WHERE deleted_at IS NULL`)
+	if err != nil {
+		return nil, fmt.Errorf("live goals: %w", err)
+	}
+	out := make(map[string]model.Goal, len(goals))
+	for _, g := range goals {
+		out[g.ID] = g
+	}
+	return out, nil
+}
+
+// previewID stands for a goal that does not exist yet.
+const previewID = "preview"
+
+func (r planRepo) Preview(ctx context.Context, g model.Goal, existingID string, env PlanEnv) (planner.GoalProgress, error) {
+	today := env.today()
+	g.ID, g.Title, g.Status, g.ProjectID = previewID, previewID, model.GoalActive, nil
+	if existingID != "" {
+		existing, err := getGoal(ctx, r.db.sql, existingID)
+		if err != nil {
+			return planner.GoalProgress{}, err
+		}
+		g.ID, g.Status = existing.ID, existing.Status
+	}
+	if err := validGoal(ctx, r.db.sql, &g); err != nil {
+		return planner.GoalProgress{}, err
+	}
+	if existingID == "" {
+		rule := SessionRule
+		var tasks []planner.Task
+		if g.Kind == model.GoalQuantity {
+			tasks = []planner.Task{{Task: model.Task{ID: previewID, GoalID: &g.ID, RRule: &rule}, Anchor: today}}
+		}
+		return planner.Progress(g, tasks, today), nil
+	}
+	tasks, err := goalTasks(ctx, r.db.sql, []string{existingID})
+	if err != nil {
+		return planner.GoalProgress{}, err
+	}
+	return planner.Progress(g, planTasks(tasks, env.DayOf), today), nil
+}
+
+func (r planRepo) Slots(ctx context.Context, g model.Goal, n int, env PlanEnv) ([]planner.SessionSlot, planner.GoalProgress, error) {
+	today := env.today()
+	tasks, err := goalTasks(ctx, r.db.sql, []string{g.ID})
+	if err != nil {
+		return nil, planner.GoalProgress{}, err
+	}
+	pts := planTasks(tasks, env.DayOf)
+	p := planner.Progress(g, pts, today)
+	for _, t := range pts {
+		if t.IsTemplate() {
+			return planner.Sessions(g, t, p, today, p.LinedUp, n), p, nil
+		}
+	}
+	return nil, p, nil
+}
+
 // read returns d's plan: its live items whose task is live, by position.
 func (r planRepo) read(ctx context.Context, q Querier, d civil.Day, env PlanEnv) (Plan, error) {
 	capacity, err := r.capacity(ctx, q, d, env, nil)
@@ -649,7 +884,8 @@ func (r planRepo) read(ctx context.Context, q Querier, d civil.Day, env PlanEnv)
 	if err != nil {
 		return Plan{}, err
 	}
-	p := Plan{Day: d.String(), Capacity: capacity.Minutes, Items: entries}
+	p := Plan{Day: d.String(), Capacity: capacity.Minutes, Start: capacity.Start, End: capacity.End,
+		Hours: capacity.Hours, Items: entries}
 	for _, e := range entries {
 		if e.Item.Status == model.PlanPlanned || e.Item.Status == model.PlanDone {
 			p.Planned += int(e.Item.Planned / time.Minute)
@@ -670,10 +906,18 @@ func withTasks(ctx context.Context, q Querier, items []model.PlanItem) ([]PlanEn
 			byID[t.ID] = t
 		}
 	}
+	steps, err := stepsOf(ctx, q, ids(tasks, func(t model.Task) string { return t.ID })...)
+	if err != nil {
+		return nil, fmt.Errorf("plan steps: %w", err)
+	}
+	stepsByParent := map[string][]model.Task{}
+	for _, s := range steps {
+		stepsByParent[*s.ParentID] = append(stepsByParent[*s.ParentID], s)
+	}
 	out := []PlanEntry{}
 	for _, it := range items {
 		if t, ok := byID[it.TaskID]; ok {
-			out = append(out, PlanEntry{Item: it, Task: t})
+			out = append(out, PlanEntry{Item: it, Task: t, Steps: stepsByParent[t.ID]})
 		}
 	}
 	return out, nil
@@ -724,7 +968,7 @@ func (r planRepo) UpdateItem(ctx context.Context, id string, p PlanItemPatch) (P
 		if err := writePlanItem(ctx, tx, r.db, &it); err != nil {
 			return err
 		}
-		e = PlanEntry{Item: it, Task: entries[0].Task}
+		e = PlanEntry{Item: it, Task: entries[0].Task, Steps: entries[0].Steps}
 		return nil
 	})
 	if err != nil {
@@ -830,8 +1074,12 @@ func (r planRepo) reminders(ctx context.Context, q Querier, env PlanEnv, plan Pl
 		}
 		capacity[i] = c.Minutes
 	}
+	goals, err := liveGoals(ctx, q)
+	if err != nil {
+		return nil, err
+	}
 	return planner.Reminders(planner.ReminderInput{
 		Today: today, Tasks: planTasks(tasks, nil), Tracked: tracked, PlannedToday: planned,
-		DayCapacity: capacity, Progress: progress, RolloverCounts: counts,
+		DayCapacity: capacity, Progress: progress, RolloverCounts: counts, Goals: goals,
 	}), nil
 }

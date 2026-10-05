@@ -6,6 +6,10 @@ export function AcceptLLMRun(arg1, arg2) {
   return window['go']['main']['App']['AcceptLLMRun'](arg1, arg2);
 }
 
+export function AssistantChat(arg1) {
+  return window['go']['main']['App']['AssistantChat'](arg1);
+}
+
 export function Autostart() {
   return window['go']['main']['App']['Autostart']();
 }
@@ -32,6 +36,14 @@ export function CalendarStatus() {
 
 export function CalendarSync() {
   return window['go']['main']['App']['CalendarSync']();
+}
+
+export function ChooseGoogleClient() {
+  return window['go']['main']['App']['ChooseGoogleClient']();
+}
+
+export function ClaudeCode(arg1) {
+  return window['go']['main']['App']['ClaudeCode'](arg1);
 }
 
 export function ClockIn(arg1) {
@@ -70,8 +82,12 @@ export function DeleteCommitment(arg1) {
   return window['go']['main']['App']['DeleteCommitment'](arg1);
 }
 
-export function DeleteGoal(arg1) {
-  return window['go']['main']['App']['DeleteGoal'](arg1);
+export function DeleteEnergy(arg1) {
+  return window['go']['main']['App']['DeleteEnergy'](arg1);
+}
+
+export function DeleteGoal(arg1, arg2) {
+  return window['go']['main']['App']['DeleteGoal'](arg1, arg2);
 }
 
 export function DeleteProject(arg1) {
@@ -86,8 +102,16 @@ export function DeleteTask(arg1) {
   return window['go']['main']['App']['DeleteTask'](arg1);
 }
 
+export function DeleteTasks(arg1) {
+  return window['go']['main']['App']['DeleteTasks'](arg1);
+}
+
 export function EnableService() {
   return window['go']['main']['App']['EnableService']();
+}
+
+export function EnergyReport(arg1) {
+  return window['go']['main']['App']['EnergyReport'](arg1);
 }
 
 export function GeneratePlan(arg1) {
@@ -118,12 +142,20 @@ export function GetProject(arg1) {
   return window['go']['main']['App']['GetProject'](arg1);
 }
 
+export function GetReview(arg1) {
+  return window['go']['main']['App']['GetReview'](arg1);
+}
+
 export function GetTask(arg1) {
   return window['go']['main']['App']['GetTask'](arg1);
 }
 
 export function GoalBreakdown(arg1, arg2) {
   return window['go']['main']['App']['GoalBreakdown'](arg1, arg2);
+}
+
+export function HasCredential(arg1) {
+  return window['go']['main']['App']['HasCredential'](arg1);
 }
 
 export function Health() {
@@ -148,6 +180,10 @@ export function ListProjects(arg1) {
 
 export function ListTasks(arg1) {
   return window['go']['main']['App']['ListTasks'](arg1);
+}
+
+export function LogEnergy(arg1) {
+  return window['go']['main']['App']['LogEnergy'](arg1);
 }
 
 export function NewTopic() {
@@ -194,6 +230,14 @@ export function PatchTask(arg1, arg2) {
   return window['go']['main']['App']['PatchTask'](arg1, arg2);
 }
 
+export function PlanChat(arg1) {
+  return window['go']['main']['App']['PlanChat'](arg1);
+}
+
+export function PreviewGoal(arg1) {
+  return window['go']['main']['App']['PreviewGoal'](arg1);
+}
+
 export function RejectLLMRun(arg1) {
   return window['go']['main']['App']['RejectLLMRun'](arg1);
 }
@@ -206,6 +250,14 @@ export function Retro(arg1) {
   return window['go']['main']['App']['Retro'](arg1);
 }
 
+export function SaveReview(arg1, arg2) {
+  return window['go']['main']['App']['SaveReview'](arg1, arg2);
+}
+
+export function ScheduleTask(arg1) {
+  return window['go']['main']['App']['ScheduleTask'](arg1);
+}
+
 export function SetAutostart(arg1) {
   return window['go']['main']['App']['SetAutostart'](arg1);
 }
@@ -214,12 +266,20 @@ export function SetCredential(arg1, arg2) {
   return window['go']['main']['App']['SetCredential'](arg1, arg2);
 }
 
+export function SetDayHours(arg1) {
+  return window['go']['main']['App']['SetDayHours'](arg1);
+}
+
 export function Snooze() {
   return window['go']['main']['App']['Snooze']();
 }
 
 export function SplitSegment(arg1, arg2) {
   return window['go']['main']['App']['SplitSegment'](arg1, arg2);
+}
+
+export function StartScreen() {
+  return window['go']['main']['App']['StartScreen']();
 }
 
 export function StatsHeatmap(arg1) {
@@ -244,6 +304,10 @@ export function SyncNow() {
 
 export function SyncStatus() {
   return window['go']['main']['App']['SyncStatus']();
+}
+
+export function UnscheduleTask(arg1) {
+  return window['go']['main']['App']['UnscheduleTask'](arg1);
 }
 
 export function Version() {

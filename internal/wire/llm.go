@@ -6,6 +6,8 @@ import "encoding/json"
 const (
 	RunBreakdown = "breakdown"
 	RunRetro     = "retro"
+	RunDayPlan   = "day_plan"
+	RunAssistant = "assistant"
 	RunOK        = "ok"
 	RunFailed    = "failed"
 	RunAccepted  = "accepted"
@@ -45,6 +47,39 @@ type RetroOutput struct {
 	GeneratedBy string `json:"generated_by"`
 }
 
+// DayPlanOutput is an ok day plan's Output: the conversation including the
+// reply, the proposed blocks, and the change of hours, nil for none
+// (docs/07-integrations.md#day-plan).
+type DayPlanOutput struct {
+	Messages []ChatMessage   `json:"messages"`
+	Items    []ProposedBlock `json:"items"`
+	Hours    *DayHours       `json:"hours"`
+}
+
+// ChatMessage is a turn of a day plan conversation; Role is "user" or
+// "assistant".
+type ChatMessage struct {
+	Role string `json:"role"`
+	Text string `json:"text"`
+}
+
+// ProposedBlock is a block of a day plan.
+type ProposedBlock struct {
+	TaskID         string  `json:"task_id"`
+	Title          string  `json:"title"`
+	ProjectID      *string `json:"project_id"`
+	StartAt        int64   `json:"start_at"`
+	PlannedMinutes int     `json:"planned_minutes"`
+}
+
+// PlanChatRequest is the POST /v1/plan/chat body; RunID continues a
+// conversation, nil starts one.
+type PlanChatRequest struct {
+	Day     string  `json:"day"`
+	Message string  `json:"message"`
+	RunID   *string `json:"run_id"`
+}
+
 // RunError is a failed run's Output.
 type RunError struct {
 	Error string `json:"error"`
@@ -53,6 +88,9 @@ type RunError struct {
 // BreakdownRequest is the POST /v1/goals/{id}/breakdown body.
 type BreakdownRequest struct {
 	Instructions string `json:"instructions"`
+	// Sessions is how many upcoming sessions a quantity goal's breakdown
+	// fills, 1 to 14; 0 means 7.
+	Sessions int `json:"sessions,omitempty"`
 }
 
 // RetroRequest is the POST /v1/retro body.

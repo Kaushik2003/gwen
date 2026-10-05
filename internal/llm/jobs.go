@@ -25,17 +25,35 @@ const MaxRetro = 4000
 
 // BreakdownRequest is everything a breakdown sends, and nothing else.
 type BreakdownRequest struct {
-	Title          string   `json:"title"`
-	Kind           string   `json:"kind"`
-	Unit           string   `json:"unit"`
-	TargetQuantity *int     `json:"target_quantity"`
-	MinutesPerUnit *int     `json:"minutes_per_unit"`
-	StartDay       string   `json:"start_day"`
-	DueDay         string   `json:"due_day"`
-	ExistingTasks  []string `json:"existing_tasks"`
-	Instructions   string   `json:"instructions"`
-	Today          string   `json:"today"`
+	Title             string    `json:"title"`
+	Kind              string    `json:"kind"`
+	Unit              string    `json:"unit"`
+	TargetQuantity    *int      `json:"target_quantity"`
+	MinutesPerUnit    *int      `json:"minutes_per_unit"`
+	DailyMinutes      *int      `json:"daily_minutes"`
+	StartDay          string    `json:"start_day"`
+	DueDay            string    `json:"due_day"`
+	DoneQuantity      int       `json:"done_quantity"`
+	RemainingQuantity int       `json:"remaining_quantity"`
+	ExistingTasks     []string  `json:"existing_tasks"`
+	Sessions          []Session `json:"sessions,omitempty"`
+	Instructions      string    `json:"instructions"`
+	Today             string    `json:"today"`
 }
+
+// Session is an upcoming session of a quantity goal that needs items.
+type Session struct {
+	Day     string `json:"day"`
+	Units   int    `json:"units"`
+	Minutes int    `json:"minutes"`
+}
+
+// Breakdown limits (docs/07-integrations.md#breakdown).
+const (
+	MaxBreakdownTasks = 100
+	MaxNotes          = 2000
+	MaxExistingTasks  = 200
+)
 
 // ProposedTask is one task of a breakdown.
 type ProposedTask struct {
@@ -88,6 +106,8 @@ type RetroRequest struct {
 	Goals          []RetroGoal    `json:"goals"`
 	PlannedMinutes int            `json:"planned_minutes"`
 	DoneMinutes    int            `json:"done_minutes"`
+	// Reflection is the user's own weekly review of the week, or nil.
+	Reflection *AssistantReview `json:"reflection,omitempty"`
 }
 
 // RetroOutput is llm_runs.output of a retro.
@@ -102,7 +122,7 @@ func (a *adapter) Breakdown(ctx context.Context, req BreakdownRequest) (Breakdow
 	if req.ExistingTasks == nil {
 		req.ExistingTasks = []string{}
 	}
-	text, err := a.ask(ctx, breakdownPrompt, req)
+	text, err := a.ask(ctx, breakdownJob, req)
 	if err != nil {
 		return BreakdownOutput{}, err
 	}
@@ -163,12 +183,15 @@ func strictDecode(s string, v any) error {
 
 // ValidateBreakdown applies the rules of docs/07-integrations.md#breakdown.
 func ValidateBreakdown(out BreakdownOutput, today, goalDue string) error {
-	if n := len(out.Tasks); n < 1 || n > 50 {
-		return fmt.Errorf("a breakdown needs 1 to 50 tasks, got %d", n)
+	if n := len(out.Tasks); n < 1 || n > MaxBreakdownTasks {
+		return fmt.Errorf("a breakdown needs 1 to %d tasks, got %d", MaxBreakdownTasks, n)
 	}
 	for i, t := range out.Tasks {
 		if n := len([]rune(strings.TrimSpace(t.Title))); n < 1 || n > 200 {
 			return fmt.Errorf("task %d: the title must be 1 to 200 characters", i)
+		}
+		if len([]rune(t.Notes)) > MaxNotes {
+			return fmt.Errorf("task %d: the notes are longer than %d characters", i, MaxNotes)
 		}
 		if t.EstimateMinutes < 5 || t.EstimateMinutes > 480 {
 			return fmt.Errorf("task %d: estimate_minutes %d is outside 5 to 480", i, t.EstimateMinutes)
@@ -193,7 +216,7 @@ func ValidateBreakdown(out BreakdownOutput, today, goalDue string) error {
 // rules summary on any failure, so it always succeeds; the error it returns
 // is the reason the model's reply was not used, for logging.
 func (a *adapter) Retro(ctx context.Context, req RetroRequest) (RetroOutput, error) {
-	text, err := a.ask(ctx, retroPrompt, req)
+	text, err := a.ask(ctx, retroJob, req)
 	if err == nil {
 		var out RetroOutput
 		switch err = strictDecode(text, &out); {

@@ -1,10 +1,12 @@
 package store
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/kzark/gwen/internal/model"
@@ -25,10 +27,13 @@ type ProposedTask struct {
 type LLMRunRepo interface {
 	Create(ctx context.Context, kind, subjectID, status string, output any) (model.LLMRun, error)
 	Get(ctx context.Context, id string) (model.LLMRun, error)
-	// Accept creates the tasks at indexes of an ok breakdown in one
-	// transaction, linked to its goal and the goal's project, and marks the
-	// run accepted.
-	Accept(ctx context.Context, id string, indexes []int) ([]model.Task, error)
+	// Accept applies the picks at indexes of an ok run in one transaction
+	// and marks it accepted. A breakdown's tasks are created in index order,
+	// linked to its goal and the goal's project; a quantity goal's tasks are
+	// items: they get no due day, and its open sessions are filled from them.
+	// A day plan's blocks replace the day's planned items, unless the day is
+	// before today (docs/07-integrations.md#day-plan).
+	Accept(ctx context.Context, id string, indexes []int, today string) ([]model.Task, Changes, error)
 	// Reject marks an ok run rejected.
 	Reject(ctx context.Context, id string) (model.LLMRun, error)
 	// PlanMinutes sums plan items on days from..to: planned counts every item
@@ -105,15 +110,25 @@ func openRun(ctx context.Context, tx *sql.Tx, id string) (model.LLMRun, error) {
 	return run, nil
 }
 
-func (r llmRunRepo) Accept(ctx context.Context, id string, indexes []int) ([]model.Task, error) {
-	var created []model.Task
+func (r llmRunRepo) Accept(ctx context.Context, id string, indexes []int, today string) ([]model.Task, Changes, error) {
+	var (
+		created []model.Task
+		ch      Changes
+	)
 	err := r.db.InTx(ctx, func(tx *sql.Tx) error {
 		run, err := openRun(ctx, tx, id)
 		if err != nil {
 			return err
 		}
-		if run.Kind != model.RunBreakdown {
-			return Fail(ErrInvalid, "only a breakdown's tasks can be accepted")
+		switch run.Kind {
+		case model.RunDayPlan:
+			if created, ch, err = acceptDayPlan(ctx, tx, r.db, run, indexes, today); err != nil {
+				return err
+			}
+			return setRunStatus(ctx, tx, r.db, &run, model.RunAccepted)
+		case model.RunBreakdown:
+		default:
+			return Fail(ErrInvalid, "only a breakdown or a day plan can be accepted")
 		}
 		var out struct {
 			Tasks []ProposedTask `json:"tasks"`
@@ -135,7 +150,8 @@ func (r llmRunRepo) Accept(ctx context.Context, id string, indexes []int) ([]mod
 		if err != nil {
 			return err
 		}
-		for _, i := range indexes {
+		items := g.Kind == model.GoalQuantity
+		for _, i := range slices.Sorted(slices.Values(indexes)) {
 			p := out.Tasks[i]
 			now := r.db.Now()
 			estimate := time.Duration(p.EstimateMinutes) * time.Minute
@@ -143,6 +159,12 @@ func (r llmRunRepo) Accept(ctx context.Context, id string, indexes []int) ([]mod
 				Status: model.TaskOpen, Priority: p.Priority, DueDay: &p.DueDay, Estimate: &estimate,
 				GoalID: &g.ID, Quantity: p.Quantity,
 				Envelope: model.Envelope{CreatedAt: now, UpdatedAt: now, DeviceID: r.db.DeviceID(), Rev: 1}}
+			if items {
+				t.DueDay = nil // sessions schedule items, in order
+				if err := defaultUnit(ctx, tx, &t); err != nil {
+					return err
+				}
+			}
 			if err := validTask(ctx, tx, &t); err != nil {
 				return err
 			}
@@ -151,12 +173,25 @@ func (r llmRunRepo) Accept(ctx context.Context, id string, indexes []int) ([]mod
 			}
 			created = append(created, t)
 		}
+		if items {
+			var ch Changes
+			if err := fillGoal(ctx, tx, r.db, g.ID, &ch); err != nil {
+				return err
+			}
+			if created, err = tasksByID(ctx, tx, ids(created, func(t model.Task) string { return t.ID })); err != nil {
+				return err
+			}
+			slices.SortFunc(created, func(a, b model.Task) int {
+				return cmp.Or(a.CreatedAt.Compare(b.CreatedAt), cmp.Compare(a.ID, b.ID))
+			})
+		}
+		ch = Changes{TaskIDs: ids(created, func(t model.Task) string { return t.ID }), Goals: true}
 		return setRunStatus(ctx, tx, r.db, &run, model.RunAccepted)
 	})
 	if err != nil {
-		return nil, fmt.Errorf("accept run %s: %w", id, err)
+		return nil, Changes{}, fmt.Errorf("accept run %s: %w", id, err)
 	}
-	return created, nil
+	return created, ch, nil
 }
 
 func (r llmRunRepo) Reject(ctx context.Context, id string) (model.LLMRun, error) {

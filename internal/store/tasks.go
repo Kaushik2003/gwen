@@ -40,6 +40,12 @@ type NewTask struct {
 	GoalID          *string
 	Quantity        *int
 	RRule           *string
+	ParentID        *string
+	StartDay        *string
+	StartMinute     *int
+	Stage           *string // nil is todo
+	Effort          *int
+	DelegatedTo     *string
 }
 
 // TaskPatch changes a task; unset fields are unchanged.
@@ -53,6 +59,12 @@ type TaskPatch struct {
 	GoalID          Nullable[string]
 	Quantity        Nullable[int]
 	RRule           Nullable[string]
+	ParentID        Nullable[string]
+	StartDay        Nullable[string]
+	StartMinute     Nullable[int]
+	Stage           *string
+	Effort          Nullable[int]
+	DelegatedTo     *string
 	Rev             *int64
 }
 
@@ -60,8 +72,16 @@ type TaskPatch struct {
 // send the matching events.
 type Changes struct {
 	TaskIDs  []string // tasks created, changed, or deleted
+	Deleted  []string // the tasks among TaskIDs that were deleted
 	PlanDays []string // days whose plan items changed, ascending
 	Goals    bool     // a goal or commitment changed
+}
+
+func (c *Changes) deleted(id string) {
+	c.task(id)
+	if !slices.Contains(c.Deleted, id) {
+		c.Deleted = append(c.Deleted, id)
+	}
 }
 
 func (c *Changes) plan(day string) {
@@ -89,16 +109,22 @@ type TaskRepo interface {
 	// priority descending, then created_at.
 	List(ctx context.Context, f TaskFilter) ([]model.Task, error)
 	Get(ctx context.Context, id string) (model.Task, error)
-	Create(ctx context.Context, t NewTask) (model.Task, error)
+	// Create inserts a task. One that adds an item to a quantity goal also
+	// fills the goal's open sessions.
+	Create(ctx context.Context, t NewTask) (model.Task, Changes, error)
 	Update(ctx context.Context, id string, p TaskPatch) (model.Task, error)
 	// Complete and Reopen are idempotent: a task already in the target status
 	// is returned unchanged. Completing records quantityDone, or the task's
 	// quantity when it is nil, marks the task's planned items done, and marks
 	// a goal it finishes done; reopening sets its done items on today back to
 	// planned and a done goal it reopens back to active (docs/06-planner.md).
+	// Both cascade between steps and their parent
+	// (docs/06-planner.md#sessions-and-steps).
 	Complete(ctx context.Context, id string, quantityDone *int) (TaskChange, error)
 	Reopen(ctx context.Context, id string, today string) (TaskChange, error)
-	Delete(ctx context.Context, id string) error
+	// Delete soft-deletes the tasks with their cascade
+	// (docs/06-planner.md#deleting), all or none.
+	Delete(ctx context.Context, ids ...string) (Changes, error)
 	// Tracked returns all-time work on each task, the open segment counting up
 	// to now. Tasks without work are absent.
 	Tracked(ctx context.Context, ids []string, now time.Time) (map[string]time.Duration, error)
@@ -110,23 +136,27 @@ type taskRepo struct{ db *DB }
 func NewTaskRepo(db *DB) TaskRepo { return taskRepo{db} }
 
 const taskCols = `id, project_id, title, notes, status, priority, due_day, estimate_minutes, done_at, goal_id,
-	quantity, quantity_done, rrule, template_id, occurrence_day, ` + envelopeCols
+	quantity, quantity_done, rrule, template_id, occurrence_day, parent_id, start_day, start_minute, stage, effort,
+	delegated_to, ` + envelopeCols
 
 func scanTask(s scanner) (model.Task, error) {
 	var (
-		t                                        model.Task
-		project, due, goal, rrule, tmpl, occurs  sql.NullString
-		estimate, doneAt, quantity, quantityDone sql.NullInt64
-		env                                      envelopeScan
+		t                                                      model.Task
+		project, due, goal, rrule, tmpl, occurs, parent, start sql.NullString
+		estimate, doneAt, quantity, quantityDone, startMinute  sql.NullInt64
+		effort                                                 sql.NullInt64
+		env                                                    envelopeScan
 	)
 	dest := append([]any{&t.ID, &project, &t.Title, &t.Notes, &t.Status, &t.Priority, &due, &estimate, &doneAt,
-		&goal, &quantity, &quantityDone, &rrule, &tmpl, &occurs}, env.dest()...)
+		&goal, &quantity, &quantityDone, &rrule, &tmpl, &occurs, &parent, &start, &startMinute, &t.Stage, &effort,
+		&t.DelegatedTo}, env.dest()...)
 	if err := s.Scan(dest...); err != nil {
 		return model.Task{}, err
 	}
 	t.ProjectID, t.DueDay, t.DoneAt = stringPtr(project), stringPtr(due), timePtr(doneAt)
 	t.GoalID, t.RRule, t.TemplateID, t.OccurrenceDay = stringPtr(goal), stringPtr(rrule), stringPtr(tmpl), stringPtr(occurs)
-	t.Quantity, t.QuantityDone = intPtr(quantity), intPtr(quantityDone)
+	t.Quantity, t.QuantityDone, t.ParentID = intPtr(quantity), intPtr(quantityDone), stringPtr(parent)
+	t.StartDay, t.StartMinute, t.Effort = stringPtr(start), intPtr(startMinute), intPtr(effort)
 	if estimate.Valid {
 		d := time.Duration(estimate.Int64) * time.Minute
 		t.Estimate = &d
@@ -203,7 +233,7 @@ func getTask(ctx context.Context, q Querier, id string) (model.Task, error) {
 	return t, nil
 }
 
-func (r taskRepo) Create(ctx context.Context, nt NewTask) (model.Task, error) {
+func (r taskRepo) Create(ctx context.Context, nt NewTask) (model.Task, Changes, error) {
 	now := r.db.Now()
 	t := model.Task{
 		ID:        model.NewID(),
@@ -215,7 +245,18 @@ func (r taskRepo) Create(ctx context.Context, nt NewTask) (model.Task, error) {
 		GoalID:    nt.GoalID,
 		Quantity:  nt.Quantity,
 		RRule:     nt.RRule,
+		ParentID:  nt.ParentID,
+		StartDay:  nt.StartDay,
+		Stage:     model.StageTodo,
+		Effort:    nt.Effort,
 		Envelope:  model.Envelope{CreatedAt: now, UpdatedAt: now, DeviceID: r.db.DeviceID(), Rev: 1},
+	}
+	t.StartMinute = nt.StartMinute
+	if nt.Stage != nil {
+		t.Stage = *nt.Stage
+	}
+	if nt.DelegatedTo != nil {
+		t.DelegatedTo = *nt.DelegatedTo
 	}
 	if nt.Notes != nil {
 		t.Notes = *nt.Notes
@@ -227,28 +268,42 @@ func (r taskRepo) Create(ctx context.Context, nt NewTask) (model.Task, error) {
 		d := time.Duration(*nt.EstimateMinutes) * time.Minute
 		t.Estimate = &d
 	}
+	var ch Changes
 	err := r.db.InTx(ctx, func(tx *sql.Tx) error {
 		if err := validTask(ctx, tx, &t); err != nil {
 			return err
 		}
-		return insertTask(ctx, tx, &t)
+		if err := defaultUnit(ctx, tx, &t); err != nil {
+			return err
+		}
+		if err := insertTask(ctx, tx, &t); err != nil {
+			return err
+		}
+		if t.GoalID != nil && t.ParentID == nil && t.RRule == nil {
+			return fillGoal(ctx, tx, r.db, *t.GoalID, &ch)
+		}
+		return nil
 	})
 	if err != nil {
-		return model.Task{}, fmt.Errorf("create task: %w", err)
+		return model.Task{}, ch, fmt.Errorf("create task: %w", err)
 	}
-	return t, nil
+	return t, ch, nil
 }
 
-// insertTask inserts t as it is, envelope included.
+// insertTask inserts t as it is, envelope included; an unset stage is todo.
 func insertTask(ctx context.Context, tx *sql.Tx, t *model.Task) error {
+	if t.Stage == "" {
+		t.Stage = model.StageTodo
+	}
 	const qInsertTask = `INSERT INTO tasks (id, project_id, title, notes, status, priority, due_day,
-		estimate_minutes, done_at, goal_id, quantity, quantity_done, rrule, template_id, occurrence_day,
-		created_at, updated_at, device_id, rev)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		estimate_minutes, done_at, goal_id, quantity, quantity_done, rrule, template_id, occurrence_day, parent_id,
+		start_day, start_minute, stage, effort, delegated_to, created_at, updated_at, device_id, rev)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	_, err := tx.ExecContext(ctx, qInsertTask, t.ID, nullString(t.ProjectID), t.Title, t.Notes, t.Status, t.Priority,
 		nullString(t.DueDay), estimateMinutes(t.Estimate), nullMillis(t.DoneAt), nullString(t.GoalID),
 		nullInt(t.Quantity), nullInt(t.QuantityDone), nullString(t.RRule), nullString(t.TemplateID),
-		nullString(t.OccurrenceDay), t.CreatedAt.UnixMilli(), t.UpdatedAt.UnixMilli(), t.DeviceID, t.Rev)
+		nullString(t.OccurrenceDay), nullString(t.ParentID), nullString(t.StartDay), nullInt(t.StartMinute),
+		t.Stage, nullInt(t.Effort), t.DelegatedTo, t.CreatedAt.UnixMilli(), t.UpdatedAt.UnixMilli(), t.DeviceID, t.Rev)
 	return classify(err)
 }
 
@@ -277,12 +332,46 @@ func validTask(ctx context.Context, q Querier, t *model.Task) error {
 	if t.Quantity != nil && *t.Quantity < 1 {
 		return FailField(ErrInvalid, "quantity", "quantity must be positive")
 	}
+	if t.Stage == "" {
+		t.Stage = model.StageTodo
+	}
+	if !model.ValidStage(t.Stage) {
+		return FailField(ErrInvalid, "stage", "stage must be inbox, todo, doing, waiting, or someday")
+	}
+	if t.Effort != nil && (*t.Effort < model.EffortEasy || *t.Effort > model.EffortHard) {
+		return FailField(ErrInvalid, "effort", "effort must be 1 (easy) to 3 (hard)")
+	}
+	t.DelegatedTo = strings.TrimSpace(t.DelegatedTo)
+	if len([]rune(t.DelegatedTo)) > 200 {
+		return FailField(ErrInvalid, "delegated_to", "delegated_to is at most 200 characters")
+	}
+	if t.StartDay != nil {
+		if !validDay(*t.StartDay) {
+			return FailField(ErrInvalid, "start_day", "start_day must be a date like 2026-09-15")
+		}
+		if t.DueDay != nil && *t.StartDay > *t.DueDay {
+			return FailField(ErrInvalid, "start_day", "a task cannot start after it is due")
+		}
+	}
+	if t.StartMinute != nil {
+		if t.StartDay == nil {
+			return FailField(ErrInvalid, "start_minute", "a start time needs a start day")
+		}
+		if *t.StartMinute < 0 || *t.StartMinute > 1439 {
+			return FailField(ErrInvalid, "start_minute", "start_minute must be 0 to 1439")
+		}
+	}
 	if t.RRule != nil {
 		if t.TemplateID != nil {
 			return FailField(ErrInvalid, "rrule", "an occurrence of a recurring task cannot recur itself")
 		}
 		if _, err := planner.ParseRule(*t.RRule); err != nil {
 			return FailField(ErrInvalid, "rrule", "%v", err)
+		}
+	}
+	if t.ParentID != nil {
+		if err := validStep(ctx, q, t); err != nil {
+			return err
 		}
 	}
 	if t.GoalID != nil {
@@ -337,10 +426,31 @@ func (r taskRepo) Update(ctx context.Context, id string, p TaskPatch) (model.Tas
 		if p.RRule.Set {
 			t.RRule = p.RRule.Value
 		}
+		if p.ParentID.Set {
+			t.ParentID = p.ParentID.Value
+		}
+		if p.StartDay.Set {
+			t.StartDay = p.StartDay.Value
+		}
+		if p.StartMinute.Set {
+			t.StartMinute = p.StartMinute.Value
+		}
+		if p.Stage != nil {
+			t.Stage = *p.Stage
+		}
+		if p.Effort.Set {
+			t.Effort = p.Effort.Value
+		}
+		if p.DelegatedTo != nil {
+			t.DelegatedTo = *p.DelegatedTo
+		}
 		if err := validTask(ctx, tx, &t); err != nil {
 			return err
 		}
-		return r.write(ctx, tx, &t)
+		if err := writeTask(ctx, tx, r.db, &t); err != nil {
+			return err
+		}
+		return moveSteps(ctx, tx, r.db, t)
 	})
 	if err != nil {
 		return model.Task{}, fmt.Errorf("update task %s: %w", id, err)
@@ -348,16 +458,19 @@ func (r taskRepo) Update(ctx context.Context, id string, p TaskPatch) (model.Tas
 	return t, nil
 }
 
-// write stores every column of t with a new envelope write.
-func (r taskRepo) write(ctx context.Context, tx *sql.Tx, t *model.Task) error {
-	now := r.db.Now()
-	t.UpdatedAt, t.DeviceID, t.Rev = now, r.db.DeviceID(), t.Rev+1
+// writeTask stores every column of t with a new envelope write.
+func writeTask(ctx context.Context, tx *sql.Tx, db *DB, t *model.Task) error {
+	now := db.Now()
+	t.UpdatedAt, t.DeviceID, t.Rev = now, db.DeviceID(), t.Rev+1
 	const qUpdateTask = `UPDATE tasks SET project_id = ?, title = ?, notes = ?, status = ?, priority = ?,
 		due_day = ?, estimate_minutes = ?, done_at = ?, goal_id = ?, quantity = ?, quantity_done = ?, rrule = ?,
-		updated_at = ?, device_id = ?, rev = ? WHERE id = ?`
+		parent_id = ?, start_day = ?, start_minute = ?, stage = ?, effort = ?, delegated_to = ?, updated_at = ?,
+		device_id = ?, rev = ? WHERE id = ?`
 	_, err := tx.ExecContext(ctx, qUpdateTask, nullString(t.ProjectID), t.Title, t.Notes, t.Status, t.Priority,
 		nullString(t.DueDay), estimateMinutes(t.Estimate), nullMillis(t.DoneAt), nullString(t.GoalID),
-		nullInt(t.Quantity), nullInt(t.QuantityDone), nullString(t.RRule), now.UnixMilli(), t.DeviceID, t.Rev, t.ID)
+		nullInt(t.Quantity), nullInt(t.QuantityDone), nullString(t.RRule), nullString(t.ParentID),
+		nullString(t.StartDay), nullInt(t.StartMinute), t.Stage, nullInt(t.Effort), t.DelegatedTo, now.UnixMilli(),
+		t.DeviceID, t.Rev, t.ID)
 	return classify(err)
 }
 
@@ -368,33 +481,10 @@ func (r taskRepo) Complete(ctx context.Context, id string, quantityDone *int) (T
 		if err != nil {
 			return err
 		}
-		ch.Task = t
-		if t.IsTemplate() {
-			return FailField(ErrInvalid, "id", "a recurring template is never completed; complete its occurrence")
-		}
 		if quantityDone != nil && *quantityDone < 0 {
 			return FailField(ErrInvalid, "quantity_done", "quantity_done must not be negative")
 		}
-		if t.Status == model.TaskDone {
-			return nil
-		}
-		now := r.db.Now()
-		t.Status, t.DoneAt, t.QuantityDone = model.TaskDone, &now, t.Quantity
-		if quantityDone != nil {
-			t.QuantityDone = quantityDone
-		}
-		if err := r.write(ctx, tx, &t); err != nil {
-			return err
-		}
-		ch.Task = t
-		days, err := setItemStatus(ctx, tx, r.db, t.ID, model.PlanPlanned, model.PlanDone, "")
-		if err != nil {
-			return err
-		}
-		for _, d := range days {
-			ch.plan(d)
-		}
-		ch.Goals, err = settleGoal(ctx, tx, r.db, t.GoalID, true)
+		ch.Task, err = completeTask(ctx, tx, r.db, t, quantityDone, &ch.Changes)
 		return err
 	})
 	if err != nil {
@@ -410,23 +500,7 @@ func (r taskRepo) Reopen(ctx context.Context, id string, today string) (TaskChan
 		if err != nil {
 			return err
 		}
-		ch.Task = t
-		if t.Status == model.TaskOpen {
-			return nil
-		}
-		t.Status, t.DoneAt, t.QuantityDone = model.TaskOpen, nil, nil
-		if err := r.write(ctx, tx, &t); err != nil {
-			return err
-		}
-		ch.Task = t
-		days, err := setItemStatus(ctx, tx, r.db, t.ID, model.PlanDone, model.PlanPlanned, today)
-		if err != nil {
-			return err
-		}
-		for _, d := range days {
-			ch.plan(d)
-		}
-		ch.Goals, err = settleGoal(ctx, tx, r.db, t.GoalID, false)
+		ch.Task, err = reopenTask(ctx, tx, r.db, t, today, &ch.Changes)
 		return err
 	})
 	if err != nil {
@@ -435,20 +509,31 @@ func (r taskRepo) Reopen(ctx context.Context, id string, today string) (TaskChan
 	return ch, nil
 }
 
-func (r taskRepo) Delete(ctx context.Context, id string) error {
+func (r taskRepo) Delete(ctx context.Context, ids ...string) (Changes, error) {
+	var ch Changes
 	err := r.db.InTx(ctx, func(tx *sql.Tx) error {
-		if _, err := getTask(ctx, tx, id); err != nil {
-			return err
+		if len(ids) == 0 {
+			return FailField(ErrInvalid, "ids", "name at least one task")
 		}
-		now := r.db.Now().UnixMilli()
-		const qDeleteTask = `UPDATE tasks SET deleted_at = ?, updated_at = ?, device_id = ?, rev = rev + 1 WHERE id = ?`
-		_, err := tx.ExecContext(ctx, qDeleteTask, now, now, r.db.DeviceID(), id)
-		return err
+		tasks := make([]model.Task, len(ids))
+		for i, id := range ids {
+			t, err := getTask(ctx, tx, id)
+			if err != nil {
+				return err
+			}
+			tasks[i] = t
+		}
+		for _, t := range tasks {
+			if err := deleteTask(ctx, tx, r.db, t, &ch); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("delete task %s: %w", id, err)
+		return Changes{}, fmt.Errorf("delete tasks %s: %w", strings.Join(ids, ", "), err)
 	}
-	return nil
+	return ch, nil
 }
 
 func (r taskRepo) Tracked(ctx context.Context, ids []string, now time.Time) (map[string]time.Duration, error) {

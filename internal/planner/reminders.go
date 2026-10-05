@@ -34,6 +34,8 @@ type ReminderInput struct {
 	Progress    map[string]GoalProgress // active goals
 	// RolloverCounts are the tasks' rollover counts on today.
 	RolloverCounts map[string]int
+	// Goals are the live goals; steps and items get no reminders.
+	Goals map[string]Goal
 }
 
 // Reminders computes the briefing's reminders
@@ -46,7 +48,7 @@ func Reminders(in ReminderInput) []Reminder {
 	var found []candidate
 	for _, t := range in.Tasks {
 		due, ok := t.due()
-		if !ok || !t.live() || !t.open() || t.IsTemplate() {
+		if !ok || !t.live() || !t.open() || t.IsTemplate() || !ownPlan(t.Task, in.Goals) || t.startsAfter(in.Today) {
 			continue
 		}
 		left := in.Today.DaysUntil(due)
@@ -59,6 +61,8 @@ func Reminders(in ReminderInput) []Reminder {
 			msg = "Due today"
 		case left == 1:
 			msg = "Due tomorrow"
+		case t.IsTodo():
+			continue // a quick to-do needs no head start
 		case left <= 14 && float64(remaining) > 0.25*float64(in.avail(left)):
 			hours := math.Round(float64(remaining)/60*10) / 10
 			msg = fmt.Sprintf("Start now — due in %d days, about %sh of work left", left,

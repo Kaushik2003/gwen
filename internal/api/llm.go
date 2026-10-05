@@ -1,10 +1,12 @@
 package api
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"log/slog"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/kzark/gwen/internal/llm"
@@ -26,6 +28,19 @@ func (s *Server) planner() (llm.Planner, error) {
 	return p, err
 }
 
+// Breakdown session counts (docs/04-api-contract.md#endpoints--v3).
+const (
+	DefaultBreakdownSessions = 7
+	MaxBreakdownSessions     = 14
+)
+
+func unitOr(unit string) string {
+	if unit == "" {
+		return "units"
+	}
+	return unit
+}
+
 func runWire(r model.LLMRun) wire.LlmRun {
 	return wire.LlmRun{ID: r.ID, Kind: r.Kind, SubjectID: r.SubjectID, Status: r.Status, Output: r.Output,
 		CreatedAt: wire.Millis(r.CreatedAt), UpdatedAt: wire.Millis(r.UpdatedAt)}
@@ -45,15 +60,40 @@ func (s *Server) breakdown(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	n := req.Sessions
+	switch {
+	case n == 0:
+		n = DefaultBreakdownSessions
+	case n < 1 || n > MaxBreakdownSessions:
+		return badRequest("sessions", "sessions must be 1 to %d", MaxBreakdownSessions)
+	}
+	slots, progress, err := s.Repos.Plans.Slots(ctx, g, n, s.planEnv())
+	if err != nil {
+		return err
+	}
+	if g.Kind == model.GoalQuantity && len(slots) == 0 {
+		return badRequest("sessions", "nothing is left to line up: every session up to the due day has its %s",
+			unitOr(g.Unit))
+	}
 	linked, err := s.Repos.Tasks.List(ctx, store.TaskFilter{GoalID: g.ID, Status: "all"})
 	if err != nil {
 		return err
 	}
+	slices.SortFunc(linked, func(a, b model.Task) int {
+		return cmp.Or(a.CreatedAt.Compare(b.CreatedAt), cmp.Compare(a.ID, b.ID))
+	})
+	linked = linked[max(0, len(linked)-llm.MaxExistingTasks):]
 	in := llm.BreakdownRequest{Title: g.Title, Kind: g.Kind, Unit: g.Unit, TargetQuantity: g.TargetQuantity,
-		MinutesPerUnit: minutesOf(g.PerUnit), StartDay: g.StartDay, DueDay: g.DueDay,
+		MinutesPerUnit: minutesOf(g.PerUnit), DailyMinutes: minutesOf(g.Daily), StartDay: g.StartDay,
+		DueDay: g.DueDay, DoneQuantity: progress.Done, RemainingQuantity: progress.Remaining,
 		ExistingTasks: []string{}, Instructions: req.Instructions, Today: s.today()}
 	for _, t := range linked {
-		in.ExistingTasks = append(in.ExistingTasks, t.Title)
+		if t.TemplateID == nil { // a session repeats the goal's title
+			in.ExistingTasks = append(in.ExistingTasks, t.Title)
+		}
+	}
+	for _, sl := range slots {
+		in.Sessions = append(in.Sessions, llm.Session{Day: sl.Day.String(), Units: sl.Units, Minutes: sl.Minutes})
 	}
 	out, err := p.Breakdown(ctx, in)
 	var run model.LLMRun
@@ -139,6 +179,12 @@ func (s *Server) retroData(ctx context.Context, start civil.Day) (llm.RetroReque
 		in.Goals = append(in.Goals, llm.RetroGoal{Title: g.Title, Done: p.Done, Remaining: p.Remaining, Unit: g.Unit,
 			RequiredPerDay: p.RequiredPerDay, ActualPerDay: p.ActualPerDay, Pace: p.Pace, DueDay: g.DueDay})
 	}
+	if rv, err := s.Repos.Reviews.Get(ctx, start.String()); err == nil {
+		in.Reflection = &llm.AssistantReview{WeekStart: rv.WeekStart, WentWell: rv.WentWell, WentBadly: rv.WentBadly,
+			Energy: rv.Energy, Decisions: rv.Decisions, Improvements: rv.Improvements}
+	} else if !errors.Is(err, store.ErrNotFound) && !errors.Is(err, store.ErrInvalid) {
+		return in, err
+	}
 	in.PlannedMinutes, in.DoneMinutes, err = s.Repos.LLMRuns.PlanMinutes(ctx, start.String(), end.String())
 	return in, err
 }
@@ -163,11 +209,14 @@ func (s *Server) acceptRun(w http.ResponseWriter, r *http.Request) error {
 	if _, err := s.planner(); err != nil {
 		return err
 	}
-	tasks, err := s.Repos.LLMRuns.Accept(r.Context(), r.PathValue("id"), req.Indexes)
+	tasks, ch, err := s.Repos.LLMRuns.Accept(r.Context(), r.PathValue("id"), req.Indexes, s.today())
 	if err != nil {
 		return err
 	}
-	s.publishChanges(store.Changes{TaskIDs: taskIDs(tasks), Goals: true})
+	s.publishChanges(ch)
+	if len(tasks) > 0 { // a breakdown's tasks join today's plan at once
+		s.replan(r.Context())
+	}
 	out := wire.TaskList{Tasks: make([]wire.Task, len(tasks))}
 	for i, t := range tasks {
 		out.Tasks[i] = taskWire(t, 0)

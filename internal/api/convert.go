@@ -7,6 +7,7 @@ import (
 
 	"github.com/kzark/gwen/internal/model"
 	"github.com/kzark/gwen/internal/planner"
+	"github.com/kzark/gwen/internal/planner/civil"
 	"github.com/kzark/gwen/internal/store"
 	"github.com/kzark/gwen/internal/timeengine"
 	"github.com/kzark/gwen/internal/wire"
@@ -116,7 +117,8 @@ func taskWire(t model.Task, tracked time.Duration) wire.Task {
 		CreatedAt: wire.Millis(t.CreatedAt), UpdatedAt: wire.Millis(t.UpdatedAt), Rev: t.Rev,
 		TrackedMs: tracked.Milliseconds(),
 		GoalID:    t.GoalID, Quantity: t.Quantity, QuantityDone: t.QuantityDone, RRule: t.RRule,
-		TemplateID: t.TemplateID, OccurrenceDay: t.OccurrenceDay,
+		TemplateID: t.TemplateID, OccurrenceDay: t.OccurrenceDay, ParentID: t.ParentID,
+		StartDay: t.StartDay, StartMinute: t.StartMinute, Stage: t.Stage, Effort: t.Effort, DelegatedTo: t.DelegatedTo,
 	}
 }
 
@@ -129,20 +131,31 @@ func minutesOf(d *time.Duration) *int {
 }
 
 func goalWire(g model.Goal, p planner.GoalProgress) wire.Goal {
-	var finish *string
-	if p.ProjectedFinish != nil {
-		f := p.ProjectedFinish.String()
-		finish = &f
-	}
 	return wire.Goal{
 		ID: g.ID, Title: g.Title, Kind: g.Kind, Unit: g.Unit, TargetQuantity: g.TargetQuantity,
-		MinutesPerUnit: minutesOf(g.PerUnit), ProjectID: g.ProjectID, StartDay: g.StartDay, DueDay: g.DueDay,
-		Status: g.Status, CreatedAt: wire.Millis(g.CreatedAt), UpdatedAt: wire.Millis(g.UpdatedAt), Rev: g.Rev,
-		Progress: wire.GoalProgress{
-			DoneQuantity: p.Done, RemainingQuantity: p.Remaining, RequiredPerDay: p.RequiredPerDay,
-			ActualPerDay: p.ActualPerDay, Pace: p.Pace, ProjectedFinishDay: finish,
-		},
+		MinutesPerUnit: minutesOf(g.PerUnit), DailyMinutes: minutesOf(g.Daily), ProjectID: g.ProjectID,
+		StartDay: g.StartDay, DueDay: g.DueDay, Status: g.Status,
+		Specific: g.Specific, Measurable: g.Measurable, Assignable: g.Assignable, Realistic: g.Realistic,
+		CreatedAt: wire.Millis(g.CreatedAt), UpdatedAt: wire.Millis(g.UpdatedAt), Rev: g.Rev,
+		Progress: progressWire(p),
 	}
+}
+
+func progressWire(p planner.GoalProgress) wire.GoalProgress {
+	return wire.GoalProgress{
+		DoneQuantity: p.Done, RemainingQuantity: p.Remaining, RequiredPerDay: p.RequiredPerDay,
+		ActualPerDay: p.ActualPerDay, Pace: p.Pace, ProjectedFinishDay: dayPtr(p.ProjectedFinish),
+		PerSession: p.PerSession, ReachableQuantity: p.Reachable, NeededDailyMinutes: p.NeededDaily,
+		NeededDueDay: dayPtr(p.NeededDue), LinedUp: p.LinedUp,
+	}
+}
+
+func dayPtr(d *civil.Day) *string {
+	if d == nil {
+		return nil
+	}
+	s := d.String()
+	return &s
 }
 
 func commitmentWire(c model.Commitment) wire.Commitment {
@@ -156,11 +169,15 @@ func commitmentWire(c model.Commitment) wire.Commitment {
 
 func planItemWire(e store.PlanEntry, tracked time.Duration) wire.PlanItem {
 	it := e.Item
-	return wire.PlanItem{
+	out := wire.PlanItem{
 		ID: it.ID, Day: it.Day, TaskID: it.TaskID, PlannedMinutes: int(it.Planned / time.Minute),
 		StartAt: wire.MillisPtr(it.StartAt), Position: it.Position, Status: it.Status, Pinned: it.Pinned,
 		RolledFromID: it.RolledFromID, RolloverCount: it.RolloverCount,
 		CreatedAt: wire.Millis(it.CreatedAt), UpdatedAt: wire.Millis(it.UpdatedAt), Rev: it.Rev,
-		Task: taskWire(e.Task, tracked),
+		Task: taskWire(e.Task, tracked), Steps: make([]wire.Task, len(e.Steps)),
 	}
+	for i, s := range e.Steps {
+		out.Steps[i] = taskWire(s, 0)
+	}
+	return out
 }

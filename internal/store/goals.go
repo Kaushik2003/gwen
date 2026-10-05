@@ -28,9 +28,17 @@ type NewGoal struct {
 	Unit           *string
 	TargetQuantity *int
 	MinutesPerUnit *int
+	DailyMinutes   *int
 	ProjectID      *string
 	StartDay       string
 	DueDay         string
+	SMART          SMART
+}
+
+// SMART is a goal's SMART text: what exactly, how it is measured, who does
+// it, and why it is realistic. Time-related is the goal's days.
+type SMART struct {
+	Specific, Measurable, Assignable, Realistic string
 }
 
 // GoalPatch changes a goal; unset fields are unchanged.
@@ -40,10 +48,15 @@ type GoalPatch struct {
 	Unit           *string
 	TargetQuantity Nullable[int]
 	MinutesPerUnit Nullable[int]
+	DailyMinutes   Nullable[int]
 	ProjectID      Nullable[string]
 	StartDay       *string
 	DueDay         *string
 	Status         *string
+	Specific       *string
+	Measurable     *string
+	Assignable     *string
+	Realistic      *string
 	Rev            *int64
 }
 
@@ -57,9 +70,9 @@ type GoalRepo interface {
 	// the same transaction.
 	Create(ctx context.Context, g NewGoal) (model.Goal, Changes, error)
 	Update(ctx context.Context, id string, p GoalPatch) (model.Goal, error)
-	// Delete soft-deletes the goal, its session template, and the template's
-	// open occurrences.
-	Delete(ctx context.Context, id string) (Changes, error)
+	// Delete soft-deletes the goal and its session template, and with
+	// openTasks its open items and steps too (docs/06-planner.md#deleting).
+	Delete(ctx context.Context, id string, openTasks bool) (Changes, error)
 }
 
 type goalRepo struct{ db *DB }
@@ -67,26 +80,23 @@ type goalRepo struct{ db *DB }
 // NewGoalRepo returns the SQLite GoalRepo.
 func NewGoalRepo(db *DB) GoalRepo { return goalRepo{db} }
 
-const goalCols = `id, title, kind, unit, target_quantity, minutes_per_unit, project_id, start_day, due_day, status, ` +
-	envelopeCols
+const goalCols = `id, title, kind, unit, target_quantity, minutes_per_unit, project_id, start_day, due_day, status,
+	daily_minutes, specific, measurable, assignable, realistic, ` + envelopeCols
 
 func scanGoal(s scanner) (model.Goal, error) {
 	var (
-		g               model.Goal
-		target, perUnit sql.NullInt64
-		project         sql.NullString
-		env             envelopeScan
+		g                      model.Goal
+		target, perUnit, daily sql.NullInt64
+		project                sql.NullString
+		env                    envelopeScan
 	)
 	dest := append([]any{&g.ID, &g.Title, &g.Kind, &g.Unit, &target, &perUnit, &project, &g.StartDay, &g.DueDay,
-		&g.Status}, env.dest()...)
+		&g.Status, &daily, &g.Specific, &g.Measurable, &g.Assignable, &g.Realistic}, env.dest()...)
 	if err := s.Scan(dest...); err != nil {
 		return model.Goal{}, err
 	}
 	g.TargetQuantity, g.ProjectID = intPtr(target), stringPtr(project)
-	if perUnit.Valid {
-		d := time.Duration(perUnit.Int64) * time.Minute
-		g.PerUnit = &d
-	}
+	g.PerUnit, g.Daily = minutesPtr(intPtr(perUnit)), minutesPtr(intPtr(daily))
 	g.Envelope = env.envelope()
 	return g, nil
 }
@@ -154,9 +164,11 @@ func (r goalRepo) Create(ctx context.Context, ng NewGoal) (model.Goal, Changes, 
 	now := r.db.Now()
 	g := model.Goal{
 		ID: model.NewID(), Title: ng.Title, Kind: ng.Kind, TargetQuantity: ng.TargetQuantity,
-		PerUnit: minutesPtr(ng.MinutesPerUnit), ProjectID: ng.ProjectID, StartDay: ng.StartDay, DueDay: ng.DueDay,
-		Status:   model.GoalActive,
-		Envelope: model.Envelope{CreatedAt: now, UpdatedAt: now, DeviceID: r.db.DeviceID(), Rev: 1},
+		PerUnit: minutesPtr(ng.MinutesPerUnit), Daily: minutesPtr(ng.DailyMinutes), ProjectID: ng.ProjectID,
+		StartDay: ng.StartDay, DueDay: ng.DueDay, Status: model.GoalActive,
+		Specific: ng.SMART.Specific, Measurable: ng.SMART.Measurable, Assignable: ng.SMART.Assignable,
+		Realistic: ng.SMART.Realistic,
+		Envelope:  model.Envelope{CreatedAt: now, UpdatedAt: now, DeviceID: r.db.DeviceID(), Rev: 1},
 	}
 	if ng.Unit != nil {
 		g.Unit = *ng.Unit
@@ -167,11 +179,13 @@ func (r goalRepo) Create(ctx context.Context, ng NewGoal) (model.Goal, Changes, 
 			return err
 		}
 		const qInsertGoal = `INSERT INTO goals (id, title, kind, unit, target_quantity, minutes_per_unit, project_id,
-			start_day, due_day, status, created_at, updated_at, device_id, rev)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`
+			start_day, due_day, status, daily_minutes, specific, measurable, assignable, realistic, created_at,
+			updated_at, device_id, rev)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`
 		if _, err := tx.ExecContext(ctx, qInsertGoal, g.ID, g.Title, g.Kind, g.Unit, nullInt(g.TargetQuantity),
 			estimateMinutes(g.PerUnit), nullString(g.ProjectID), g.StartDay, g.DueDay, g.Status,
-			now.UnixMilli(), now.UnixMilli(), g.DeviceID); err != nil {
+			estimateMinutes(g.Daily), g.Specific, g.Measurable, g.Assignable, g.Realistic, now.UnixMilli(),
+			now.UnixMilli(), g.DeviceID); err != nil {
 			return classify(err)
 		}
 		ch.Goals = true
@@ -204,12 +218,18 @@ func validGoal(ctx context.Context, q Querier, g *model.Goal) error {
 		if g.PerUnit == nil || *g.PerUnit < time.Minute {
 			return FailField(ErrInvalid, "minutes_per_unit", "a quantity goal needs a positive minutes_per_unit")
 		}
+		if g.Daily != nil && (*g.Daily < 5*time.Minute || *g.Daily > 24*time.Hour) {
+			return FailField(ErrInvalid, "daily_minutes", "daily_minutes must be 5 to 1440")
+		}
 	case model.GoalTasks:
 		if g.TargetQuantity != nil {
 			return FailField(ErrInvalid, "target_quantity", "a tasks goal has no target_quantity")
 		}
 		if g.PerUnit != nil {
 			return FailField(ErrInvalid, "minutes_per_unit", "a tasks goal has no minutes_per_unit")
+		}
+		if g.Daily != nil {
+			return FailField(ErrInvalid, "daily_minutes", "a tasks goal has no daily_minutes")
 		}
 	default:
 		return FailField(ErrInvalid, "kind", "kind must be quantity or tasks")
@@ -227,6 +247,15 @@ func validGoal(ctx context.Context, q Querier, g *model.Goal) error {
 	}
 	if g.DueDay < g.StartDay {
 		return FailField(ErrInvalid, "due_day", "due_day must not be before start_day")
+	}
+	for _, f := range []struct {
+		key string
+		v   *string
+	}{{"specific", &g.Specific}, {"measurable", &g.Measurable}, {"assignable", &g.Assignable}, {"realistic", &g.Realistic}} {
+		*f.v = strings.TrimSpace(*f.v)
+		if len([]rune(*f.v)) > 1000 {
+			return FailField(ErrInvalid, f.key, "%s is at most 1000 characters", f.key)
+		}
 	}
 	if g.ProjectID != nil {
 		return projectExists(ctx, q, *g.ProjectID, "project_id")
@@ -259,6 +288,9 @@ func (r goalRepo) Update(ctx context.Context, id string, p GoalPatch) (model.Goa
 		if p.MinutesPerUnit.Set {
 			g.PerUnit = minutesPtr(p.MinutesPerUnit.Value)
 		}
+		if p.DailyMinutes.Set {
+			g.Daily = minutesPtr(p.DailyMinutes.Value)
+		}
 		if p.ProjectID.Set {
 			g.ProjectID = p.ProjectID.Value
 		}
@@ -270,6 +302,12 @@ func (r goalRepo) Update(ctx context.Context, id string, p GoalPatch) (model.Goa
 		}
 		if p.Status != nil {
 			g.Status = *p.Status
+		}
+		for _, f := range []struct{ to, from *string }{{&g.Specific, p.Specific}, {&g.Measurable, p.Measurable},
+			{&g.Assignable, p.Assignable}, {&g.Realistic, p.Realistic}} {
+			if f.from != nil {
+				*f.to = *f.from
+			}
 		}
 		if err := validGoal(ctx, tx, &g); err != nil {
 			return err
@@ -287,38 +325,22 @@ func writeGoal(ctx context.Context, tx *sql.Tx, db *DB, g *model.Goal) error {
 	now := db.Now()
 	g.UpdatedAt, g.DeviceID, g.Rev = now, db.DeviceID(), g.Rev+1
 	const qUpdateGoal = `UPDATE goals SET title = ?, unit = ?, target_quantity = ?, minutes_per_unit = ?,
-		project_id = ?, start_day = ?, due_day = ?, status = ?, updated_at = ?, device_id = ?, rev = ? WHERE id = ?`
+		project_id = ?, start_day = ?, due_day = ?, status = ?, daily_minutes = ?, specific = ?, measurable = ?,
+		assignable = ?, realistic = ?, updated_at = ?, device_id = ?, rev = ? WHERE id = ?`
 	_, err := tx.ExecContext(ctx, qUpdateGoal, g.Title, g.Unit, nullInt(g.TargetQuantity), estimateMinutes(g.PerUnit),
-		nullString(g.ProjectID), g.StartDay, g.DueDay, g.Status, now.UnixMilli(), g.DeviceID, g.Rev, g.ID)
+		nullString(g.ProjectID), g.StartDay, g.DueDay, g.Status, estimateMinutes(g.Daily), g.Specific, g.Measurable,
+		g.Assignable, g.Realistic, now.UnixMilli(), g.DeviceID, g.Rev, g.ID)
 	return classify(err)
 }
 
-func (r goalRepo) Delete(ctx context.Context, id string) (Changes, error) {
+func (r goalRepo) Delete(ctx context.Context, id string, openTasks bool) (Changes, error) {
 	var ch Changes
 	err := r.db.InTx(ctx, func(tx *sql.Tx) error {
-		if _, err := getGoal(ctx, tx, id); err != nil {
-			return err
-		}
-		now, dev := r.db.Now().UnixMilli(), r.db.DeviceID()
-		const qDeleteGoal = `UPDATE goals SET deleted_at = ?, updated_at = ?, device_id = ?, rev = rev + 1 WHERE id = ?`
-		if _, err := tx.ExecContext(ctx, qDeleteGoal, now, now, dev, id); err != nil {
-			return err
-		}
-		ch.Goals = true
-		const qSessionTasks = `SELECT id FROM tasks WHERE deleted_at IS NULL AND (
-			(goal_id = ?1 AND rrule IS NOT NULL) OR
-			(status = 'open' AND template_id IN (SELECT id FROM tasks WHERE goal_id = ?1 AND rrule IS NOT NULL)))`
-		ids, err := queryIDs(ctx, tx, qSessionTasks, id)
+		g, err := getGoal(ctx, tx, id)
 		if err != nil {
 			return err
 		}
-		for _, tid := range ids {
-			ch.task(tid)
-			if err := softDelete(ctx, tx, r.db, "tasks", tid); err != nil {
-				return err
-			}
-		}
-		return nil
+		return deleteGoal(ctx, tx, r.db, g, openTasks, &ch)
 	})
 	if err != nil {
 		return Changes{}, fmt.Errorf("delete goal %s: %w", id, err)

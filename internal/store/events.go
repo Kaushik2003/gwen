@@ -91,6 +91,8 @@ type Repos struct {
 	Calendar    CalendarRepo
 	LLMRuns     LLMRunRepo
 	Sync        SyncRepo
+	Reviews     ReviewRepo
+	Energy      EnergyRepo
 }
 
 // NewRepos returns the SQLite repositories over db.
@@ -108,5 +110,7 @@ func NewRepos(db *DB) Repos {
 		Calendar:    NewCalendarRepo(db),
 		LLMRuns:     NewLLMRunRepo(db),
 		Sync:        NewSyncRepo(db),
+		Reviews:     NewReviewRepo(db),
+		Energy:      NewEnergyRepo(db),
 	}
 }

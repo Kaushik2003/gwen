@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { App, apiError, isHub, isStale, onEvent, wire, type ApiError } from "./api";
+import { useToast } from "./components/feedback";
 import { dayOf } from "./format";
 
 /** What every screen shares: the daemon's status and lists, kept fresh by the event stream. */
@@ -20,14 +21,19 @@ export interface Daemon {
   goalsVersion: number;
   /** Bumped on integration_changed, so integration panels refetch. */
   integrationVersion: number;
-  notice: string | null;
-  setNotice: (s: string | null) => void;
+  /**
+   * The project and task of the last status that was not off, as the tray
+   * keeps it: what Clock in uses until something else is picked.
+   */
+  lastAttribution: { project_id: string | null; task_id: string | null };
   /** The daemon's clock now: the local clock minus the skew at the last status. */
   now: () => number;
   today: () => string;
   refresh: () => Promise<void>;
   /** Runs an API call, adopting a returned Status and reporting failures. */
   act: <T>(call: () => Promise<T>) => Promise<T | undefined>;
+  /** As act, for calls that return nothing: true when the call succeeded. */
+  run: (call: () => Promise<unknown>) => Promise<boolean>;
   fail: (e: unknown) => ApiError;
 }
 
@@ -62,12 +68,14 @@ export function DaemonProvider({ children }: { children: ReactNode }) {
   const [planVersion, setPlanVersion] = useState(0);
   const [goalsVersion, setGoalsVersion] = useState(0);
   const [integrationVersion, setIntegrationVersion] = useState(0);
-  const [notice, setNotice] = useState<string | null>(null);
+  const notify = useToast();
   const skew = useRef(0);
   const configRef = useRef<wire.Config | null>(null);
+  const lastAttribution = useRef<{ project_id: string | null; task_id: string | null }>({ project_id: null, task_id: null });
 
   const setStatus = useCallback((s: wire.Status) => {
     skew.current = Date.now() - s.server_now_at;
+    if (s.state !== "off") lastAttribution.current = { project_id: s.project_id ?? null, task_id: s.task_id ?? null };
     setStatusState(s);
     setUp(true);
   }, []);
@@ -110,9 +118,9 @@ export function DaemonProvider({ children }: { children: ReactNode }) {
         setLocked(true);
         setUp(true);
       } else if (code === "daemon_not_running") setUp(false);
-      else setNotice(apiError(e).message);
+      else notify(apiError(e).message, "error");
     }
-  }, [loadProjects, loadTasks, setStatus]);
+  }, [loadProjects, loadTasks, setStatus, notify]);
 
   useEffect(() => {
     refresh();
@@ -152,12 +160,12 @@ export function DaemonProvider({ children }: { children: ReactNode }) {
       if (err.code === "daemon_not_running") setUp(false);
       else if (err.code === "unauthorized") setLocked(true);
       else if (isStale(err)) {
-        setNotice("Changed elsewhere — reloaded");
+        notify("Changed elsewhere — reloaded");
         refresh();
-      } else setNotice(err.message);
+      } else notify(err.message, "error");
       return err;
     },
-    [refresh],
+    [refresh, notify],
   );
 
   const act = useCallback(
@@ -174,9 +182,23 @@ export function DaemonProvider({ children }: { children: ReactNode }) {
     [fail, setStatus],
   );
 
+  const run = useCallback(
+    async (call: () => Promise<unknown>): Promise<boolean> => {
+      try {
+        const out = await call();
+        if (out && typeof out === "object" && "state" in out && "server_now_at" in out) setStatus(out as unknown as wire.Status);
+        return true;
+      } catch (e) {
+        fail(e);
+        return false;
+      }
+    },
+    [fail, setStatus],
+  );
+
   const value: Daemon = {
     up, locked, status, config, projects, tasks, daysVersion, tasksVersion, projectsVersion, planVersion, goalsVersion,
-    integrationVersion, notice, setNotice, now, today, refresh, act, fail,
+    integrationVersion, lastAttribution: lastAttribution.current, now, today, refresh, act, run, fail,
   };
   return <DaemonContext.Provider value={value}>{children}</DaemonContext.Provider>;
 }

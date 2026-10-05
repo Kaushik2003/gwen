@@ -15,17 +15,21 @@ func TestTaskCreateDefaultsAndValidation(t *testing.T) {
 	t.Parallel()
 	f := newFx(t)
 	p := f.project("P")
-	tk := f.task("  Read chapter 3 ", &p.ID)
+	tk, _, err := f.r.Tasks.Create(f.ctx, store.NewTask{Title: "  Read chapter 3 ", ProjectID: &p.ID})
+	require.NoError(t, err)
 	require.Equal(t, "Read chapter 3", tk.Title)
 	require.Equal(t, "", tk.Notes)
 	require.Equal(t, 2, tk.Priority)
 	require.Equal(t, model.TaskOpen, tk.Status)
 	require.Nil(t, tk.DueDay)
 	require.Nil(t, tk.Estimate)
+	require.True(t, tk.IsTodo(), "a task with no estimate is a to-do")
+	require.Nil(t, tk.StartDay)
+	require.Nil(t, tk.StartMinute)
 	require.Nil(t, tk.DoneAt)
 	require.Equal(t, int64(1), tk.Rev)
 
-	full, err := f.r.Tasks.Create(f.ctx, store.NewTask{Title: "x", Notes: testutil.Ptr("n"), Priority: testutil.Ptr(4),
+	full, _, err := f.r.Tasks.Create(f.ctx, store.NewTask{Title: "x", Notes: testutil.Ptr("n"), Priority: testutil.Ptr(4),
 		DueDay: testutil.Ptr("2026-09-30"), EstimateMinutes: testutil.Ptr(90)})
 	require.NoError(t, err)
 	require.Equal(t, 90*time.Minute, *full.Estimate)
@@ -43,11 +47,15 @@ func TestTaskCreateDefaultsAndValidation(t *testing.T) {
 		{"priority", store.NewTask{Title: "x", Priority: testutil.Ptr(5)}, store.ErrInvalid, "priority"},
 		{"due day", store.NewTask{Title: "x", DueDay: testutil.Ptr("2026-02-30")}, store.ErrInvalid, "due_day"},
 		{"estimate", store.NewTask{Title: "x", EstimateMinutes: testutil.Ptr(0)}, store.ErrInvalid, "estimate_minutes"},
+		{"start day", store.NewTask{Title: "x", StartDay: testutil.Ptr("2026-13-01")}, store.ErrInvalid, "start_day"},
+		{"start after due", store.NewTask{Title: "x", StartDay: testutil.Ptr("2026-09-30"), DueDay: testutil.Ptr("2026-09-29")}, store.ErrInvalid, "start_day"},
+		{"start time without a day", store.NewTask{Title: "x", StartMinute: testutil.Ptr(600)}, store.ErrInvalid, "start_minute"},
+		{"start time", store.NewTask{Title: "x", StartDay: testutil.Ptr("2026-09-30"), StartMinute: testutil.Ptr(1440)}, store.ErrInvalid, "start_minute"},
 		{"unknown project", store.NewTask{Title: "x", ProjectID: testutil.Ptr("nope")}, store.ErrNotFound, "project_id"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := f.r.Tasks.Create(f.ctx, tc.task)
+			_, _, err := f.r.Tasks.Create(f.ctx, tc.task)
 			userErr(t, err, tc.sentinel, tc.field)
 		})
 	}
@@ -58,7 +66,7 @@ func TestTaskListOrderAndFilters(t *testing.T) {
 	f := newFx(t)
 	p := f.project("P")
 	mk := func(title string, due *string, prio int, project *string) model.Task {
-		tk, err := f.r.Tasks.Create(f.ctx, store.NewTask{Title: title, DueDay: due, Priority: &prio, ProjectID: project})
+		tk, _, err := f.r.Tasks.Create(f.ctx, store.NewTask{Title: title, DueDay: due, Priority: &prio, ProjectID: project})
 		require.NoError(t, err)
 		f.clk.Advance(time.Second)
 		return tk
@@ -108,7 +116,7 @@ func TestTaskUpdateCompleteReopenDelete(t *testing.T) {
 	t.Parallel()
 	f := newFx(t)
 	p := f.project("P")
-	tk, err := f.r.Tasks.Create(f.ctx, store.NewTask{Title: "t", ProjectID: &p.ID, DueDay: testutil.Ptr("2026-09-21"),
+	tk, _, err := f.r.Tasks.Create(f.ctx, store.NewTask{Title: "t", ProjectID: &p.ID, DueDay: testutil.Ptr("2026-09-21"),
 		EstimateMinutes: testutil.Ptr(30)})
 	require.NoError(t, err)
 
@@ -158,10 +166,12 @@ func TestTaskUpdateCompleteReopenDelete(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, open, againOpen.Task, "reopen is idempotent")
 
-	require.NoError(t, f.r.Tasks.Delete(f.ctx, tk.ID))
+	_, err = f.r.Tasks.Delete(f.ctx, tk.ID)
+	require.NoError(t, err)
 	_, err = f.r.Tasks.Get(f.ctx, tk.ID)
 	require.ErrorIs(t, err, store.ErrNotFound)
-	require.ErrorIs(t, f.r.Tasks.Delete(f.ctx, tk.ID), store.ErrNotFound)
+	_, err = f.r.Tasks.Delete(f.ctx, tk.ID)
+	require.ErrorIs(t, err, store.ErrNotFound)
 	_, err = f.r.Tasks.Complete(f.ctx, tk.ID, nil)
 	require.ErrorIs(t, err, store.ErrNotFound)
 	_, err = f.r.Tasks.Update(f.ctx, tk.ID, store.TaskPatch{})

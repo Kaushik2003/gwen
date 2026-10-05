@@ -67,7 +67,7 @@ func TestGoalEndpoints(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, plain.Tasks)
 
-	require.NoError(t, d.c.DeleteGoal(d.ctx, g.ID))
+	require.NoError(t, d.c.DeleteGoal(d.ctx, g.ID, false))
 	next(wire.EventGoalsChanged)
 	_, err = d.c.GetGoal(d.ctx, g.ID)
 	apiErr(t, err, wire.CodeNotFound)
@@ -87,7 +87,7 @@ func TestGoalEndpoints(t *testing.T) {
 		require.Equal(t, "kind", apiErr(t, err, wire.CodeInvalidRequest).Details["field"])
 		_, err = d.c.PatchGoal(d.ctx, tg.ID, wire.PatchGoalRequest{Rev: testutil.Ptr(int64(9))})
 		apiErr(t, err, wire.CodeConflict)
-		apiErr(t, d.c.DeleteGoal(d.ctx, "nope"), wire.CodeNotFound)
+		apiErr(t, d.c.DeleteGoal(d.ctx, "nope", false), wire.CodeNotFound)
 		_, err = d.c.GetGoal(d.ctx, "nope")
 		apiErr(t, err, wire.CodeNotFound)
 	})
@@ -145,7 +145,7 @@ func TestPlanEndpoints(t *testing.T) {
 	require.Equal(t, 90, plan.Items[0].PlannedMinutes)
 	require.Equal(t, wire.Millis(testutil.At("09:00")), *plan.Items[0].StartAt)
 	require.Equal(t, tk.ID, plan.Items[0].Task.ID)
-	require.JSONEq(t, `{"day":"2026-09-15"}`, string(next(wire.EventPlanChanged).Data), "generated on first read")
+	require.JSONEq(t, `{"day":"2026-09-15"}`, string(next(wire.EventPlanChanged).Data), "generated as the task was added")
 
 	item := plan.Items[1]
 	moved, err := d.c.PatchPlanItem(d.ctx, item.ID, wire.PatchPlanItemRequest{
@@ -218,8 +218,9 @@ func TestTaskV2Endpoints(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, wire.GoalActive, goal.Status)
 
+	// Creating the item refreshed today's plan, which made it a step of today's session.
 	patched, err := d.c.PatchTask(d.ctx, tk.ID, wire.PatchTaskRequest{GoalID: wire.Null[string](), Quantity: wire.Null[int](),
-		RRule: wire.Some("FREQ=WEEKLY;BYDAY=MO")})
+		ParentID: wire.Null[string](), RRule: wire.Some("FREQ=WEEKLY;BYDAY=MO")})
 	require.NoError(t, err)
 	require.Nil(t, patched.GoalID)
 	require.Equal(t, "FREQ=WEEKLY;BYDAY=MO", *patched.RRule)
@@ -237,7 +238,7 @@ func TestTaskV2Endpoints(t *testing.T) {
 func TestBriefingEndpointAndClockInNudge(t *testing.T) {
 	t.Parallel()
 	d := startDaemon(t, setup{})
-	_, err := d.c.CreateTask(d.ctx, wire.CreateTaskRequest{Title: "Due", DueDay: testutil.Ptr("2026-09-16")})
+	_, err := d.c.CreateTask(d.ctx, wire.CreateTaskRequest{Title: "Due", DueDay: testutil.Ptr("2026-09-16"), EstimateMinutes: testutil.Ptr(60)})
 	require.NoError(t, err)
 	_, err = d.c.CreateGoal(d.ctx, wire.CreateGoalRequest{Title: "Thesis", Kind: wire.GoalTasks,
 		StartDay: testutil.Day0, DueDay: "2026-10-01"})

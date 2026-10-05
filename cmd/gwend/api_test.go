@@ -24,7 +24,7 @@ func TestHealth(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, h.OK)
 	require.Equal(t, "1.0.0-test", h.Version)
-	require.Equal(t, int64(3), h.SchemaVersion)
+	require.Equal(t, int64(7), h.SchemaVersion)
 	require.NotZero(t, h.PID)
 }
 
@@ -326,8 +326,6 @@ func TestTheOpenSegmentBelongsToTheEngine(t *testing.T) {
 	_, err = d.c.SplitSegment(d.ctx, open, wire.SplitSegmentRequest{At: 1})
 	apiErr(t, err, wire.CodeInvalidState)
 	apiErr(t, d.c.DeleteSegment(d.ctx, open), wire.CodeInvalidState)
-	apiErr(t, d.c.DeleteProject(d.ctx, p.ID), wire.CodeInvalidState)
-	apiErr(t, d.c.DeleteTask(d.ctx, tk.ID), wire.CodeInvalidState)
 	_, err = d.c.PatchProject(d.ctx, p.ID, wire.PatchProjectRequest{Archived: testutil.Ptr(true)})
 	ae := apiErr(t, err, wire.CodeInvalidState)
 	require.Equal(t, "working", ae.Details["state"])

@@ -45,7 +45,7 @@ func TestPlannerMigrationOnV1Data(t *testing.T) {
 	db, err := Open(ctx, dir, clock.NewFake(time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)))
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
-	require.Equal(t, int64(3), db.SchemaVersion())
+	require.Equal(t, int64(7), db.SchemaVersion())
 	_, err = os.Stat(filepath.Join(dir, backupPrefix+"1"))
 	require.NoError(t, err, "the v1 database is backed up first")
 
@@ -82,5 +82,6 @@ func TestPlannerMigrationOnV1Data(t *testing.T) {
 
 	p, err := r.Projects.Create(ctx, "Study", nil)
 	require.NoError(t, err)
-	require.NoError(t, r.Projects.Delete(ctx, p.ID))
+	_, err = r.Projects.Delete(ctx, p.ID)
+	require.NoError(t, err)
 }

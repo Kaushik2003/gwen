@@ -1,3 +1,34 @@
+export namespace main {
+	
+	export class ClaudeCodeStatus {
+	    command: string;
+	    found: boolean;
+	    is_claude: boolean;
+	    logged_in: boolean;
+	    plan: string;
+	    auth_method: string;
+	    detail: string;
+	    suggested: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ClaudeCodeStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.command = source["command"];
+	        this.found = source["found"];
+	        this.is_claude = source["is_claude"];
+	        this.logged_in = source["logged_in"];
+	        this.plan = source["plan"];
+	        this.auth_method = source["auth_method"];
+	        this.detail = source["detail"];
+	        this.suggested = source["suggested"];
+	    }
+	}
+
+}
+
 export namespace wire {
 	
 	export class AcceptRunRequest {
@@ -12,8 +43,23 @@ export namespace wire {
 	        this.indexes = source["indexes"];
 	    }
 	}
+	export class AssistantChatRequest {
+	    message: string;
+	    run_id?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AssistantChatRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.message = source["message"];
+	        this.run_id = source["run_id"];
+	    }
+	}
 	export class BreakdownRequest {
 	    instructions: string;
+	    sessions?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new BreakdownRequest(source);
@@ -22,6 +68,7 @@ export namespace wire {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.instructions = source["instructions"];
+	        this.sessions = source["sessions"];
 	    }
 	}
 	export class GoalProgress {
@@ -31,6 +78,11 @@ export namespace wire {
 	    actual_per_day: number;
 	    pace: string;
 	    projected_finish_day?: string;
+	    per_session?: number;
+	    reachable_quantity: number;
+	    needed_daily_minutes?: number;
+	    needed_due_day?: string;
+	    lined_up: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new GoalProgress(source);
@@ -44,6 +96,11 @@ export namespace wire {
 	        this.actual_per_day = source["actual_per_day"];
 	        this.pace = source["pace"];
 	        this.projected_finish_day = source["projected_finish_day"];
+	        this.per_session = source["per_session"];
+	        this.reachable_quantity = source["reachable_quantity"];
+	        this.needed_daily_minutes = source["needed_daily_minutes"];
+	        this.needed_due_day = source["needed_due_day"];
+	        this.lined_up = source["lined_up"];
 	    }
 	}
 	export class Goal {
@@ -53,10 +110,15 @@ export namespace wire {
 	    unit: string;
 	    target_quantity?: number;
 	    minutes_per_unit?: number;
+	    daily_minutes?: number;
 	    project_id?: string;
 	    start_day: string;
 	    due_day: string;
 	    status: string;
+	    specific: string;
+	    measurable: string;
+	    assignable: string;
+	    realistic: string;
 	    created_at: number;
 	    updated_at: number;
 	    rev: number;
@@ -74,10 +136,15 @@ export namespace wire {
 	        this.unit = source["unit"];
 	        this.target_quantity = source["target_quantity"];
 	        this.minutes_per_unit = source["minutes_per_unit"];
+	        this.daily_minutes = source["daily_minutes"];
 	        this.project_id = source["project_id"];
 	        this.start_day = source["start_day"];
 	        this.due_day = source["due_day"];
 	        this.status = source["status"];
+	        this.specific = source["specific"];
+	        this.measurable = source["measurable"];
+	        this.assignable = source["assignable"];
+	        this.realistic = source["realistic"];
 	        this.created_at = source["created_at"];
 	        this.updated_at = source["updated_at"];
 	        this.rev = source["rev"];
@@ -142,6 +209,12 @@ export namespace wire {
 	    rrule?: string;
 	    template_id?: string;
 	    occurrence_day?: string;
+	    parent_id?: string;
+	    start_day?: string;
+	    start_minute?: number;
+	    stage: string;
+	    effort?: number;
+	    delegated_to: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Task(source);
@@ -168,6 +241,12 @@ export namespace wire {
 	        this.rrule = source["rrule"];
 	        this.template_id = source["template_id"];
 	        this.occurrence_day = source["occurrence_day"];
+	        this.parent_id = source["parent_id"];
+	        this.start_day = source["start_day"];
+	        this.start_minute = source["start_minute"];
+	        this.stage = source["stage"];
+	        this.effort = source["effort"];
+	        this.delegated_to = source["delegated_to"];
 	    }
 	}
 	export class PlanItem {
@@ -185,6 +264,7 @@ export namespace wire {
 	    updated_at: number;
 	    rev: number;
 	    task: Task;
+	    steps: Task[];
 	
 	    static createFrom(source: any = {}) {
 	        return new PlanItem(source);
@@ -206,6 +286,7 @@ export namespace wire {
 	        this.updated_at = source["updated_at"];
 	        this.rev = source["rev"];
 	        this.task = this.convertValues(source["task"], Task);
+	        this.steps = this.convertValues(source["steps"], Task);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -432,7 +513,11 @@ export namespace wire {
 	    provider: string;
 	    model: string;
 	    endpoint: string;
+	    command: string;
 	    timeout: string;
+	    assistant_name: string;
+	    personality: string;
+	    instructions: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new LLMConfig(source);
@@ -443,13 +528,20 @@ export namespace wire {
 	        this.provider = source["provider"];
 	        this.model = source["model"];
 	        this.endpoint = source["endpoint"];
+	        this.command = source["command"];
 	        this.timeout = source["timeout"];
+	        this.assistant_name = source["assistant_name"];
+	        this.personality = source["personality"];
+	        this.instructions = source["instructions"];
 	    }
 	}
 	export class PlannerConfig {
 	    day_start: string;
 	    day_end: string;
 	    buffer: string;
+	    eat_the_frog: boolean;
+	    prime_start: string;
+	    prime_end: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new PlannerConfig(source);
@@ -460,6 +552,9 @@ export namespace wire {
 	        this.day_start = source["day_start"];
 	        this.day_end = source["day_end"];
 	        this.buffer = source["buffer"];
+	        this.eat_the_frog = source["eat_the_frog"];
+	        this.prime_start = source["prime_start"];
+	        this.prime_end = source["prime_end"];
 	    }
 	}
 	export class NtfyConfig {
@@ -592,9 +687,14 @@ export namespace wire {
 	    unit?: string;
 	    target_quantity?: number;
 	    minutes_per_unit?: number;
+	    daily_minutes?: number;
 	    project_id?: string;
 	    start_day: string;
 	    due_day: string;
+	    specific?: string;
+	    measurable?: string;
+	    assignable?: string;
+	    realistic?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new CreateGoalRequest(source);
@@ -607,9 +707,14 @@ export namespace wire {
 	        this.unit = source["unit"];
 	        this.target_quantity = source["target_quantity"];
 	        this.minutes_per_unit = source["minutes_per_unit"];
+	        this.daily_minutes = source["daily_minutes"];
 	        this.project_id = source["project_id"];
 	        this.start_day = source["start_day"];
 	        this.due_day = source["due_day"];
+	        this.specific = source["specific"];
+	        this.measurable = source["measurable"];
+	        this.assignable = source["assignable"];
+	        this.realistic = source["realistic"];
 	    }
 	}
 	export class CreateProjectRequest {
@@ -648,6 +753,22 @@ export namespace wire {
 	        this.ended_at = source["ended_at"];
 	    }
 	}
+	export class TaskSchedule {
+	    day: string;
+	    start_at?: number;
+	    planned_minutes: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new TaskSchedule(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.day = source["day"];
+	        this.start_at = source["start_at"];
+	        this.planned_minutes = source["planned_minutes"];
+	    }
+	}
 	export class CreateTaskRequest {
 	    project_id?: string;
 	    title: string;
@@ -658,6 +779,13 @@ export namespace wire {
 	    goal_id?: string;
 	    quantity?: number;
 	    rrule?: string;
+	    parent_id?: string;
+	    start_day?: string;
+	    start_minute?: number;
+	    stage?: string;
+	    effort?: number;
+	    delegated_to?: string;
+	    schedule?: TaskSchedule;
 	
 	    static createFrom(source: any = {}) {
 	        return new CreateTaskRequest(source);
@@ -674,7 +802,32 @@ export namespace wire {
 	        this.goal_id = source["goal_id"];
 	        this.quantity = source["quantity"];
 	        this.rrule = source["rrule"];
+	        this.parent_id = source["parent_id"];
+	        this.start_day = source["start_day"];
+	        this.start_minute = source["start_minute"];
+	        this.stage = source["stage"];
+	        this.effort = source["effort"];
+	        this.delegated_to = source["delegated_to"];
+	        this.schedule = this.convertValues(source["schedule"], TaskSchedule);
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class Segment {
 	    id: string;
@@ -832,6 +985,20 @@ export namespace wire {
 		    return a;
 		}
 	}
+	export class DayHours {
+	    start_minute?: number;
+	    work_minutes?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new DayHours(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.start_minute = source["start_minute"];
+	        this.work_minutes = source["work_minutes"];
+	    }
+	}
 	export class DayList {
 	    days: DaySummary[];
 	
@@ -863,6 +1030,100 @@ export namespace wire {
 		}
 	}
 	
+	export class DeleteTasksRequest {
+	    ids: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new DeleteTasksRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ids = source["ids"];
+	    }
+	}
+	export class DeletedTasks {
+	    task_ids: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new DeletedTasks(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.task_ids = source["task_ids"];
+	    }
+	}
+	export class EnergyHour {
+	    hour: number;
+	    average: number;
+	    count: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new EnergyHour(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.hour = source["hour"];
+	        this.average = source["average"];
+	        this.count = source["count"];
+	    }
+	}
+	export class EnergyLog {
+	    id: string;
+	    at: number;
+	    level: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new EnergyLog(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.at = source["at"];
+	        this.level = source["level"];
+	    }
+	}
+	export class EnergyReport {
+	    days: number;
+	    logs: EnergyLog[];
+	    hours: EnergyHour[];
+	    suggested_start?: string;
+	    suggested_end?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new EnergyReport(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.days = source["days"];
+	        this.logs = this.convertValues(source["logs"], EnergyLog);
+	        this.hours = this.convertValues(source["hours"], EnergyHour);
+	        this.suggested_start = source["suggested_start"];
+	        this.suggested_end = source["suggested_end"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class GeneratePlanRequest {
 	    day: string;
 	
@@ -905,6 +1166,30 @@ export namespace wire {
 		    }
 		    return a;
 		}
+	}
+	export class GoalPreviewRequest {
+	    goal_id?: string;
+	    kind: string;
+	    target_quantity?: number;
+	    minutes_per_unit?: number;
+	    daily_minutes?: number;
+	    start_day: string;
+	    due_day: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new GoalPreviewRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.goal_id = source["goal_id"];
+	        this.kind = source["kind"];
+	        this.target_quantity = source["target_quantity"];
+	        this.minutes_per_unit = source["minutes_per_unit"];
+	        this.daily_minutes = source["daily_minutes"];
+	        this.start_day = source["start_day"];
+	        this.due_day = source["due_day"];
+	    }
 	}
 	
 	export class Health {
@@ -998,6 +1283,20 @@ export namespace wire {
 	    }
 	}
 	
+	export class LogEnergyRequest {
+	    level: number;
+	    at?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new LogEnergyRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.level = source["level"];
+	        this.at = source["at"];
+	    }
+	}
 	export class NotifyTestResult {
 	    desktop: string;
 	    phone: string;
@@ -1112,10 +1411,15 @@ export namespace wire {
 	    unit?: string;
 	    target_quantity: number | null;
 	    minutes_per_unit: number | null;
+	    daily_minutes: number | null;
 	    project_id: string | null;
 	    start_day?: string;
 	    due_day?: string;
 	    status?: string;
+	    specific?: string;
+	    measurable?: string;
+	    assignable?: string;
+	    realistic?: string;
 	    rev?: number;
 	
 	    static createFrom(source: any = {}) {
@@ -1129,10 +1433,15 @@ export namespace wire {
 	        this.unit = source["unit"];
 	        this.target_quantity = source["target_quantity"];
 	        this.minutes_per_unit = source["minutes_per_unit"];
+	        this.daily_minutes = source["daily_minutes"];
 	        this.project_id = source["project_id"];
 	        this.start_day = source["start_day"];
 	        this.due_day = source["due_day"];
 	        this.status = source["status"];
+	        this.specific = source["specific"];
+	        this.measurable = source["measurable"];
+	        this.assignable = source["assignable"];
+	        this.realistic = source["realistic"];
 	        this.rev = source["rev"];
 	    }
 	}
@@ -1208,6 +1517,12 @@ export namespace wire {
 	    goal_id: string | null;
 	    quantity: number | null;
 	    rrule: string | null;
+	    parent_id: string | null;
+	    start_day: string | null;
+	    start_minute: number | null;
+	    stage?: string;
+	    effort: number | null;
+	    delegated_to?: string;
 	    rev?: number;
 	
 	    static createFrom(source: any = {}) {
@@ -1225,13 +1540,35 @@ export namespace wire {
 	        this.goal_id = source["goal_id"];
 	        this.quantity = source["quantity"];
 	        this.rrule = source["rrule"];
+	        this.parent_id = source["parent_id"];
+	        this.start_day = source["start_day"];
+	        this.start_minute = source["start_minute"];
+	        this.stage = source["stage"];
+	        this.effort = source["effort"];
+	        this.delegated_to = source["delegated_to"];
 	        this.rev = source["rev"];
+	    }
+	}
+	export class PlanWindow {
+	    start_minute: number;
+	    end_minute: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new PlanWindow(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.start_minute = source["start_minute"];
+	        this.end_minute = source["end_minute"];
 	    }
 	}
 	export class Plan {
 	    day: string;
 	    capacity_minutes: number;
 	    planned_minutes: number;
+	    window: PlanWindow;
+	    hours?: DayHours;
 	    items: PlanItem[];
 	
 	    static createFrom(source: any = {}) {
@@ -1243,6 +1580,8 @@ export namespace wire {
 	        this.day = source["day"];
 	        this.capacity_minutes = source["capacity_minutes"];
 	        this.planned_minutes = source["planned_minutes"];
+	        this.window = this.convertValues(source["window"], PlanWindow);
+	        this.hours = this.convertValues(source["hours"], DayHours);
 	        this.items = this.convertValues(source["items"], PlanItem);
 	    }
 	
@@ -1264,6 +1603,23 @@ export namespace wire {
 		    return a;
 		}
 	}
+	export class PlanChatRequest {
+	    day: string;
+	    message: string;
+	    run_id?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new PlanChatRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.day = source["day"];
+	        this.message = source["message"];
+	        this.run_id = source["run_id"];
+	    }
+	}
+	
 	
 	
 	export class Project {
@@ -1334,6 +1690,46 @@ export namespace wire {
 	        this.week_start = source["week_start"];
 	    }
 	}
+	export class SaveReviewRequest {
+	    went_well?: string;
+	    went_badly?: string;
+	    energy?: string;
+	    decisions?: string;
+	    improvements?: string;
+	    checklist?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new SaveReviewRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.went_well = source["went_well"];
+	        this.went_badly = source["went_badly"];
+	        this.energy = source["energy"];
+	        this.decisions = source["decisions"];
+	        this.improvements = source["improvements"];
+	        this.checklist = source["checklist"];
+	    }
+	}
+	export class ScheduleRequest {
+	    task_id: string;
+	    day: string;
+	    start_at?: number;
+	    planned_minutes: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ScheduleRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.task_id = source["task_id"];
+	        this.day = source["day"];
+	        this.start_at = source["start_at"];
+	        this.planned_minutes = source["planned_minutes"];
+	    }
+	}
 	
 	export class SegmentList {
 	    segments: Segment[];
@@ -1364,6 +1760,22 @@ export namespace wire {
 		    }
 		    return a;
 		}
+	}
+	export class SetDayHoursRequest {
+	    day: string;
+	    start_minute?: number;
+	    work_minutes?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new SetDayHoursRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.day = source["day"];
+	        this.start_minute = source["start_minute"];
+	        this.work_minutes = source["work_minutes"];
+	    }
 	}
 	export class SplitSegmentRequest {
 	    at: number;
@@ -1562,6 +1974,61 @@ export namespace wire {
 	    }
 	}
 	
+	
+	export class UnscheduleRequest {
+	    task_id: string;
+	    day: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new UnscheduleRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.task_id = source["task_id"];
+	        this.day = source["day"];
+	    }
+	}
+	export class Unscheduled {
+	    days: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new Unscheduled(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.days = source["days"];
+	    }
+	}
+	export class WeeklyReview {
+	    id: string;
+	    week_start: string;
+	    went_well: string;
+	    went_badly: string;
+	    energy: string;
+	    decisions: string;
+	    improvements: string;
+	    checklist: number;
+	    updated_at: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new WeeklyReview(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.week_start = source["week_start"];
+	        this.went_well = source["went_well"];
+	        this.went_badly = source["went_badly"];
+	        this.energy = source["energy"];
+	        this.decisions = source["decisions"];
+	        this.improvements = source["improvements"];
+	        this.checklist = source["checklist"];
+	        this.updated_at = source["updated_at"];
+	    }
+	}
 
 }
 

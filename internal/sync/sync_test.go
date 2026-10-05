@@ -136,7 +136,7 @@ func TestPushPullAndRestore(t *testing.T) {
 	laptop := newNode(t)
 	p, err := laptop.repos.Projects.Create(ctx, "Study", nil)
 	require.NoError(t, err)
-	tk, err := laptop.repos.Tasks.Create(ctx, store.NewTask{Title: "Read", ProjectID: &p.ID})
+	tk, _, err := laptop.repos.Tasks.Create(ctx, store.NewTask{Title: "Read", ProjectID: &p.ID})
 	require.NoError(t, err)
 
 	c := newClient(t, laptop, srv.URL+"/")
