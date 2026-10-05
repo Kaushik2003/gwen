@@ -217,8 +217,55 @@ longer.
 ## 7. Raspberry Pi (optional)
 
 A Pi 4 or 5 on 64-bit Raspberry Pi OS. It can host the push server, the sync hub, or both. In the
-commands below, replace `PI_ADDRESS` with the Pi's LAN address (or its Tailscale address if you use
-Tailscale) and `pi` with your login on the Pi.
+commands below, replace `PI_ADDRESS` with the Pi's address and `pi` with your login on the Pi. With
+[Tailscale](#tailscale), the address is the Pi's name, such as `gwen-pi`, and works from anywhere.
+Without it, use the Pi's LAN address, which works only on the home Wi-Fi.
+
+### Prepare the Pi
+
+1. Install the imager on the laptop: `sudo dnf install rpi-imager`, then open **Raspberry Pi
+   Imager**.
+2. Choose your Pi model, **Raspberry Pi OS (other) → Raspberry Pi OS Lite (64-bit)**, and the SD
+   card.
+3. Under **Edit settings**, set the hostname (for example `gwen-pi`), a username and password, your
+   Wi-Fi, and on the **Services** tab **Enable SSH** with password authentication. Write the card.
+4. Boot the Pi from the card and wait 2–3 minutes. Then, from the laptop:
+
+```sh
+ssh pi@gwen-pi.local                            # or the IP your router shows for the Pi
+sudo apt update && sudo apt full-upgrade -y
+uname -m                                        # must print aarch64
+```
+
+### Tailscale
+
+Tailscale joins the laptop, the Pi, and the phone into one private network, so the phone and a
+laptop away from home still reach the Pi. Nothing is opened to the internet. It is free for
+personal use.
+
+On the Pi, and again on the laptop:
+
+```sh
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo systemctl enable --now tailscaled
+sudo tailscale up                               # prints a login link: open it and sign in
+```
+
+Use the same account on every device. On the phone, install the **Tailscale** app, sign in with that
+account, and switch it on.
+
+Then, in the [admin console](https://login.tailscale.com/admin/machines), open the Pi's **⋯** menu
+and choose **Disable key expiry**, or the Pi drops off the network after 180 days.
+
+Check from the laptop:
+
+```sh
+tailscale status                                # lists the Pi, the laptop, and the phone
+tailscale ping gwen-pi                          # pong
+```
+
+If a name does not resolve, use the device's `100.x.y.z` address from `tailscale status` or the
+phone app instead.
 
 ### Push server
 
@@ -239,7 +286,7 @@ gwen setup phone --server http://PI_ADDRESS:8080 --fallback https://ntfy.sh
 ```
 
 In the phone app, subscribe to the topic on **both** servers. The phone only reaches the Pi while
-it is on the home Wi-Fi or on the same Tailscale network. If your phone is usually away from home
+it is on the home Wi-Fi or has the Tailscale app switched on. If your phone is usually away from home
 and you do not use Tailscale, keep `https://ntfy.sh` as the primary server instead.
 
 ### Sync hub
@@ -268,21 +315,56 @@ sudo install -m 0644 ~/gwen-hub.service /etc/systemd/system/
 sudo systemctl enable --now gwen-hub
 ```
 
-The `tee` line prints the token. Copy it, then on each laptop:
+The `tee` line prints the token. Keep it in a password manager: it opens all your data. Print it
+again with `sudo cat /var/lib/gwen/credentials/sync_token`. Check the hub is up with
+`systemctl status gwen-hub` (look for `active (running)`).
+
+Copy the token, then on each laptop:
 
 ```sh
 gwen setup sync --hub http://PI_ADDRESS:7777 --token <token>
 gwen sync status
 ```
 
-Or enter the hub address and token in the dashboard under **Settings → Sync**.
+Or enter the hub address and token in the dashboard under **Settings → Sync**, and press **Sync
+now**. The first sync copies everything to the hub; after that the laptop syncs every 5 minutes.
 
-The phone dashboard is at `http://PI_ADDRESS:7777/`.
+The phone dashboard is at `http://PI_ADDRESS:7777/` (`http`, not `https`). With Tailscale switched on
+in the phone app, that is `http://gwen-pi:7777/` from anywhere. Sign in with the token; it stays
+signed in for 30 days. Add it to the home screen (Chrome: **⋮ → Add to Home screen**. Safari:
+**Share → Add to Home Screen**) to open it like an app. It is read-only: it shows the plan, tasks,
+goals, days, and stats, and every change still happens on the laptop.
 
 The hub and every laptop must run the same version. When an update changes the database (`gwen
 health` prints the schema), rebuild the hub with `make build-hub` and copy it over as above, then
 `sudo systemctl restart gwen-hub`. Until then the hub rejects the laptop's pushes, and
 `gwen sync status` shows the error.
+
+```sh
+make build-hub
+scp bin/arm64/gwend pi@PI_ADDRESS:~
+ssh pi@PI_ADDRESS 'sudo install -m 0755 ~/gwend /usr/local/bin/gwend && sudo systemctl restart gwen-hub'
+```
+
+### Preview the phone dashboard without a Pi
+
+Run a hub on the laptop against a copy of your data. Your own daemon keeps running and is not
+touched.
+
+```sh
+mkdir -p -m 0700 /tmp/gwen-hub/credentials
+sqlite3 ~/.local/share/gwen/gwen.db ".backup /tmp/gwen-hub/gwen.db"   # safe copy while gwend runs
+openssl rand -hex 32 | tee /tmp/gwen-hub/credentials/sync_token        # the sign-in token
+(cd ui && npm run build:hub)
+go build -o /tmp/gwen-hub/gwend ./cmd/gwend
+/tmp/gwen-hub/gwend --hub --listen :7777 --data-dir /tmp/gwen-hub --config /tmp/gwen-hub/config.toml
+```
+
+Open `http://localhost:7777/` and sign in with the token. In Firefox, press **Ctrl+Shift+M** for a
+phone-sized view. To see it on the real phone, open `http://LAPTOP_ADDRESS:7777/` there: the laptop's
+Tailscale address (`tailscale ip -4`), or its Wi-Fi address (`ip -4 addr`) on the same Wi-Fi.
+Press **Ctrl+C** to stop it, then `rm -r /tmp/gwen-hub`. The copy does not update; repeat the
+`sqlite3` line and restart it to see newer data.
 
 ## Where things live
 
@@ -330,6 +412,9 @@ Node 24.
 | `claude_code` provider is unavailable | Open **Settings → AI** in the dashboard and press **Use it** on the `claude` it finds, or re-run `gwen setup llm` and give the full path to `claude`. Check `claude auth status`. |
 | AI requests fail with "timed out" | Raise the wait under **Settings → AI**, or `gwen config set llm.timeout 2m`. |
 | Phone gets nothing | `gwen notify test`. Check the app is subscribed to the exact topic URL, and that the phone can reach the server. |
+| Phone cannot open the hub dashboard | Switch the Tailscale app on. Use `http://`, not `https://`. If the name fails, use the Pi's `100.x.y.z` address from the app. |
+| Hub dashboard is empty | The laptop has not synced yet: **Settings → Sync → Sync now**, or `gwen sync now`. |
+| `gwen-hub` does not start | `sudo journalctl -u gwen-hub -n 30` on the Pi names the cause. |
 | `make docs-check` fails on an extra file in `docs/` | The spec folder is a closed set of 13 files. Move the extra file out of `docs/`. |
 
 ## Uninstall

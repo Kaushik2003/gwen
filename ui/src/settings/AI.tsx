@@ -95,7 +95,7 @@ export default function AISettings() {
         Optional. The assistant chats with you and adds, moves, and reschedules your tasks as you ask, plans your day, breaks goals into tasks, and writes a weekly retro from your numbers.
       </p>
 
-      <div role="radiogroup" aria-label="Provider" className="grid gap-2.5 sm:grid-cols-2">
+      <div role="radiogroup" aria-label="Provider" className="grid gap-2.5 @lg:grid-cols-2">
         {providers.map((p) => {
           const on = p.id === provider;
           const Icon = p.icon;
@@ -155,9 +155,9 @@ export default function AISettings() {
       )}
 
       {provider !== "none" && (
-        <div className="mt-5 grid gap-4 sm:grid-cols-2">
+        <div className="mt-5 grid gap-4 @lg:grid-cols-2">
           {provider === "claude_code" ? (
-            <Field label="Model" compound className="sm:col-span-2" hint="An alias such as sonnet or opus, or a full model name.">
+            <Field label="Model" compound className="@lg:col-span-2" hint="An alias such as sonnet or opus, or a full model name.">
               <div className="flex flex-wrap items-center gap-2">
                 <Input value={model} onChange={(e) => setModel(e.target.value)} spellCheck={false} aria-label="Model" className="w-64 max-w-full" />
                 {["sonnet", "opus", "haiku"].map((m) => (

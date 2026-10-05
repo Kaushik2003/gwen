@@ -72,7 +72,7 @@ export default function Goals() {
           {status === "active" && "Try 300 problems by December, or a set of tasks such as finishing a course."}
         </Empty>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-4 @3xl:grid-cols-2">
           {goals.map((g) => (
             <GoalCard
               key={g.id}

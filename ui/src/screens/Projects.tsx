@@ -167,7 +167,7 @@ export default function Projects() {
   return (
     <div className="flex flex-col gap-5">
       <PageHeader title="Projects & tasks" subtitle="Projects colour your time. Tasks are what you plan and track." />
-      <div className="grid items-start gap-5 lg:grid-cols-[17rem_minmax(0,1fr)]">
+      <div className="grid items-start gap-5 @3xl:grid-cols-[15rem_minmax(0,1fr)]">
         <Panel
           title="Projects"
           icon={FolderKanban}
@@ -401,11 +401,13 @@ function TaskRow({
           </div>
         )}
       </button>
-      <span className="w-16 pt-0.5 text-right text-xs text-ink-subtle tabular-nums" title="Tracked on this task">
-        {x.tracked_ms > 0 ? formatDuration(x.tracked_ms) : step && x.estimate_minutes != null ? formatDuration(x.estimate_minutes * 60_000) : ""}
-      </span>
+      {(x.tracked_ms > 0 || (step && x.estimate_minutes != null)) && (
+        <span className="shrink-0 pt-0.5 text-right text-xs text-ink-subtle tabular-nums" title={x.tracked_ms > 0 ? "Tracked on this task" : "Estimated"}>
+          {formatDuration(x.tracked_ms > 0 ? x.tracked_ms : x.estimate_minutes! * 60_000)}
+        </span>
+      )}
       {!picking && (
-        <span className="flex items-center gap-0.5">
+        <span className="flex shrink-0 items-center gap-0.5">
           {!template &&
             !isDone &&
             !step &&

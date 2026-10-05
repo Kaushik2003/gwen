@@ -44,7 +44,7 @@ export default function PersonalitySettings() {
         <Field label="Name">
           <Input value={name} onChange={(e) => setName(e.target.value)} maxLength={40} className="w-60" placeholder="Gwen" />
         </Field>
-        <div role="radiogroup" aria-label="Personality" className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        <div role="radiogroup" aria-label="Personality" className="grid gap-2 @lg:grid-cols-2 @2xl:grid-cols-3">
           {personas.map((p) => {
             const on = p.id === personality;
             return (

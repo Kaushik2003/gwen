@@ -163,7 +163,7 @@ export default function Today() {
       ))}
 
       <section className="lift overflow-hidden rounded-2xl border border-line bg-surface-1">
-        <div className="flex flex-col gap-8 p-6 md:flex-row md:items-center md:p-7">
+        <div className="flex flex-col gap-8 p-6 md:p-7 @3xl:flex-row @3xl:items-center">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2.5 text-sm font-medium" style={{ color }}>
               <Dot color={color} live={state === "working"} size={9} />
@@ -245,7 +245,7 @@ export default function Today() {
             )}
           </div>
 
-          <div className="flex shrink-0 flex-col items-center gap-4 md:pr-2">
+          <div className="flex shrink-0 flex-col items-center gap-4 @3xl:pr-2">
             <ProgressRing fraction={target > 0 ? worked / target : 0} color={met ? stateColor.working : color} label="Worked against the daily target">
               <span className="text-[30px] leading-none font-semibold tracking-[-0.03em] text-ink tabular-nums">{Math.round(target > 0 ? (worked / target) * 100 : 0)}%</span>
               <span className="mt-1.5 text-xs text-ink-subtle">of {formatDuration(target)}</span>
@@ -268,7 +268,7 @@ export default function Today() {
         </div>
       </section>
 
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)]">
+      <div className="grid gap-5 @3xl:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)]">
         <Panel
           title="Today's plan"
           icon={CalendarClock}

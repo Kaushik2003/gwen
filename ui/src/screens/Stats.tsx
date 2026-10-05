@@ -67,7 +67,7 @@ export default function Stats() {
       />
 
       {s && (
-        <section className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-line bg-line sm:grid-cols-3 lg:grid-cols-5">
+        <section className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-line bg-line @xl:grid-cols-3 @4xl:grid-cols-5">
           <Kpi icon={Clock} label="Worked" value={formatDuration(s.worked_ms)} />
           <Kpi icon={CalendarDays} label="Daily average" value={formatDuration(s.avg_worked_ms)} />
           <Kpi icon={Target} label="Days on target" value={`${s.days_target_met} of ${s.days_tracked}`}>
@@ -83,7 +83,7 @@ export default function Stats() {
           {s.by_project.length === 0 ? (
             <p className="text-[13px] text-ink-subtle">No work in this range.</p>
           ) : (
-            <div className="flex flex-col items-center gap-8 sm:flex-row">
+            <div className="flex flex-col items-center gap-8 @xl:flex-row">
               <div className="relative size-52 shrink-0">
                 <ResponsiveContainer>
                   <PieChart>
@@ -150,7 +150,7 @@ function plural(n: number, unit: string): string {
 
 function Kpi({ icon: Icon, label, value, iconColor, children }: { icon: LucideIcon; label: string; value: string; iconColor?: string; children?: React.ReactNode }) {
   return (
-    <div className="bg-surface-1 px-5 py-4 last:col-span-2 lg:last:col-span-1">
+    <div className="bg-surface-1 px-5 py-4 last:col-span-2 @4xl:last:col-span-1">
       <div className="flex items-center gap-1.5 text-xs text-ink-subtle">
         <Icon size={13} aria-hidden style={iconColor ? { color: iconColor } : undefined} />
         {label}

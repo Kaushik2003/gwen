@@ -90,14 +90,14 @@ export default function Review() {
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 @2xl:grid-cols-4">
         <Stat label="Worked" value={summary ? formatDuration(summary.worked_ms) : "–"} />
         <Stat label="Days on target" value={summary ? `${summary.days_target_met} of ${summary.days_tracked}` : "–"} />
         <Stat label="Tasks finished" value={finished ?? "–"} />
         <Stat label="Review steps" value={`${doneSteps} of ${steps.length}`} />
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
+      <div className="grid gap-5 @3xl:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
         <Panel title="Checklist" icon={ClipboardCheck}>
           <ul className="-my-1 flex flex-col">
             {steps.map((s, i) => {
@@ -148,7 +148,7 @@ export default function Review() {
         </Panel>
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-2">
+      <div className="grid gap-5 @3xl:grid-cols-2">
         <Panel title="Retro from your numbers" icon={ScrollText}>
           <RetroFlow key={week} fixedWeek={week} />
         </Panel>

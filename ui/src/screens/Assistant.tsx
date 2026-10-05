@@ -57,7 +57,7 @@ export default function Assistant() {
         ) : (
           goal && (
             <div className="flex flex-col gap-5">
-              <div role="radiogroup" aria-label="Goal" className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              <div role="radiogroup" aria-label="Goal" className="grid gap-2 @xl:grid-cols-2 @4xl:grid-cols-3">
                 {goals!.map((g) => {
                   const on = g.id === goal.id;
                   return (

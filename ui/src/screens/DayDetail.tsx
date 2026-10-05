@@ -119,7 +119,7 @@ export default function DayDetail({ day, onBack, readOnly }: { day: string; onBa
     <div className="flex flex-col gap-5">
       {header}
       <section className="lift rounded-2xl border border-line bg-surface-1">
-        <dl className="grid grid-cols-2 gap-4 px-6 pt-5 sm:grid-cols-4">
+        <dl className="grid grid-cols-2 gap-4 px-6 pt-5 @xl:grid-cols-4">
           <Figure label="Worked" value={formatDuration(s.worked_ms)} />
           <Figure label="Break" value={formatDuration(s.break_ms)} />
           <Figure label="Target" value={formatDuration(dayTarget)} />
@@ -153,7 +153,7 @@ export default function DayDetail({ day, onBack, readOnly }: { day: string; onBa
               <li
                 id={`seg-${seg.id}`}
                 key={seg.id}
-                className={cx("flex flex-wrap items-center gap-2 rounded-lg py-2 pr-2 pl-3 transition-colors md:flex-nowrap", focus === seg.id ? "bg-accent/10" : "hover:bg-surface-2/60")}
+                className={cx("flex flex-wrap items-center gap-2 rounded-lg py-2 pr-2 pl-3 transition-colors @2xl:flex-nowrap", focus === seg.id ? "bg-accent/10" : "hover:bg-surface-2/60")}
                 onFocus={() => setFocus(seg.id)}
               >
                 <span className={cx("h-8 w-1 shrink-0 rounded-full", !work && "hatched")} style={work ? { backgroundColor: color } : undefined} aria-hidden />
@@ -214,7 +214,7 @@ export default function DayDetail({ day, onBack, readOnly }: { day: string; onBa
       </Panel>
 
       <Panel title="Day">
-        <div className="grid gap-4 sm:grid-cols-[auto_1fr]">
+        <div className="grid gap-4 @xl:grid-cols-[auto_1fr]">
           <Field label="Target" compound>
             <DurationInput value={target} onChange={setTarget} label="Target" disabled={readOnly} />
           </Field>

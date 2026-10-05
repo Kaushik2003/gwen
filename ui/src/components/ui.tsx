@@ -132,9 +132,9 @@ export function Panel({
 export function PageHeader({ title, subtitle, actions }: { title: ReactNode; subtitle?: ReactNode; actions?: ReactNode }) {
   return (
     <header className="mb-6 flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1 basis-72">
         <h1 className="text-headline font-semibold text-ink">{title}</h1>
-        {subtitle && <p className="mt-1 text-sm text-ink-subtle">{subtitle}</p>}
+        {subtitle && <p className="mt-1 max-w-2xl text-sm text-ink-subtle">{subtitle}</p>}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </header>

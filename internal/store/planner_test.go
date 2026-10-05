@@ -417,6 +417,26 @@ func TestPlanGeneratesTodayOnFirstRead(t *testing.T) {
 	require.Equal(t, []string{"later"}, titles(f.plan(fxToday)))
 }
 
+func TestPlanEmptyTodayIsAnnouncedOnce(t *testing.T) {
+	t.Parallel()
+	f := newFx(t)
+
+	p, ch, err := f.r.Plans.Get(f.ctx, "", f.env())
+	require.NoError(t, err)
+	require.Empty(t, p.Items)
+	require.Equal(t, []string{fxToday}, ch.PlanDays, "the first read generates")
+
+	_, ch, err = f.r.Plans.Get(f.ctx, "", f.env())
+	require.NoError(t, err)
+	require.Empty(t, ch.PlanDays, "still empty: nothing to announce, or clients reread forever")
+
+	f.newTask(store.NewTask{Title: "new", EstimateMinutes: testutil.Ptr(60)})
+	p, ch, err = f.r.Plans.Get(f.ctx, "", f.env())
+	require.NoError(t, err)
+	require.Equal(t, []string{"new"}, titles(p), "an empty plan is tried again")
+	require.Equal(t, []string{fxToday}, ch.PlanDays)
+}
+
 func TestSessionOccurrences(t *testing.T) {
 	t.Parallel()
 	f := newFx(t)

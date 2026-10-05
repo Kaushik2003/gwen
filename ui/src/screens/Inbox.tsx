@@ -119,7 +119,7 @@ export default function Inbox() {
         )}
       </Panel>
 
-      <div className="grid gap-5 md:grid-cols-2">
+      <div className="grid gap-5 @2xl:grid-cols-2">
         <Panel title={`Waiting for · ${waiting.length}`} icon={Hand}>
           {waiting.length === 0 ? (
             <p className="text-[13px] text-ink-subtle">Nothing handed off. Delegated tasks show here until they come back.</p>

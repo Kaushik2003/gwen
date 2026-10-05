@@ -96,8 +96,8 @@ export default function Settings() {
   return (
     <div className="flex flex-col gap-5">
       <PageHeader title="Settings" />
-      <div className="grid items-start gap-6 md:grid-cols-[12.5rem_minmax(0,1fr)]">
-        <nav aria-label="Settings sections" className="flex gap-1 overflow-x-auto md:sticky md:top-0 md:flex-col md:gap-0.5">
+      <div className="grid items-start gap-6 @3xl:grid-cols-[12.5rem_minmax(0,1fr)]">
+        <nav aria-label="Settings sections" className="flex flex-wrap gap-1 @3xl:sticky @3xl:top-0 @3xl:flex-col @3xl:flex-nowrap @3xl:gap-0.5">
           {sections.map((s) => {
             const Icon = s.icon;
             const on = s.id === section;
@@ -118,7 +118,7 @@ export default function Settings() {
             );
           })}
         </nav>
-        <div className="flex max-w-3xl min-w-0 flex-col gap-5">
+        <div className="@container flex max-w-3xl min-w-0 flex-col gap-5">
           {section === "tracking" && <ConfigForm title="Tracking" description="How Gwen counts your day." name="tracking" fields={tracking} values={c.tracking} />}
           {section === "nudges" && <ConfigForm title="Nudges" description="When Gwen taps you on the shoulder." name="nudge" fields={nudge} values={c.nudge} />}
           {section === "phone" && <PhoneSettings config={c} />}
@@ -279,7 +279,7 @@ function PhoneSettings({ config }: { config: wire.Config }) {
             Phone notifications are off.
           </Callout>
         )}
-        <div className="flex flex-col gap-6 sm:flex-row sm:items-start">
+        <div className="flex flex-col gap-6 @lg:flex-row @lg:items-start">
           {qr && <img src={qr} alt={`QR code for ${url}`} className="size-44 shrink-0 rounded-xl bg-white p-2" />}
           <ol className="flex min-w-0 flex-col gap-4 text-sm">
             <Step n={1}>Install the free ntfy app. Android: Play Store or F-Droid. iOS: App Store.</Step>

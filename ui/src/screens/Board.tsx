@@ -167,8 +167,8 @@ function Kanban({ tasks, onEdit, onAdd }: { tasks: wire.Task[]; onEdit: (t: wire
 
   return (
     <>
-      <div className="-mx-4 overflow-x-auto px-4 pb-2 md:-mx-8 md:px-8">
-        <div className="grid grid-cols-[repeat(6,minmax(9.5rem,1fr))] gap-2.5">
+      <div className="-mx-4 overflow-x-auto px-4 pb-3 md:-mx-8 md:px-8">
+        <div className="grid grid-cols-[repeat(6,minmax(13rem,1fr))] gap-2.5">
           {columns.map((c, ci) => {
             const cards = tasks
               .filter((t) => columnOf(t) === c.id)
@@ -183,31 +183,37 @@ function Kanban({ tasks, onEdit, onAdd }: { tasks: wire.Task[]; onEdit: (t: wire
                 }}
                 onDragLeave={() => setOver((o) => (o === c.id ? null : o))}
                 onDrop={(e) => drop(e, c.id)}
-                className={cx("flex min-h-[60vh] flex-col gap-2 rounded-xl border bg-surface-1/60 p-2 transition-colors", over === c.id ? "border-accent bg-accent/8" : "border-line")}
+                className={cx("flex h-[max(24rem,calc(100vh-13rem))] min-w-0 flex-col rounded-xl border bg-surface-1/60 transition-colors", over === c.id ? "border-accent bg-accent/8" : "border-line")}
               >
-                <header className="flex h-8 items-center gap-2 px-1.5 pt-1">
-                  <span className="truncate text-[13px] font-semibold whitespace-nowrap text-ink">{c.label}</span>
-                  <span className="rounded-full bg-surface-3 px-1.5 text-xs text-ink-subtle tabular-nums">{cards.length}</span>
-                  {c.id !== "done" && <IconButton icon={Plus} label={`New task in ${c.label}`} size="sm" className="ml-auto" onClick={() => onAdd(c.id)} />}
+                <header className="shrink-0 px-3.5 pt-3 pb-2">
+                  <div className="flex h-7 items-center gap-2">
+                    <span className="truncate text-[13px] font-semibold whitespace-nowrap text-ink">{c.label}</span>
+                    <span className="rounded-full bg-surface-3 px-1.5 text-xs text-ink-subtle tabular-nums">{cards.length}</span>
+                    {c.id !== "done" && <IconButton icon={Plus} label={`New task in ${c.label}`} size="sm" className="-mr-1.5 ml-auto" onClick={() => onAdd(c.id)} />}
+                  </div>
+                  <p className="truncate text-[11px] text-ink-faint" title={c.hint}>
+                    {c.hint}
+                  </p>
                 </header>
-                <p className="px-1.5 text-[11px] leading-snug text-ink-faint">{c.hint}</p>
-                {cards.map((t) => (
-                  <Card
-                    key={t.id}
-                    task={t}
-                    dragging={dragging === t.id}
-                    onDragStart={(e) => {
-                      e.dataTransfer.setData("text/plain", t.id);
-                      e.dataTransfer.effectAllowed = "move";
-                      setDragging(t.id);
-                    }}
-                    onDragEnd={() => setDragging(null)}
-                    onEdit={() => onEdit(t)}
-                    onLeft={ci > 0 ? () => move(t, columns[ci - 1].id) : undefined}
-                    onRight={ci < columns.length - 1 ? () => move(t, columns[ci + 1].id) : undefined}
-                  />
-                ))}
-                {cards.length === 0 && <div className="m-1 grid flex-1 place-items-center rounded-lg border border-dashed border-line text-xs text-ink-faint">Drop here</div>}
+                <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-2 pb-2">
+                  {cards.map((t) => (
+                    <Card
+                      key={t.id}
+                      task={t}
+                      dragging={dragging === t.id}
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData("text/plain", t.id);
+                        e.dataTransfer.effectAllowed = "move";
+                        setDragging(t.id);
+                      }}
+                      onDragEnd={() => setDragging(null)}
+                      onEdit={() => onEdit(t)}
+                      onLeft={ci > 0 ? () => move(t, columns[ci - 1].id) : undefined}
+                      onRight={ci < columns.length - 1 ? () => move(t, columns[ci + 1].id) : undefined}
+                    />
+                  ))}
+                  {cards.length === 0 && <div className="grid flex-1 place-items-center rounded-lg border border-dashed border-line text-xs text-ink-faint">Drop here</div>}
+                </div>
               </section>
             );
           })}
@@ -247,7 +253,7 @@ function Card({
       onDragEnd={onDragEnd}
       onDoubleClick={onEdit}
       className={cx(
-        "group flex cursor-grab flex-col gap-2 rounded-lg border bg-surface-2 p-2.5 shadow-sm transition-[opacity,border-color] active:cursor-grabbing",
+        "group relative flex shrink-0 cursor-grab flex-col gap-2 rounded-lg border bg-surface-2 p-2.5 pl-3 shadow-sm transition-[opacity,border-color] active:cursor-grabbing",
         tracking ? "border-working/60" : "border-line-strong hover:border-line-3",
         dragging && "opacity-40",
       )}
@@ -275,10 +281,9 @@ function Card({
           </span>
         )}
       </div>
-      <div className="-mb-1 flex items-center gap-0.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
+      <div className="absolute right-1.5 bottom-1.5 flex items-center gap-0.5 rounded-md border border-line-strong bg-surface-3 p-0.5 opacity-0 shadow-lg shadow-black/40 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
         {onLeft && <IconButton icon={ArrowLeft} label="Move left" size="sm" onClick={onLeft} />}
         {onRight && <IconButton icon={ArrowRight} label="Move right" size="sm" onClick={onRight} />}
-        <span className="flex-1" />
         {!done && !tracking && (
           <IconButton
             icon={Play}
@@ -309,7 +314,7 @@ function Matrix({ tasks, today, onEdit }: { tasks: wire.Task[]; today: string; o
   const { move, dialog } = useMove();
   return (
     <>
-      <div className="grid gap-3 md:grid-cols-2">
+      <div className="grid gap-3 @2xl:grid-cols-2">
         {quadrants.map((q) => {
           const list = tasks.filter((t) => quadrantOf(t, today) === q.id).sort((a, b) => (a.due_day ?? "9").localeCompare(b.due_day ?? "9") || b.priority - a.priority);
           const Icon = q.icon;

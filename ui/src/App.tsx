@@ -91,7 +91,7 @@ function Shell() {
         <div className="flex h-full flex-col md:flex-row">
           <Sidebar current={current.id} />
           <main ref={main} className="min-w-0 flex-1 overflow-y-auto">
-            <div className="mx-auto w-full max-w-290 px-4 py-5 md:px-8 md:py-7">
+            <div className="@container mx-auto w-full max-w-290 px-4 py-5 md:px-8 md:py-7">
               <View key={current.id} />
             </div>
           </main>

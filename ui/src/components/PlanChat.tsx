@@ -162,7 +162,7 @@ export default function PlanChat({ day, plan, onPreview, onClose }: { day: strin
         </>
       }
     >
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
+      <div className="grid gap-5 @4xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
         <div className="flex min-w-0 flex-col gap-3">
           <div ref={scroller} className="flex max-h-[min(24rem,46vh)] min-h-44 flex-col gap-3 overflow-y-auto rounded-lg border border-line bg-canvas/40 p-4" aria-live="polite">
             {messages.length === 0 && !asking ? (

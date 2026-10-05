@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/kzark/gwen/internal/model"
@@ -354,10 +355,26 @@ func (r planRepo) prepareToday(ctx context.Context, tx *sql.Tx, env PlanEnv, ch 
 	if err != nil && !isNotFound(err) {
 		return err
 	}
-	if n > 0 && planned == today.String() {
+	if planned != today.String() {
+		return r.generate(ctx, tx, today, env, ch)
+	}
+	if n > 0 {
 		return nil
 	}
-	return r.generate(ctx, tx, today, env, ch)
+	// Generated today but empty: try again, since work may fit now, but a plan
+	// that stays empty changed nothing. Announcing it would have every client
+	// that rereads on plan_changed read again, forever.
+	announced := slices.Contains(ch.PlanDays, today.String())
+	if err := r.generate(ctx, tx, today, env, ch); err != nil {
+		return err
+	}
+	if err := tx.QueryRowContext(ctx, qCountItems, today.String()).Scan(&n); err != nil {
+		return fmt.Errorf("count plan items: %w", err)
+	}
+	if n == 0 && !announced {
+		ch.PlanDays = slices.DeleteFunc(ch.PlanDays, func(d string) bool { return d == today.String() })
+	}
+	return nil
 }
 
 // rollover settles the planned items of earlier days and expires overdue
