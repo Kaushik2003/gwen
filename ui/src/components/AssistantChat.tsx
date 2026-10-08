@@ -6,6 +6,7 @@ import { formatTime } from "../format";
 import type { AssistantMessage, AssistantOutput, RunError } from "../llm";
 import { AiFailed, AiProgress, AiUnavailable, providerName } from "./ai";
 import { Button, Callout, IconButton, TextArea, cx } from "./ui";
+import { useDictation } from "./Voice";
 
 /** Things to say with one click. */
 const starters = [
@@ -52,6 +53,21 @@ export default function AssistantChat({ initial, onInitialUsed }: { initial?: st
   const scroller = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   const name = d.config?.llm.assistant_name || "Gwen";
+  // What the box held when the mic opened; the words said follow it.
+  const before = useRef("");
+  const voice = useDictation(
+    {
+      onStart: () => {
+        before.current = text;
+        input.current?.focus();
+      },
+      onText: (said, final) => {
+        setText(after(before.current, said));
+        if (final) input.current?.focus();
+      },
+    },
+    !!asking,
+  );
 
   useEffect(() => {
     let live = true;
@@ -107,6 +123,13 @@ export default function AssistantChat({ initial, onInitialUsed }: { initial?: st
       setAsking(null);
       input.current?.focus();
     }
+  }
+
+  /** Sends the box, or while the mic is open, everything said once it stops. */
+  async function submit() {
+    if (!voice.listening) return send(text);
+    const said = await voice.finish();
+    if (said != null) send(after(before.current, said));
   }
 
   function startOver() {
@@ -176,11 +199,12 @@ export default function AssistantChat({ initial, onInitialUsed }: { initial?: st
           </Callout>
         )}
         {failure && <AiFailed error={failure} />}
+        {voice.panel}
         <form
           className="flex items-end gap-2"
           onSubmit={(e) => {
             e.preventDefault();
-            send(text);
+            submit();
           }}
         >
           <TextArea
@@ -191,21 +215,31 @@ export default function AssistantChat({ initial, onInitialUsed }: { initial?: st
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
-                send(text);
+                submit();
               }
             }}
             placeholder={messages.length ? "Reply, or ask for a change" : `Tell ${name} what's on your mind`}
             aria-label={`Message to ${name}`}
             maxLength={2000}
             disabled={!!asking}
+            readOnly={voice.listening}
             className="min-w-0 flex-1 resize-none"
           />
+          {voice.button}
           <IconButton type="submit" tone="primary" icon={SendHorizontal} label="Send" disabled={!text.trim() || !!asking} />
         </form>
-        <p className="text-xs text-ink-faint">Enter sends, Shift+Enter starts a new line.</p>
+        <p className="text-xs text-ink-faint">
+          {voice.listening ? "Talk, and your words appear as you go. Enter sends them, Esc cancels." : `Enter sends, Shift+Enter starts a new line${voice.button ? ", the mic lets you speak instead" : ""}.`}
+        </p>
       </div>
     </div>
   );
+}
+
+/** The box's earlier text, then the words said. */
+function after(before: string, said: string): string {
+  if (!said) return before;
+  return before.trim() ? `${before.trimEnd()} ${said}` : said;
 }
 
 function Turn({ message, pending }: { message: AssistantMessage; pending?: boolean }) {

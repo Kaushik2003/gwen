@@ -7,7 +7,7 @@ import TimeInput from "../components/TimeInput";
 import Timeline from "../components/Timeline";
 import { Button, DotSelect, Field, IconButton, Modal, Panel, Select, TextArea, cx, unassignedColor } from "../components/ui";
 import { useDaemon } from "../daemon";
-import { formatDuration, formatLongDate, formatTime, goDuration, instantOn, parseDuration, shortId } from "../format";
+import { clockValue, formatDuration, formatLongDate, formatTime, goDuration, instantOn, parseDuration, shortId } from "../format";
 
 const kinds = [
   { value: "work", label: "Work" },
@@ -191,12 +191,12 @@ export default function DayDetail({ day, onBack, readOnly }: { day: string; onBa
                   <span className="min-w-0 flex-1" />
                 )}
                 <span className="flex shrink-0 items-center gap-1.5">
-                  <TimeInput disabled={locked} aria-label="Start" className="w-20" value={formatTime(seg.started_at)} onCommit={(v) => patch(seg, { started_at: time(v) })} />
+                  <TimeInput disabled={locked} aria-label="Start" className="w-24" value={clockValue(seg.started_at)} onCommit={(v) => patch(seg, { started_at: time(v) })} />
                   <span className="text-ink-faint">–</span>
                   {open ? (
                     <span className="w-20 text-center text-sm font-medium text-working">now</span>
                   ) : (
-                    <TimeInput disabled={locked} aria-label="End" className="w-20" value={formatTime(seg.ended_at!)} onCommit={(v) => patch(seg, { ended_at: time(v) })} />
+                    <TimeInput disabled={locked} aria-label="End" className="w-24" value={clockValue(seg.ended_at!)} onCommit={(v) => patch(seg, { ended_at: time(v) })} />
                   )}
                 </span>
                 <span className="w-16 shrink-0 text-right text-sm text-ink-muted tabular-nums">{formatDuration((seg.ended_at ?? d.now()) - seg.started_at)}</span>
@@ -247,7 +247,7 @@ function Figure({ label, value, tone }: { label: string; value: string; tone?: s
 
 function SplitSegment({ segment: s, day, rollover, onClose }: { segment: wire.Segment; day: string; rollover: string; onClose: () => void }) {
   const d = useDaemon();
-  const [at, setAt] = useState(formatTime((s.started_at + (s.ended_at ?? s.started_at)) / 2));
+  const [at, setAt] = useState(clockValue((s.started_at + (s.ended_at ?? s.started_at)) / 2));
   async function split() {
     if (await d.act(() => App.SplitSegment(s.id, wire.SplitSegmentRequest.createFrom({ at: instantOn(day, at, rollover) })))) onClose();
   }

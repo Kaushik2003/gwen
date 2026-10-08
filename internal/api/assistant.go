@@ -1,6 +1,7 @@
 package api
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -142,7 +143,7 @@ func (s *Server) assistantRequest(ctx context.Context, history []wire.AssistantM
 		}
 	}
 	for _, b := range dc.Busy {
-		in.Busy = append(in.Busy, llm.BusyTime{Title: "Busy", Start: at(b.Start), End: at(b.End)})
+		in.Busy = append(in.Busy, llm.BusyTime{Title: cmp.Or(b.Title, "Busy"), Start: at(b.Start), End: at(b.End)})
 	}
 	for _, f := range dc.Free {
 		if f.End.After(now) {
@@ -550,13 +551,13 @@ func (s *Server) dayText(d civil.Day) string {
 	return "on " + d.Midnight(s.Loc).Format("Mon 2 Jan")
 }
 
-// blockText is "today 14:00–15:00" or "tomorrow, 45m".
+// blockText is "today 2:00 pm–3:00 pm" or "tomorrow, 45m".
 func (s *Server) blockText(d civil.Day, it model.PlanItem) string {
 	if it.StartAt == nil {
 		return fmt.Sprintf("%s, %dm", s.dayText(d), int(it.Planned/time.Minute))
 	}
 	start := it.StartAt.In(s.Loc)
-	return fmt.Sprintf("%s %s–%s", s.dayText(d), start.Format("15:04"), start.Add(it.Planned).Format("15:04"))
+	return fmt.Sprintf("%s %s–%s", s.dayText(d), start.Format("3:04 pm"), start.Add(it.Planned).Format("3:04 pm"))
 }
 
 // taskDetail is a new task's project and due day, for its summary.

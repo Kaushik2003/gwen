@@ -7,6 +7,7 @@ require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/godbus/dbus/v5 v5.2.2
 	github.com/google/uuid v1.6.0
+	github.com/k2-fsa/sherpa-onnx-go-linux v1.13.8
 	github.com/pressly/goose/v3 v3.28.0
 	github.com/rajveermalviya/go-wayland/wayland v0.0.0-20230130181619-0ad78d1310b2
 	github.com/spf13/cobra v1.10.2

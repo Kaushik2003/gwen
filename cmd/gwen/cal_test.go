@@ -31,7 +31,7 @@ func TestCalendarGolden(t *testing.T) {
 		out          string
 	}{
 		{"status", "CalendarStatus", []string{"cal", "status"}, connected,
-			"Calendar: connected\nGwen calendar: cal-1\nLast sync: 2026-09-15 10:20\n"},
+			"Calendar: connected\nGwen calendar: cal-1\nLast sync: 2026-09-15 10:20 am\n"},
 		{"status off", "CalendarStatus", []string{"cal", "status"}, &wire.CalendarStatus{},
 			"Calendar: turned off\nLast sync: never\n"},
 		{"sync with an error", "CalendarSync", []string{"cal", "sync"}, failed,

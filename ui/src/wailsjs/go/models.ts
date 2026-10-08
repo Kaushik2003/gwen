@@ -26,6 +26,26 @@ export namespace main {
 	        this.suggested = source["suggested"];
 	    }
 	}
+	export class VoiceStatus {
+	    installed: boolean;
+	    installing: boolean;
+	    recorder: boolean;
+	    listening: boolean;
+	    download_mb: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new VoiceStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.installed = source["installed"];
+	        this.installing = source["installing"];
+	        this.recorder = source["recorder"];
+	        this.listening = source["listening"];
+	        this.download_mb = source["download_mb"];
+	    }
+	}
 
 }
 
@@ -372,6 +392,72 @@ export namespace wire {
 	        this.name = source["name"];
 	        this.busy_calendars = source["busy_calendars"];
 	    }
+	}
+	export class CalendarEvent {
+	    calendar_id: string;
+	    title: string;
+	    start_at: number;
+	    end_at: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new CalendarEvent(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.calendar_id = source["calendar_id"];
+	        this.title = source["title"];
+	        this.start_at = source["start_at"];
+	        this.end_at = source["end_at"];
+	    }
+	}
+	export class CalendarInfo {
+	    id: string;
+	    name: string;
+	    color: string;
+	    primary: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new CalendarInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.color = source["color"];
+	        this.primary = source["primary"];
+	    }
+	}
+	export class CalendarList {
+	    calendars: CalendarInfo[];
+	
+	    static createFrom(source: any = {}) {
+	        return new CalendarList(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.calendars = this.convertValues(source["calendars"], CalendarInfo);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class CalendarStatus {
 	    enabled: boolean;
@@ -1297,6 +1383,22 @@ export namespace wire {
 	        this.at = source["at"];
 	    }
 	}
+	export class MovePlanTaskRequest {
+	    day: string;
+	    task_id: string;
+	    before_task_id?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new MovePlanTaskRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.day = source["day"];
+	        this.task_id = source["task_id"];
+	        this.before_task_id = source["before_task_id"];
+	    }
+	}
 	export class NotifyTestResult {
 	    desktop: string;
 	    phone: string;
@@ -1570,6 +1672,7 @@ export namespace wire {
 	    window: PlanWindow;
 	    hours?: DayHours;
 	    items: PlanItem[];
+	    events: CalendarEvent[];
 	
 	    static createFrom(source: any = {}) {
 	        return new Plan(source);
@@ -1583,6 +1686,7 @@ export namespace wire {
 	        this.window = this.convertValues(source["window"], PlanWindow);
 	        this.hours = this.convertValues(source["hours"], DayHours);
 	        this.items = this.convertValues(source["items"], PlanItem);
+	        this.events = this.convertValues(source["events"], CalendarEvent);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

@@ -17,9 +17,13 @@ export function Briefing():Promise<wire.Briefing>;
 
 export function CalendarAuthStart():Promise<wire.CalendarAuth>;
 
+export function CalendarCalendars():Promise<wire.CalendarList>;
+
 export function CalendarStatus():Promise<wire.CalendarStatus>;
 
 export function CalendarSync():Promise<wire.CalendarStatus>;
+
+export function CancelListening():Promise<void>;
 
 export function ChooseGoogleClient():Promise<boolean>;
 
@@ -83,6 +87,10 @@ export function HasCredential(arg1:string):Promise<boolean>;
 
 export function Health():Promise<wire.Health>;
 
+export function InstallVoice():Promise<void>;
+
+export function IsNowCard():Promise<boolean>;
+
 export function ListCommitments():Promise<wire.CommitmentList>;
 
 export function ListDays(arg1:string,arg2:string):Promise<wire.DayList>;
@@ -95,9 +103,13 @@ export function ListTasks(arg1:wire.TaskQuery):Promise<wire.TaskList>;
 
 export function LogEnergy(arg1:wire.LogEnergyRequest):Promise<wire.EnergyLog>;
 
+export function MovePlanTask(arg1:wire.MovePlanTaskRequest):Promise<wire.Plan>;
+
 export function NewTopic():Promise<string>;
 
 export function NotifyTest():Promise<wire.NotifyTestResult>;
+
+export function OpenDashboard(arg1:string):Promise<void>;
 
 export function OpenURL(arg1:string):Promise<void>;
 
@@ -123,6 +135,8 @@ export function PreviewGoal(arg1:wire.GoalPreviewRequest):Promise<wire.GoalProgr
 
 export function RejectLLMRun(arg1:string):Promise<wire.LlmRun>;
 
+export function RemoveVoice():Promise<void>;
+
 export function ReopenTask(arg1:string):Promise<wire.Task>;
 
 export function Retro(arg1:wire.RetroRequest):Promise<wire.LlmRun>;
@@ -141,6 +155,8 @@ export function Snooze():Promise<wire.Status>;
 
 export function SplitSegment(arg1:string,arg2:wire.SplitSegmentRequest):Promise<wire.SegmentList>;
 
+export function StartListening():Promise<void>;
+
 export function StartScreen():Promise<string>;
 
 export function StatsHeatmap(arg1:number):Promise<wire.Heatmap>;
@@ -148,6 +164,8 @@ export function StatsHeatmap(arg1:number):Promise<wire.Heatmap>;
 export function StatsSummary(arg1:string,arg2:string):Promise<wire.StatsSummary>;
 
 export function Status():Promise<wire.Status>;
+
+export function StopListening():Promise<string>;
 
 export function Switch(arg1:wire.SwitchRequest):Promise<wire.Status>;
 
@@ -158,3 +176,5 @@ export function SyncStatus():Promise<wire.SyncStatus>;
 export function UnscheduleTask(arg1:wire.UnscheduleRequest):Promise<wire.Unscheduled>;
 
 export function Version():Promise<string>;
+
+export function VoiceStatus():Promise<main.VoiceStatus>;

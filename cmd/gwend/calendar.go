@@ -13,7 +13,7 @@ import (
 )
 
 // newCalendar builds the Google Calendar sync. It syncs Debounce after every
-// plan change, and every attempt is reported as integration_changed, with
+// plan or configuration change, and every attempt is reported as integration_changed, with
 // plan_changed for the days a pulled event moved.
 func newCalendar(db *store.DB, repos store.Repos, o options, l *loop, srv *api.Server, hub *api.Hub) *gcal.Service {
 	cal := gcal.New(gcal.Options{
@@ -27,7 +27,7 @@ func newCalendar(db *store.DB, repos store.Repos, o options, l *loop, srv *api.S
 		Endpoint: o.calendarEndpoint,
 	})
 	hub.OnPublish(func(name string) {
-		if name == wire.EventPlanChanged {
+		if name == wire.EventPlanChanged || name == wire.EventConfigChanged { // a busy calendar may be new
 			cal.PlanChanged()
 		}
 	})

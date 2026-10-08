@@ -1,9 +1,14 @@
 import { useEffect, useState, type InputHTMLAttributes } from "react";
+import { formatClock, minutesOf } from "../format";
 import { cx } from "./ui";
 
-/** "HH:MM" from what was typed, such as 9, 930, 0930, 9:30 or 21.05; null when it is not a time. */
+/**
+ * "HH:MM" from what was typed, such as 9, 930, 9:30, 9.30 pm, 930p or 21:05;
+ * null when it is not a time. Without am or pm the hour is on the 24-hour clock.
+ */
 export function parseClock(s: string): string | null {
-  const t = s.trim().replace(/[.h]/, ":");
+  const ampm = /^(.*?)\s*([ap])\.?m?\.?$/i.exec(s.trim());
+  const t = (ampm ? ampm[1] : s).trim().replace(/[.h]/, ":");
   let h: number;
   let m: number;
   const colon = /^(\d{1,2}):(\d{1,2})$/.exec(t);
@@ -14,6 +19,10 @@ export function parseClock(s: string): string | null {
     h = Number(t.length <= 2 ? t : t.slice(0, -2));
     m = t.length <= 2 ? 0 : Number(t.slice(-2));
   } else return null;
+  if (ampm) {
+    if (h < 1 || h > 12) return null;
+    h = (h % 12) + (ampm[2].toLowerCase() === "p" ? 12 : 0);
+  }
   return h > 23 || m > 59 ? null : `${pad(h)}:${pad(m)}`;
 }
 
@@ -22,11 +31,11 @@ function pad(n: number): string {
 }
 
 /**
- * A 24-hour HH:MM field. The webview's own time input follows the system
- * locale, which shows AM and PM on many systems, while the dashboard shows
- * 24-hour times everywhere (docs/08-clients.md#shared-behaviour). The time is
- * reported when it is committed, on Enter or on leaving the field; the up and
- * down arrows step it by 15 minutes, or by an hour with Shift.
+ * A time field that shows "9:30 am" and reports "HH:MM". The webview's own
+ * time input follows the system locale, so the dashboard keeps its own: 12-hour
+ * with am and pm everywhere. The time is reported when it is committed, on
+ * Enter or on leaving the field; the up and down arrows step it by 15 minutes,
+ * or by an hour with Shift.
  */
 export default function TimeInput({
   value,
@@ -35,9 +44,9 @@ export default function TimeInput({
   className,
   ...rest
 }: { value: string; onCommit: (hhmm: string) => void; allowEmpty?: boolean } & Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "type">) {
-  const [text, setText] = useState(value);
+  const [text, setText] = useState(shown(value));
   useEffect(() => {
-    setText(value);
+    setText(shown(value));
   }, [value]);
 
   function commit() {
@@ -47,26 +56,25 @@ export default function TimeInput({
     }
     const v = parseClock(text);
     if (v === null) {
-      setText(value);
+      setText(shown(value));
       return;
     }
-    setText(v);
+    setText(shown(v));
     if (v !== value) onCommit(v);
   }
   function step(minutes: number) {
     const [h, m] = (parseClock(text) ?? (value || "09:00")).split(":").map(Number);
     const t = (((h * 60 + m + minutes) % 1440) + 1440) % 1440;
-    setText(`${pad(Math.floor(t / 60))}:${pad(t % 60)}`);
+    setText(formatClock(t));
   }
 
   return (
     <input
       {...rest}
       type="text"
-      inputMode="numeric"
       autoComplete="off"
-      maxLength={5}
-      placeholder={allowEmpty ? "--:--" : "HH:MM"}
+      maxLength={8}
+      placeholder={allowEmpty ? "--:--" : "9:00 am"}
       className={cx("field text-center tabular-nums", className)}
       value={text}
       onChange={(e) => setText(e.target.value)}
@@ -82,4 +90,9 @@ export default function TimeInput({
       }}
     />
   );
+}
+
+/** "9:30 am" of "HH:MM", or "" for none. */
+function shown(hhmm: string): string {
+  return hhmm ? formatClock(minutesOf(hhmm)) : "";
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/kzark/gwen/internal/activity"
 	"github.com/kzark/gwen/internal/model"
@@ -61,11 +62,16 @@ func TestGoalEndpoints(t *testing.T) {
 
 	templates, err := d.c.ListTasks(d.ctx, wire.TaskQuery{GoalID: g.ID, Templates: true})
 	require.NoError(t, err)
-	require.Len(t, templates.Tasks, 1)
-	require.Equal(t, "FREQ=DAILY", *templates.Tasks[0].RRule)
+	require.Len(t, templates.Tasks, 2, "the session template, and today's session, planned as the goal was made")
 	plain, err := d.c.ListTasks(d.ctx, wire.TaskQuery{GoalID: g.ID})
 	require.NoError(t, err)
-	require.Empty(t, plain.Tasks)
+	require.Len(t, plain.Tasks, 1)
+	require.Equal(t, testutil.Day0, *plain.Tasks[0].OccurrenceDay)
+	for _, tk := range templates.Tasks {
+		if tk.ID != plain.Tasks[0].ID {
+			require.Equal(t, "FREQ=DAILY", *tk.RRule)
+		}
+	}
 
 	require.NoError(t, d.c.DeleteGoal(d.ctx, g.ID, false))
 	next(wire.EventGoalsChanged)
@@ -154,12 +160,14 @@ func TestPlanEndpoints(t *testing.T) {
 	require.True(t, moved.Pinned)
 	require.Equal(t, wire.Millis(testutil.At("15:00")), *moved.StartAt)
 	next(wire.EventPlanChanged)
+	plan, err = d.c.GetPlan(d.ctx, "")
+	require.NoError(t, err)
+	require.Len(t, plan.Items, 1, "the day follows the edit at once: the pinned block is the task's time")
 
 	regen, err := d.c.GeneratePlan(d.ctx, wire.GeneratePlanRequest{Day: testutil.Day0})
 	require.NoError(t, err)
 	require.Len(t, regen.Items, 1, "the pinned block is kept and the task is not planned again")
 	require.Equal(t, item.ID, regen.Items[0].ID)
-	next(wire.EventPlanChanged)
 
 	done, err := d.c.CompleteTask(d.ctx, tk.ID, wire.CompleteTaskRequest{})
 	require.NoError(t, err)
@@ -291,4 +299,47 @@ func storeBriefing(pending, planned, reminders int) store.Briefing {
 		b.Reminders = append(b.Reminders, planner.Reminder{})
 	}
 	return b
+}
+
+func TestThePlanKeepsUpWithTheClock(t *testing.T) {
+	t.Parallel()
+	d := startDaemonWith(t, setup{}, func(o *options) { o.keeper = true })
+	next := stream(t, d)
+	_, err := d.c.CreateTask(d.ctx, wire.CreateTaskRequest{Title: "Report", EstimateMinutes: testutil.Ptr(60)})
+	require.NoError(t, err)
+	next(wire.EventPlanChanged)
+	plan, err := d.c.GetPlan(d.ctx, "")
+	require.NoError(t, err)
+	require.Equal(t, wire.Millis(testutil.At("09:00")), *plan.Items[0].StartAt)
+
+	// 09:31 and not started: the keeper moves the block to the time left,
+	// with nobody asking.
+	d.clk.Advance(91 * time.Minute)
+	require.JSONEq(t, `{"day":"2026-09-15"}`, string(next(wire.EventPlanChanged).Data))
+	plan, err = d.c.GetPlan(d.ctx, "")
+	require.NoError(t, err)
+	require.Equal(t, wire.Millis(testutil.At("09:35")), *plan.Items[0].StartAt)
+}
+
+func TestMovePlanTaskEndpoint(t *testing.T) {
+	t.Parallel()
+	d := startDaemon(t, setup{})
+	a, err := d.c.CreateTask(d.ctx, wire.CreateTaskRequest{Title: "A", EstimateMinutes: testutil.Ptr(60)})
+	require.NoError(t, err)
+	b, err := d.c.CreateTask(d.ctx, wire.CreateTaskRequest{Title: "B", EstimateMinutes: testutil.Ptr(60)})
+	require.NoError(t, err)
+	next := stream(t, d)
+
+	plan, err := d.c.MovePlanTask(d.ctx, wire.MovePlanTaskRequest{Day: testutil.Day0, TaskID: b.ID, BeforeTaskID: &a.ID})
+	require.NoError(t, err)
+	require.Len(t, plan.Items, 2)
+	require.Equal(t, []string{b.ID, a.ID}, []string{plan.Items[0].TaskID, plan.Items[1].TaskID})
+	require.Equal(t, wire.Millis(testutil.At("09:00")), *plan.Items[0].StartAt, "B takes the first slot")
+	require.Equal(t, wire.Millis(testutil.At("10:00")), *plan.Items[1].StartAt)
+	require.JSONEq(t, `{"day":"2026-09-15"}`, string(next(wire.EventPlanChanged).Data))
+
+	_, err = d.c.MovePlanTask(d.ctx, wire.MovePlanTaskRequest{Day: testutil.Day0})
+	require.Equal(t, "task_id", apiErr(t, err, wire.CodeInvalidRequest).Details["field"])
+	_, err = d.c.MovePlanTask(d.ctx, wire.MovePlanTaskRequest{TaskID: a.ID})
+	require.Equal(t, "day", apiErr(t, err, wire.CodeInvalidRequest).Details["field"])
 }

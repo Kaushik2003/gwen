@@ -518,6 +518,95 @@ func TestGenerateKeepsAndSlotsAroundPinned(t *testing.T) {
 	}, blocks(got))
 }
 
+// floating is an unpinned planned item of a task at a position.
+func floating(id, taskID string, position, minutes int, start string) planner.PlanItem {
+	return item(id, taskID, "2026-09-15", model.PlanPlanned, func(it *planner.PlanItem) {
+		it.Position, it.Planned = position, mins(minutes)
+		if start != "" {
+			s := at(start)
+			it.StartAt = &s
+		}
+	})
+}
+
+func TestGenerateStickyKeepsTheDay(t *testing.T) {
+	t.Parallel()
+	// Morning: a, b, and c fit. By 20:00 only an hour is left in the day.
+	tasks := []planner.Task{task("a", 0, prio(4)), task("b", 1, prio(3)), task("c", 2, prio(2))}
+	existing := []planner.PlanItem{floating("ia", "a", 0, 60, "09:00"), floating("ib", "b", 1, 60, "10:00"),
+		floating("ic", "c", 2, 60, "11:00")}
+	in := planner.GenerateInput{Day: slotDay(), Capacity: planner.CapacityResult{Minutes: 60, Free: free("20:00", "21:00")},
+		Existing: existing, Tasks: tasks}
+
+	fresh := planner.Generate(in)
+	require.Equal(t, []block{{task: "a", minutes: 60, start: "20:00"}}, blocks(fresh), "a fresh plan weighs the day afresh")
+
+	in.Sticky = true
+	got := planner.Generate(in)
+	require.Equal(t, []block{
+		{task: "a", minutes: 60, start: "20:00"},
+		{task: "b", minutes: 60}, // still the day's, though it no longer fits
+		{task: "c", minutes: 60},
+	}, blocks(got), "nothing the day holds drops for want of room")
+}
+
+func TestGenerateStickySlotsNewWorkByUrgency(t *testing.T) {
+	t.Parallel()
+	tasks := []planner.Task{task("a", 0, prio(4)), task("c", 2, prio(1)), task("new", 3, prio(3)), task("late", 4, prio(1))}
+	existing := []planner.PlanItem{floating("ic", "c", 0, 60, "09:00"), floating("ia", "a", 1, 60, "10:00")}
+	got := planner.Generate(planner.GenerateInput{Day: slotDay(), Sticky: true,
+		Capacity: planner.CapacityResult{Minutes: 180, Free: free("09:00", "17:00")}, Existing: existing, Tasks: tasks})
+	// The user put c before a; that order stands. "new" outranks c, so it goes
+	// before it; "late" is less urgent than both and finds no room left.
+	require.Equal(t, []block{
+		{task: "new", minutes: 60, start: "09:00"},
+		{task: "c", minutes: 60, start: "10:00"},
+		{task: "a", minutes: 60, start: "11:00"},
+	}, blocks(got))
+}
+
+func TestGenerateStickyIsAFixedPoint(t *testing.T) {
+	t.Parallel()
+	pinnedAt := at("12:00")
+	tasks := []planner.Task{task("a", 0, estimate(240)), task("b", 1, estimate(40)), task("p", 2), task("n", 3, prio(4))}
+	in := planner.GenerateInput{Day: slotDay(), Sticky: true, Tasks: tasks,
+		Capacity: planner.CapacityResult{Minutes: 200, Free: free("09:00", "18:00")},
+		Existing: []planner.PlanItem{item("pin", "p", "2026-09-15", model.PlanPlanned, func(it *planner.PlanItem) {
+			it.Pinned, it.StartAt, it.Position = true, &pinnedAt, 0
+		})}}
+	first := planner.Generate(in)
+	// Feed the plan back as it would be stored, and nothing may move.
+	in.Existing = nil
+	for _, d := range first {
+		id := d.ExistingID
+		if id == "" {
+			id = fmt.Sprintf("new-%d", d.Position)
+		}
+		it := item(id, d.TaskID, "2026-09-15", model.PlanPlanned, func(it *planner.PlanItem) {
+			it.Planned, it.StartAt, it.Position, it.Pinned = d.Planned, d.StartAt, d.Position, d.ExistingID == "pin"
+		})
+		in.Existing = append(in.Existing, it)
+	}
+	again := planner.Generate(in)
+	require.Equal(t, blocks(first), blocks(again))
+}
+
+func TestGenerateStickyFollowsTheTask(t *testing.T) {
+	t.Parallel()
+	tasks := []planner.Task{task("a", 0, estimate(180)), task("b", 1, estimate(60))}
+	existing := []planner.PlanItem{floating("a1", "a", 0, 90, "09:00"), floating("a2", "a", 1, 90, "10:40"),
+		floating("ib", "b", 2, 60, "12:20")}
+	in := planner.GenerateInput{Day: slotDay(), Sticky: true, Existing: existing, Tasks: tasks,
+		Capacity: planner.CapacityResult{Minutes: 240, Free: free("11:00", "18:00")},
+		Tracked:  map[string]time.Duration{"a": mins(100)}}
+	// Two hours are gone and a has 80 minutes left: its blocks shrink to that,
+	// and everything starts from the time left.
+	require.Equal(t, []block{
+		{task: "a", minutes: 80, start: "11:00"},
+		{task: "b", minutes: 60, start: "12:20"},
+	}, blocks(planner.Generate(in)))
+}
+
 func TestGenerateGapAfterLongBlock(t *testing.T) {
 	t.Parallel()
 	got := planner.Generate(planner.GenerateInput{

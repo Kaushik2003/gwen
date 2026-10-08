@@ -22,7 +22,7 @@ export default function StartInput({ day, minute, today, onChange }: { day: stri
       />
       <Input type="date" value={day} min={today} onChange={(e) => onChange(e.target.value, e.target.value ? minute : null)} aria-label="Start day" className="w-40" />
       <span className="text-xs text-ink-subtle">at</span>
-      <TimeInput value={minute != null ? clockOf(minute) : ""} onCommit={(hhmm) => onChange(day || today, hhmm ? minutesOf(hhmm) : null)} allowEmpty aria-label="Start time" className="w-20" />
+      <TimeInput value={minute != null ? clockOf(minute) : ""} onCommit={(hhmm) => onChange(day || today, hhmm ? minutesOf(hhmm) : null)} allowEmpty aria-label="Start time" className="w-24" />
     </div>
   );
 }

@@ -121,7 +121,7 @@ func TestCompletingTheLastStepCompletesTheSession(t *testing.T) {
 	require.Equal(t, 2, done)
 }
 
-func TestCompletingASessionEarlyReturnsItsSteps(t *testing.T) {
+func TestASessionTickedEarlyKeepsItsSteps(t *testing.T) {
 	t.Parallel()
 	f := newFx(t)
 	g := f.dsaGoal()
@@ -130,24 +130,54 @@ func TestCompletingASessionEarlyReturnsItsSteps(t *testing.T) {
 	f.complete(e.Steps[0].ID)
 
 	ch := f.complete(e.Task.ID)
-	require.Equal(t, 0, *ch.Task.QuantityDone)
-	require.Contains(t, ch.TaskIDs, items[1].ID)
-	require.Nil(t, f.get(items[1].ID).ParentID)
-	require.Nil(t, f.get(items[2].ID).ParentID)
-	require.Equal(t, e.Task.ID, *f.get(items[0].ID).ParentID, "a done step stays")
+	require.Equal(t, 0, *ch.Task.QuantityDone, "its steps count instead")
+	for _, it := range items[:3] {
+		require.Equal(t, e.Task.ID, *f.get(it.ID).ParentID, "ticking the session takes no step from it")
+	}
 	done, linedUp := f.progress(g)
 	require.Equal(t, 1, done)
-	require.Equal(t, 3, linedUp, "p2 and p3 are back ahead of p4")
+	require.Equal(t, 3, linedUp, "p2, p3, and p4 are still to do")
 
-	queue, err := f.r.Tasks.List(f.ctx, store.TaskFilter{GoalID: g.ID})
+	// A mistaken tick undone gives the session back whole.
+	_, err := f.r.Tasks.Reopen(f.ctx, e.Task.ID, fxToday)
 	require.NoError(t, err)
-	var open []string
-	for _, tk := range queue {
-		if tk.TemplateID == nil {
-			open = append(open, tk.Title)
-		}
-	}
-	require.Equal(t, []string{"p2", "p3", "p4"}, open)
+	again := f.session(g)
+	require.Equal(t, model.TaskOpen, again.Task.Status)
+	require.Equal(t, []string{"p1", "p2", "p3"}, stepTitles(again.Steps))
+	require.Equal(t, model.TaskDone, again.Steps[0].Status)
+
+	// Done early for real: what is left waits for the day to end, then
+	// leads the next session.
+	f.complete(e.Task.ID)
+	f.clk.Advance(24 * time.Hour)
+	next := f.plan("").Items
+	require.Len(t, next, 1)
+	require.NotEqual(t, e.Task.ID, next[0].Task.ID)
+	require.Equal(t, []string{"p2", "p3", "p4"}, stepTitles(next[0].Steps), "yesterday's leftovers come first")
+	require.Equal(t, e.Task.ID, *f.get(items[0].ID).ParentID, "the step done stays with its session")
+}
+
+func TestLeftoversLeadASessionPlannedAhead(t *testing.T) {
+	t.Parallel()
+	f := newFx(t)
+	g := f.dsaGoal()
+	f.items(g, 8)
+	day1 := f.session(g)
+	f.complete(day1.Steps[0].ID)
+	f.complete(day1.Task.ID)
+
+	// Planning tomorrow ahead gives its session the queue's front.
+	ahead, _, err := f.r.Plans.Generate(f.ctx, "2026-09-21", f.env())
+	require.NoError(t, err)
+	tomorrow := ahead.Items
+	require.Len(t, tomorrow, 1)
+	require.Equal(t, []string{"p4", "p5", "p6"}, stepTitles(tomorrow[0].Steps))
+
+	f.clk.Advance(24 * time.Hour)
+	day2 := f.plan("").Items
+	require.Len(t, day2, 1)
+	require.Equal(t, tomorrow[0].Task.ID, day2[0].Task.ID)
+	require.Equal(t, []string{"p2", "p3", "p4"}, stepTitles(day2[0].Steps), "dealt again: the leftovers come first")
 }
 
 func TestExpiredSessionsSettle(t *testing.T) {

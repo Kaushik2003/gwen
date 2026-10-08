@@ -3,12 +3,18 @@ import { createContext, useCallback, useContext, useRef, useState, type ReactNod
 import { Button, Modal, cx } from "./ui";
 
 type ToastTone = "info" | "success" | "error";
-export type Notify = (message: string, tone?: ToastTone) => void;
+/** A button on a toast, such as Undo; pressing it runs it and dismisses the toast. */
+export interface ToastAction {
+  label: string;
+  run: () => void;
+}
+export type Notify = (message: string, tone?: ToastTone, action?: ToastAction) => void;
 
 interface Toast {
   id: number;
   message: string;
   tone: ToastTone;
+  action?: ToastAction;
 }
 
 interface ConfirmOptions {
@@ -23,7 +29,7 @@ interface ConfirmOptions {
 const ToastContext = createContext<Notify>(() => {});
 const ConfirmContext = createContext<(o: ConfirmOptions) => Promise<boolean>>(async () => false);
 
-/** Shows a short message in the corner: info, success, or an error that stays longer. */
+/** Shows a short message in the corner: info, success, or an error that stays longer. One with an action stays long enough to use it. */
 export function useToast(): Notify {
   return useContext(ToastContext);
 }
@@ -42,10 +48,10 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
   const next = useRef(1);
   const dismiss = useCallback((id: number) => setToasts((all) => all.filter((t) => t.id !== id)), []);
   const notify = useCallback<Notify>(
-    (message, tone = "info") => {
+    (message, tone = "info", action) => {
       const id = next.current++;
-      setToasts((all) => [...all.filter((t) => t.message !== message), { id, message, tone }].slice(-4));
-      setTimeout(() => dismiss(id), tone === "error" ? 9000 : 3500);
+      setToasts((all) => [...all.filter((t) => t.message !== message), { id, message, tone, action }].slice(-4));
+      setTimeout(() => dismiss(id), tone === "error" ? 9000 : action ? 7000 : 3500);
     },
     [dismiss],
   );
@@ -98,6 +104,18 @@ function ToastView({ toast, onClose }: { toast: Toast; onClose: () => void }) {
     >
       <Icon size={16} className={cx("mt-0.5 shrink-0", color)} aria-hidden />
       <p className="min-w-0 flex-1 text-[13px] leading-relaxed text-ink">{toast.message}</p>
+      {toast.action && (
+        <button
+          type="button"
+          onClick={() => {
+            toast.action!.run();
+            onClose();
+          }}
+          className="-my-0.5 shrink-0 rounded-md px-2 py-1 text-[13px] font-medium text-accent-hover hover:bg-surface-4"
+        >
+          {toast.action.label}
+        </button>
+      )}
       <button type="button" aria-label="Dismiss" onClick={onClose} className="grid size-6 shrink-0 place-items-center rounded-md text-ink-subtle hover:bg-surface-4 hover:text-ink">
         <X size={14} aria-hidden />
       </button>

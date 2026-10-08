@@ -89,6 +89,7 @@ func (s *Server) createGoal(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	s.publishChanges(ch)
+	s.Replan(r.Context())
 	return s.writeGoal(w, r, http.StatusCreated, g)
 }
 
@@ -116,6 +117,7 @@ func (s *Server) patchGoal(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	s.publishChanges(store.Changes{Goals: true})
+	s.Replan(r.Context())
 	return s.writeGoal(w, r, http.StatusOK, g)
 }
 
@@ -134,6 +136,7 @@ func (s *Server) deleteGoal(w http.ResponseWriter, r *http.Request) error {
 	}
 	s.publishChanges(ch)
 	s.carryOn(r.Context(), "", ch.Deleted)
+	s.Replan(r.Context())
 	w.WriteHeader(http.StatusNoContent)
 	return nil
 }
@@ -203,6 +206,7 @@ func (s *Server) createCommitment(w http.ResponseWriter, r *http.Request) error 
 		return err
 	}
 	s.publishChanges(store.Changes{Goals: true})
+	s.Replan(r.Context())
 	writeJSON(w, http.StatusCreated, commitmentWire(c))
 	return nil
 }
@@ -221,6 +225,7 @@ func (s *Server) patchCommitment(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	s.publishChanges(store.Changes{Goals: true})
+	s.Replan(r.Context())
 	writeJSON(w, http.StatusOK, commitmentWire(c))
 	return nil
 }
@@ -230,6 +235,7 @@ func (s *Server) deleteCommitment(w http.ResponseWriter, r *http.Request) error 
 		return err
 	}
 	s.publishChanges(store.Changes{Goals: true})
+	s.Replan(r.Context())
 	w.WriteHeader(http.StatusNoContent)
 	return nil
 }
@@ -259,7 +265,11 @@ func (s *Server) entriesWire(ctx context.Context, entries ...[]store.PlanEntry) 
 // planWire is p on the wire with its items.
 func planWire(p store.Plan, items []wire.PlanItem) wire.Plan {
 	out := wire.Plan{Day: p.Day, CapacityMinutes: p.Capacity, PlannedMinutes: p.Planned,
-		Window: wire.PlanWindow{StartMinute: p.Start, EndMinute: p.End}, Items: items}
+		Window: wire.PlanWindow{StartMinute: p.Start, EndMinute: p.End}, Items: items, Events: []wire.CalendarEvent{}}
+	for _, e := range p.Events {
+		out.Events = append(out.Events, wire.CalendarEvent{CalendarID: e.CalendarID, Title: e.Title,
+			StartAt: wire.Millis(e.Start), EndAt: wire.Millis(e.End)})
+	}
 	if h := p.Hours; h != nil {
 		out.Hours = &wire.DayHours{StartMinute: h.StartMinute, WorkMinutes: minutesOf(h.Work)}
 	}
@@ -319,20 +329,44 @@ func (s *Server) patchPlanItem(w http.ResponseWriter, r *http.Request) error {
 	if err := decode(r, &req); err != nil {
 		return err
 	}
-	e, err := s.Repos.Plans.UpdateItem(r.Context(), r.PathValue("id"), store.PlanItemPatch{
+	e, ch, err := s.Repos.Plans.UpdateItem(r.Context(), r.PathValue("id"), store.PlanItemPatch{
 		StartAt:  store.Nullable[time.Time]{Set: req.StartAt.Set, Value: wire.TimePtr(req.StartAt.Ptr())},
 		Position: req.Position, Pinned: req.Pinned, PlannedMinutes: req.PlannedMinutes, Status: req.Status, Rev: req.Rev,
-	})
+	}, s.planEnv())
 	if err != nil {
 		return err
 	}
-	s.publishChanges(store.Changes{PlanDays: []string{e.Item.Day}})
+	s.publishChanges(ch)
 	items, err := s.entriesWire(r.Context(), []store.PlanEntry{e})
 	if err != nil {
 		return err
 	}
 	writeJSON(w, http.StatusOK, items[0][0])
 	return nil
+}
+
+// movePlanTask is POST /v1/plan/move: a task's blocks go before another
+// task's on the day, and the day's floating work is timed in the new order.
+func (s *Server) movePlanTask(w http.ResponseWriter, r *http.Request) error {
+	var req wire.MovePlanTaskRequest
+	if err := decode(r, &req); err != nil {
+		return err
+	}
+	if req.Day == "" {
+		return badRequest("day", "day is required")
+	}
+	if req.TaskID == "" {
+		return badRequest("task_id", "task_id is required")
+	}
+	before := ""
+	if req.BeforeTaskID != nil {
+		before = *req.BeforeTaskID
+	}
+	p, ch, err := s.Repos.Plans.Move(r.Context(), req.Day, req.TaskID, before, s.planEnv())
+	if err != nil {
+		return err
+	}
+	return s.writePlan(w, r, p, ch)
 }
 
 func (s *Server) briefing(w http.ResponseWriter, r *http.Request) error {

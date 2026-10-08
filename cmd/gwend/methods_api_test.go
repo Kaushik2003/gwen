@@ -67,7 +67,7 @@ func TestScheduleByHand(t *testing.T) {
 
 	un, err := d.c.UnscheduleTask(d.ctx, wire.UnscheduleRequest{TaskID: tk.ID})
 	require.NoError(t, err)
-	require.Equal(t, []string{tomorrow}, un.Days)
+	require.Equal(t, []string{testutil.Day0, tomorrow}, un.Days, "today plans it again at once")
 	plan, err = d.c.GetPlan(d.ctx, "")
 	require.NoError(t, err)
 	require.Len(t, plan.Items, 1, "off tomorrow, so the planner takes it again")
@@ -175,7 +175,7 @@ func TestAssistantChat(t *testing.T) {
 	require.True(t, acts[0].OK, acts[0].Error)
 	require.Equal(t, `Added "Essay", in School`, acts[0].Summary)
 	require.True(t, acts[1].OK, acts[1].Error)
-	require.Equal(t, `Scheduled "Essay" today 10:00–11:00`, acts[1].Summary)
+	require.Equal(t, `Scheduled "Essay" today 10:00 am–11:00 am`, acts[1].Summary)
 	require.False(t, acts[2].OK, "an unknown ref fails alone")
 	require.True(t, acts[3].OK, acts[3].Error)
 

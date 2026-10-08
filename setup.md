@@ -58,6 +58,7 @@ make install-dev
 
 This builds everything into `bin/`, copies `gwend`, `gwen`, `gwen-tray` and `gwen-ui` to
 `~/.local/bin`, writes the user unit to `~/.config/systemd/user/gwend.service`, and reloads systemd.
+On KDE Plasma it also installs the Gwen panel widget (see [the panel widget](#kde-panel-widget)).
 `~/.local/bin` must be on your `PATH`. Fedora's default `~/.bashrc` already adds it.
 
 The first `make build` takes a while: wails runs `npm ci` and the Vite build in `ui/` before it
@@ -74,6 +75,7 @@ systemctl --user disable --now gwend
 pkill -x gwen-tray
 rm ~/.local/bin/{gwend,gwen,gwen-tray,gwen-ui}
 rm ~/.config/systemd/user/gwend.service
+kpackagetool6 -t Plasma/Applet -r dev.gwen.panel   # KDE only; the package ships its own
 systemctl --user daemon-reload
 hash -r
 ```
@@ -156,7 +158,7 @@ The topic is effectively a password: anyone who knows it can read your nudges. D
 
 ## 5. Google Calendar (optional)
 
-Gwen writes your plan to a calendar of its own and reads busy times from your other calendars.
+Gwen writes your plan to a calendar of its own and reads the events of the calendars you choose, so plans fit around them.
 Google requires you to create your own OAuth client once:
 
 1. In [Google Cloud Console](https://console.cloud.google.com/), create a project and enable the
@@ -175,6 +177,13 @@ Google requires you to create your own OAuth client once:
    ```
 
 `gwen setup calendar` with no flag only prints the steps above.
+
+Once connected, choose which calendars count as busy in **Settings → Google Calendar → Busy
+calendars**. Their events show on Today and Plan, and the planner works around them. Timed events
+always count, even ones shown as free. All-day events count only when shown as busy.
+
+If you connected before Gwen read events (it used to ask only for free/busy access), Gwen asks you
+to connect again: press **Reconnect**, or run `gwen cal connect`.
 
 ## 6. LLM (optional)
 
@@ -377,6 +386,23 @@ Press **Ctrl+C** to stop it, then `rm -r /tmp/gwen-hub`. The copy does not updat
 | API socket | `$XDG_RUNTIME_DIR/gwen/gwend.sock` |
 | User unit | `/usr/lib/systemd/user/gwend.service` (package) or `~/.config/systemd/user/gwend.service` (dev) |
 | Tray autostart | `~/.config/autostart/gwen-tray.desktop` |
+| Now card placement (KDE) | Window rule `gwen-now-card` in `~/.config/kwinrulesrc`, and a KWin script the tray loads from `$XDG_RUNTIME_DIR/gwen/now-card.js` |
+| Panel widget (KDE) | `/usr/share/plasma/plasmoids/dev.gwen.panel` (package) or `~/.local/share/plasma/plasmoids/dev.gwen.panel` (dev) |
+
+### KDE panel widget
+
+KDE's tray shows only an icon, so the timer lives in a panel widget: a dot in the state's colour, the
+day's worked time ticking, and the task (or project) being tracked. Clicking it drops down the now
+card, Plasma's own popup: the timer, the time, progress to the target, the current stretch, the next
+plan block, an energy check-in, and Break, Clock out and Dashboard. Click the project under the timer
+to switch project. A right click has the rest of the tray's commands.
+
+The widget does everything the tray does, so while it is on a panel the tray stays out (`gwen-tray`
+exits at start, saying so in the journal) and Gwen shows once. Remove the widget and the tray is back
+at the next login, or start it now with `setsid gwen-tray &`.
+
+To add it: right-click the panel, choose **Add Widgets…**, search for **Gwen**, and drag it next to
+the tray. To move it later, right-click the panel, **Enter Edit Mode**, and drag it.
 
 ## Development loop
 

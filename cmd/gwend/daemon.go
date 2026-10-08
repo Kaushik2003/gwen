@@ -48,6 +48,8 @@ type options struct {
 	anthropicURL string
 	// sync runs the sync hub client (docs/07-integrations.md#client).
 	sync bool
+	// keeper keeps today's plan up to date as time moves on (keepPlan).
+	keeper bool
 	// calendarEndpoint overrides the Calendar API URL; tests point it at a fake.
 	calendarEndpoint string
 	// wrapRepos lets tests make the store fail inside a decision.
@@ -147,6 +149,9 @@ func run(ctx context.Context, o options) (err error) {
 	}
 	if syncer != nil {
 		go syncer.Run(loopCtx)
+	}
+	if o.keeper {
+		go keepPlan(loopCtx, o.clk, srv)
 	}
 	httpSrv := &http.Server{Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	serveErr := make(chan error, 1)

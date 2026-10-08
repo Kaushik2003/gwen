@@ -9,3 +9,6 @@ func (a *App) CalendarAuthStart() (*wire.CalendarAuth, error) {
 	return call(a.api.CalendarAuthStart(a.ctx))
 }
 func (a *App) CalendarSync() (*wire.CalendarStatus, error) { return call(a.api.CalendarSync(a.ctx)) }
+func (a *App) CalendarCalendars() (*wire.CalendarList, error) {
+	return call(a.api.CalendarCalendars(a.ctx))
+}

@@ -1,7 +1,6 @@
 import { CalendarDays, Clock, Flag, Gauge } from "lucide-react";
 import type { wire } from "../api";
-import { daysBetween, formatDate } from "../format";
-import { clockOf } from "../rrule";
+import { daysBetween, formatClock, formatDate } from "../format";
 import { stageLabel } from "./ScheduleInput";
 import { Dot, cx, priorityOf, unassignedColor } from "./ui";
 
@@ -49,7 +48,7 @@ export function StartTag({ task, today }: { task: wire.Task; today: string }) {
     <span className="inline-flex shrink-0 items-center gap-1 text-xs whitespace-nowrap text-ink-subtle" title={task.start_day}>
       <Clock size={12} aria-hidden />
       {day}
-      {task.start_minute != null && ` ${clockOf(task.start_minute)}`}
+      {task.start_minute != null && ` ${formatClock(task.start_minute)}`}
     </span>
   );
 }

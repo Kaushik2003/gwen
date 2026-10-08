@@ -86,11 +86,13 @@ type API interface {
 	GeneratePlan(ctx context.Context, req wire.GeneratePlanRequest) (*wire.Plan, error)
 	SetDayHours(ctx context.Context, req wire.SetDayHoursRequest) (*wire.Plan, error)
 	PatchPlanItem(ctx context.Context, id string, req wire.PatchPlanItemRequest) (*wire.PlanItem, error)
+	MovePlanTask(ctx context.Context, req wire.MovePlanTaskRequest) (*wire.Plan, error)
 	Briefing(ctx context.Context) (*wire.Briefing, error)
 
 	CalendarStatus(ctx context.Context) (*wire.CalendarStatus, error)
 	CalendarAuthStart(ctx context.Context) (*wire.CalendarAuth, error)
 	CalendarSync(ctx context.Context) (*wire.CalendarStatus, error)
+	CalendarCalendars(ctx context.Context) (*wire.CalendarList, error)
 
 	GoalBreakdown(ctx context.Context, goalID string, req wire.BreakdownRequest) (*wire.LlmRun, error)
 	PlanChat(ctx context.Context, req wire.PlanChatRequest) (*wire.LlmRun, error)
@@ -358,6 +360,10 @@ func (c *Client) SetDayHours(ctx context.Context, req wire.SetDayHoursRequest) (
 
 func (c *Client) PatchPlanItem(ctx context.Context, id string, req wire.PatchPlanItemRequest) (*wire.PlanItem, error) {
 	return call[wire.PlanItem](ctx, c, http.MethodPatch, "/v1/plan/items/"+url.PathEscape(id), nil, req)
+}
+
+func (c *Client) MovePlanTask(ctx context.Context, req wire.MovePlanTaskRequest) (*wire.Plan, error) {
+	return call[wire.Plan](ctx, c, http.MethodPost, "/v1/plan/move", nil, req)
 }
 
 func (c *Client) Briefing(ctx context.Context) (*wire.Briefing, error) {

@@ -71,8 +71,18 @@ func (r planRepo) Schedule(ctx context.Context, taskID, day string, start *time.
 			replanToday = replanToday || it.Day == today.String()
 		}
 		// Putting a task on the calendar processes it (Getting Things Done).
+		write := false
 		if t.Stage != model.StageTodo && t.Stage != model.StageDoing {
-			t.Stage = model.StageTodo
+			t.Stage, write = model.StageTodo, true
+		}
+		// A repeating task's copy moved past its due day is due when it is
+		// planned: it does not expire first, and that day makes no copy of
+		// its own (see materialize).
+		if t.TemplateID != nil && t.DueDay != nil && *t.DueDay < d.String() {
+			due := d.String()
+			t.DueDay, write = &due, true
+		}
+		if write {
 			if err := writeTask(ctx, tx, r.db, &t); err != nil {
 				return err
 			}
@@ -99,11 +109,15 @@ func (r planRepo) Schedule(ctx context.Context, taskID, day string, start *time.
 		}
 		ch.plan(d.String())
 		if replanToday {
-			if err := r.generate(ctx, tx, today, env, &ch); err != nil {
+			if err := r.prepareToday(ctx, tx, env, &ch); err != nil {
 				return err
 			}
 		}
-		const qGetPlanItem = `SELECT ` + planItemCols + ` FROM plan_items WHERE id = ?`
+		if d != today {
+			if err := r.prepare(ctx, tx, d, env, &ch); err != nil {
+				return err
+			}
+		}
 		if it, err = scanPlanItem(tx.QueryRowContext(ctx, qGetPlanItem, it.ID)); err != nil {
 			return err
 		}
@@ -162,7 +176,8 @@ func (r planRepo) Unschedule(ctx context.Context, taskID, day string, env PlanEn
 				return err
 			}
 		}
-		return nil
+		// Today's other work flows into the time it gave back.
+		return r.prepareToday(ctx, tx, env, &ch)
 	})
 	if err != nil {
 		return Changes{}, fmt.Errorf("unschedule task %s: %w", taskID, err)
@@ -172,12 +187,8 @@ func (r planRepo) Unschedule(ctx context.Context, taskID, day string, env PlanEn
 
 func (r planRepo) Refresh(ctx context.Context, env PlanEnv) (Changes, error) {
 	var ch Changes
-	today := env.today()
 	err := r.db.InTx(ctx, func(tx *sql.Tx) error {
-		if err := r.rollover(ctx, tx, today, &ch); err != nil {
-			return err
-		}
-		return r.generate(ctx, tx, today, env, &ch)
+		return r.prepareToday(ctx, tx, env, &ch)
 	})
 	if err != nil {
 		return Changes{}, fmt.Errorf("refresh today's plan: %w", err)

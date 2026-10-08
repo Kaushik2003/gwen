@@ -1,5 +1,5 @@
 // Package gcal syncs the plan with a dedicated Google Calendar and reads busy
-// times from the user's other calendars, as specified in
+// time from the events of the user's other calendars, as specified in
 // docs/07-integrations.md#google-calendar.
 package gcal
 
@@ -21,10 +21,12 @@ import (
 	"golang.org/x/oauth2/google"
 )
 
-// Scopes are the only access Gwen asks for.
+// Scopes are the only access Gwen asks for: its own calendar, and reading
+// which calendars there are and their events, for busy time.
 var Scopes = []string{
 	"https://www.googleapis.com/auth/calendar.app.created",
-	"https://www.googleapis.com/auth/calendar.freebusy",
+	"https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+	"https://www.googleapis.com/auth/calendar.events.readonly",
 }
 
 // Sync timing (docs/07-integrations.md#sync-cycle).

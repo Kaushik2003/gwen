@@ -399,6 +399,8 @@ type Plan struct {
 	Window          PlanWindow `json:"window"`
 	Hours           *DayHours  `json:"hours"`
 	Items           []PlanItem `json:"items"`
+	// Events are the busy calendars' events the day plans around.
+	Events []CalendarEvent `json:"events"`
 }
 
 // PlanWindow is the window capacity is computed over, in minutes after local

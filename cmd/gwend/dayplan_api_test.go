@@ -275,6 +275,38 @@ func TestPlanChatEndpoints(t *testing.T) {
 		require.Equal(t, "message", apiErr(t, err, wire.CodeInvalidRequest).Details["field"])
 	})
 
+	t.Run("a task gets no more time than it has left", func(t *testing.T) {
+		day := "2026-09-17"
+		essay, err := d.c.CreateTask(d.ctx, wire.CreateTaskRequest{Title: "Essay", Priority: testutil.Ptr(4),
+			EstimateMinutes: testutil.Ptr(90)})
+		require.NoError(t, err)
+		model.say(`{"reply": "Okay.", "items": [], "hours": null}`)
+		_, err = ask(day, "plan the 17th", nil)
+		require.NoError(t, err)
+		ref := ""
+		for _, tk := range model.last(t)["tasks"].([]any) {
+			if m := tk.(map[string]any); m["title"] == "Essay" {
+				ref = m["ref"].(string)
+			}
+		}
+		require.NotEmpty(t, ref)
+		model.say(fmt.Sprintf(`{"reply": "Essay twice.", "items": [{"ref": %q, "start": "10:00", "minutes": 60},
+			{"ref": %q, "start": "14:00", "minutes": 60}], "hours": null}`, ref, ref))
+		run, err := ask(day, "plan the 17th", nil)
+		require.NoError(t, err)
+		_, err = d.c.AcceptLLMRun(d.ctx, run.ID, wire.AcceptRunRequest{Indexes: []int{0, 1}})
+		require.NoError(t, err)
+		plan, err := d.c.GetPlan(d.ctx, day)
+		require.NoError(t, err)
+		var minutes []int
+		for _, it := range plan.Items {
+			if it.TaskID == essay.ID {
+				minutes = append(minutes, it.PlannedMinutes)
+			}
+		}
+		require.Equal(t, []int{60, 30}, minutes, "90 minutes of work get 90 minutes")
+	})
+
 	t.Run("a past day cannot be accepted", func(t *testing.T) {
 		model.say(`{"reply": "Okay.", "items": [{"ref": "t1", "start": "20:00", "minutes": 30}], "hours": null}`)
 		run, err := ask("2026-09-16", "plan tomorrow", nil)

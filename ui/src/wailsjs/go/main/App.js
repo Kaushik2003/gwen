@@ -30,12 +30,20 @@ export function CalendarAuthStart() {
   return window['go']['main']['App']['CalendarAuthStart']();
 }
 
+export function CalendarCalendars() {
+  return window['go']['main']['App']['CalendarCalendars']();
+}
+
 export function CalendarStatus() {
   return window['go']['main']['App']['CalendarStatus']();
 }
 
 export function CalendarSync() {
   return window['go']['main']['App']['CalendarSync']();
+}
+
+export function CancelListening() {
+  return window['go']['main']['App']['CancelListening']();
 }
 
 export function ChooseGoogleClient() {
@@ -162,6 +170,14 @@ export function Health() {
   return window['go']['main']['App']['Health']();
 }
 
+export function InstallVoice() {
+  return window['go']['main']['App']['InstallVoice']();
+}
+
+export function IsNowCard() {
+  return window['go']['main']['App']['IsNowCard']();
+}
+
 export function ListCommitments() {
   return window['go']['main']['App']['ListCommitments']();
 }
@@ -186,12 +202,20 @@ export function LogEnergy(arg1) {
   return window['go']['main']['App']['LogEnergy'](arg1);
 }
 
+export function MovePlanTask(arg1) {
+  return window['go']['main']['App']['MovePlanTask'](arg1);
+}
+
 export function NewTopic() {
   return window['go']['main']['App']['NewTopic']();
 }
 
 export function NotifyTest() {
   return window['go']['main']['App']['NotifyTest']();
+}
+
+export function OpenDashboard(arg1) {
+  return window['go']['main']['App']['OpenDashboard'](arg1);
 }
 
 export function OpenURL(arg1) {
@@ -242,6 +266,10 @@ export function RejectLLMRun(arg1) {
   return window['go']['main']['App']['RejectLLMRun'](arg1);
 }
 
+export function RemoveVoice() {
+  return window['go']['main']['App']['RemoveVoice']();
+}
+
 export function ReopenTask(arg1) {
   return window['go']['main']['App']['ReopenTask'](arg1);
 }
@@ -278,6 +306,10 @@ export function SplitSegment(arg1, arg2) {
   return window['go']['main']['App']['SplitSegment'](arg1, arg2);
 }
 
+export function StartListening() {
+  return window['go']['main']['App']['StartListening']();
+}
+
 export function StartScreen() {
   return window['go']['main']['App']['StartScreen']();
 }
@@ -292,6 +324,10 @@ export function StatsSummary(arg1, arg2) {
 
 export function Status() {
   return window['go']['main']['App']['Status']();
+}
+
+export function StopListening() {
+  return window['go']['main']['App']['StopListening']();
 }
 
 export function Switch(arg1) {
@@ -312,4 +348,8 @@ export function UnscheduleTask(arg1) {
 
 export function Version() {
   return window['go']['main']['App']['Version']();
+}
+
+export function VoiceStatus() {
+  return window['go']['main']['App']['VoiceStatus']();
 }

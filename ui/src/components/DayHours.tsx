@@ -45,7 +45,7 @@ export default function DayHours({ plan, onPlan }: { plan: wire.Plan; onPlan: (p
   return (
     <div className="flex flex-wrap items-end gap-x-5 gap-y-3">
       <Field label="Start at">
-        <TimeInput className="w-20" value={start ?? savedStart} onCommit={setStart} aria-label="Start at" title="When this day's work starts, 24-hour" />
+        <TimeInput className="w-24" value={start ?? savedStart} onCommit={setStart} aria-label="Start at" title="When this day's work starts, 24-hour" />
       </Field>
       <Field label="Work for" compound>
         <DurationInput value={work ?? savedWork} onChange={setWork} label="Time for tasks" />

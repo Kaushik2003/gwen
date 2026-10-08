@@ -373,33 +373,37 @@ func TestPlanGeneratesTodayOnFirstRead(t *testing.T) {
 	require.Equal(t, p.Items[0].Item.ID, again.Items[0].Item.ID)
 
 	// A manual edit pins the item, and regeneration keeps it.
-	moved, err := f.r.Plans.UpdateItem(f.ctx, p.Items[2].Item.ID, store.PlanItemPatch{
+	moved, _, err := f.r.Plans.UpdateItem(f.ctx, p.Items[2].Item.ID, store.PlanItemPatch{
 		StartAt: store.Nullable[time.Time]{Set: true, Value: testutil.Ptr(testutil.AtOn(fxToday, "20:00"))},
-		Rev:     &p.Items[2].Item.Rev})
+		Rev:     &p.Items[2].Item.Rev}, f.env())
 	require.NoError(t, err)
 	require.True(t, moved.Item.Pinned)
 	require.Equal(t, "later", moved.Task.Title)
-	_, err = f.r.Plans.UpdateItem(f.ctx, moved.Item.ID, store.PlanItemPatch{Rev: &p.Items[2].Item.Rev})
+	_, _, err = f.r.Plans.UpdateItem(f.ctx, moved.Item.ID, store.PlanItemPatch{Rev: &p.Items[2].Item.Rev}, f.env())
 	userErr(t, err, store.ErrConflict, "rev")
-	_, err = f.r.Plans.UpdateItem(f.ctx, moved.Item.ID, store.PlanItemPatch{Status: testutil.Ptr(model.PlanDone)})
+	_, _, err = f.r.Plans.UpdateItem(f.ctx, moved.Item.ID, store.PlanItemPatch{Status: testutil.Ptr(model.PlanDone)}, f.env())
 	userErr(t, err, store.ErrInvalid, "status")
-	_, err = f.r.Plans.UpdateItem(f.ctx, moved.Item.ID, store.PlanItemPatch{PlannedMinutes: testutil.Ptr(0)})
+	_, _, err = f.r.Plans.UpdateItem(f.ctx, moved.Item.ID, store.PlanItemPatch{PlannedMinutes: testutil.Ptr(0)}, f.env())
 	userErr(t, err, store.ErrInvalid, "planned_minutes")
-	_, err = f.r.Plans.UpdateItem(f.ctx, "nope", store.PlanItemPatch{})
+	_, _, err = f.r.Plans.UpdateItem(f.ctx, "nope", store.PlanItemPatch{}, f.env())
 	require.ErrorIs(t, err, store.ErrNotFound)
 
-	skipped, err := f.r.Plans.UpdateItem(f.ctx, p.Items[1].Item.ID, store.PlanItemPatch{Status: testutil.Ptr(model.PlanSkipped)})
+	skipped, _, err := f.r.Plans.UpdateItem(f.ctx, p.Items[1].Item.ID, store.PlanItemPatch{Status: testutil.Ptr(model.PlanSkipped)}, f.env())
 	require.NoError(t, err)
 	require.False(t, skipped.Item.Pinned, "a status change alone does not pin")
 
 	regen, _, err := f.r.Plans.Generate(f.ctx, fxToday, f.env())
 	require.NoError(t, err)
-	require.Equal(t, []string{"urgent", "later"}, titles(regen),
-		"kept items by start_at; urgent has a kept item, so it is not planned again")
-	require.Equal(t, skipped.Item.ID, regen.Items[0].Item.ID)
-	require.Equal(t, moved.Item.ID, regen.Items[1].Item.ID)
-	require.Equal(t, 1, regen.Items[1].Item.Position)
-	require.Equal(t, 60, regen.Planned, "the skipped block no longer counts")
+	require.Equal(t, []string{"urgent", "urgent", "later"}, titles(regen),
+		"kept items by start_at; skipping takes the task's whole day off, so it is not planned again")
+	require.Equal(t, p.Items[0].Item.ID, regen.Items[0].Item.ID)
+	require.Equal(t, skipped.Item.ID, regen.Items[1].Item.ID)
+	for _, e := range regen.Items[:2] {
+		require.Equal(t, model.PlanSkipped, e.Item.Status, "both of urgent's blocks")
+	}
+	require.Equal(t, moved.Item.ID, regen.Items[2].Item.ID)
+	require.Equal(t, 2, regen.Items[2].Item.Position)
+	require.Equal(t, 60, regen.Planned, "the skipped blocks no longer count")
 
 	_, _, err = f.r.Plans.Generate(f.ctx, "2026-09-19", f.env())
 	userErr(t, err, store.ErrInvalid, "day")
@@ -415,6 +419,124 @@ func TestPlanGeneratesTodayOnFirstRead(t *testing.T) {
 	_, err = f.r.Tasks.Delete(f.ctx, urgent.ID)
 	require.NoError(t, err)
 	require.Equal(t, []string{"later"}, titles(f.plan(fxToday)))
+}
+
+func starts(p store.Plan) []string {
+	out := []string{}
+	for _, e := range p.Items {
+		s := ""
+		if e.Item.StartAt != nil {
+			s = e.Item.StartAt.UTC().Format("15:04")
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+func TestPlanKeepsTheDayAsTimeGoesBy(t *testing.T) {
+	t.Parallel()
+	f := newFx(t) // 12:00
+	for _, title := range []string{"a", "b", "c"} {
+		f.newTask(store.NewTask{Title: title})
+	}
+	p := f.plan("")
+	require.Equal(t, []string{"a", "b", "c"}, titles(p))
+	require.Equal(t, []string{"12:00", "13:00", "14:00"}, starts(p))
+	_, ch, err := f.r.Plans.Get(f.ctx, "", f.env())
+	require.NoError(t, err)
+	require.Empty(t, ch.PlanDays, "nothing moved, so nothing is announced")
+
+	// 21:50, nothing done: an hour and ten minutes of the day are left.
+	f.clk.Advance(9*time.Hour + 50*time.Minute)
+	later, ch, err := f.r.Plans.Get(f.ctx, "", f.env())
+	require.NoError(t, err)
+	require.Equal(t, []string{fxToday}, ch.PlanDays)
+	require.Equal(t, []string{"a", "b", "c"}, titles(later), "the day's work stays on it")
+	require.Equal(t, []string{"21:50", "", ""}, starts(later), "timed from now; what no longer fits has no time")
+	for i := range p.Items {
+		require.Equal(t, p.Items[i].Item.ID, later.Items[i].Item.ID, "the same items, moved")
+	}
+
+	// Regenerating on purpose weighs the day afresh.
+	fresh, _, err := f.r.Plans.Generate(f.ctx, fxToday, f.env())
+	require.NoError(t, err)
+	require.Equal(t, []string{"a"}, titles(fresh))
+}
+
+func TestPlanTakesNewWorkInByUrgency(t *testing.T) {
+	t.Parallel()
+	f := newFx(t)
+	f.newTask(store.NewTask{Title: "a"})
+	f.newTask(store.NewTask{Title: "b"})
+	f.plan("")
+	f.newTask(store.NewTask{Title: "urgent", DueDay: testutil.Ptr(fxToday), Priority: testutil.Ptr(4)})
+	f.newTask(store.NewTask{Title: "later"})
+	p, ch, err := f.r.Plans.Get(f.ctx, "", f.env())
+	require.NoError(t, err)
+	require.Equal(t, []string{fxToday}, ch.PlanDays)
+	require.Equal(t, []string{"urgent", "a", "b", "later"}, titles(p))
+	require.Equal(t, []string{"12:00", "13:00", "14:00", "15:00"}, starts(p))
+}
+
+func TestMoveReordersTheDay(t *testing.T) {
+	t.Parallel()
+	f := newFx(t)
+	a := f.newTask(store.NewTask{Title: "a"})
+	b := f.newTask(store.NewTask{Title: "b"})
+	c := f.newTask(store.NewTask{Title: "c"})
+	f.plan("")
+
+	moved, ch, err := f.r.Plans.Move(f.ctx, fxToday, c.ID, a.ID, f.env())
+	require.NoError(t, err)
+	require.Equal(t, []string{fxToday}, ch.PlanDays)
+	require.Equal(t, []string{"c", "a", "b"}, titles(moved))
+	require.Equal(t, []string{"12:00", "13:00", "14:00"}, starts(moved), "timed in the new order")
+	f.clk.Advance(5 * time.Minute)
+	require.Equal(t, []string{"c", "a", "b"}, titles(f.plan("")), "the order stands as the plan keeps up")
+
+	// A pinned block moved hands its time back to the planner.
+	pinned, _, err := f.r.Plans.UpdateItem(f.ctx, moved.Items[0].Item.ID, store.PlanItemPatch{
+		StartAt: store.Nullable[time.Time]{Set: true, Value: testutil.Ptr(testutil.AtOn(fxToday, "18:00"))}}, f.env())
+	require.NoError(t, err)
+	require.True(t, pinned.Item.Pinned)
+	moved, _, err = f.r.Plans.Move(f.ctx, fxToday, c.ID, "", f.env())
+	require.NoError(t, err)
+	require.Equal(t, []string{"a", "b", "c"}, titles(moved))
+	require.Equal(t, []string{"12:05", "13:05", "14:05"}, starts(moved))
+	require.False(t, moved.Items[2].Item.Pinned)
+
+	_, _, err = f.r.Plans.Move(f.ctx, fxToday, b.ID, b.ID, f.env())
+	userErr(t, err, store.ErrInvalid, "before_task_id")
+	_, _, err = f.r.Plans.Move(f.ctx, fxToday, b.ID, "nope", f.env())
+	userErr(t, err, store.ErrNotFound, "before_task_id")
+	other := f.newTask(store.NewTask{Title: "elsewhere", StartDay: testutil.Ptr("2026-09-25")})
+	_, _, err = f.r.Plans.Move(f.ctx, fxToday, other.ID, "", f.env())
+	userErr(t, err, store.ErrInvalid, "task_id")
+	_, _, err = f.r.Plans.Move(f.ctx, "2026-09-19", a.ID, "", f.env())
+	userErr(t, err, store.ErrInvalid, "day")
+}
+
+func TestScheduleMovesARepeatingCopy(t *testing.T) {
+	t.Parallel()
+	f := newFx(t)
+	f.newTask(store.NewTask{Title: "gym", RRule: testutil.Ptr("FREQ=DAILY")})
+	today := f.plan("")
+	require.Equal(t, []string{"gym"}, titles(today))
+	occ := today.Items[0].Task
+
+	tomorrow := "2026-09-21"
+	_, _, err := f.r.Plans.Schedule(f.ctx, occ.ID, tomorrow, testutil.Ptr(testutil.AtOn(tomorrow, "18:00")), 60, f.env())
+	require.NoError(t, err)
+	require.Empty(t, f.plan("").Items, "moved off today")
+	require.Equal(t, tomorrow, *f.get(occ.ID).DueDay, "it is due on the day it was moved to")
+	next := f.plan(tomorrow)
+	require.Equal(t, []string{"gym"}, titles(next), "the copy moved there stands for the day's own")
+	require.Equal(t, occ.ID, next.Items[0].Task.ID)
+
+	f.clk.Advance(24 * time.Hour)
+	again := f.plan("")
+	require.Equal(t, []string{"gym"}, titles(again), "it did not expire overnight")
+	require.Equal(t, occ.ID, again.Items[0].Task.ID)
 }
 
 func TestPlanEmptyTodayIsAnnouncedOnce(t *testing.T) {
@@ -465,10 +587,12 @@ func TestSessionOccurrences(t *testing.T) {
 
 	// Completing it defaults quantity_done to 4; the next session stays at 4.
 	tomorrow := f.plan("2026-09-21")
-	require.Empty(t, tomorrow.Items, "only today generates on read")
+	require.Empty(t, tomorrow.Items, "a later day nobody planned makes no copies when read")
 	gen, _, err := f.r.Plans.Generate(f.ctx, "2026-09-21", f.env())
 	require.NoError(t, err)
 	require.Equal(t, 4, *gen.Items[0].Task.Quantity, "ceil(300/91)")
+	read := f.plan("2026-09-21")
+	require.Equal(t, gen.Items[0].Task.ID, read.Items[0].Task.ID, "once planned, it keeps its one session")
 
 	abandoned, _ := f.goal(quantityGoal(fxToday, "2026-12-20"))
 	_, err = f.r.Goals.Update(f.ctx, abandoned.ID, store.GoalPatch{Status: testutil.Ptr(model.GoalAbandoned)})
@@ -644,4 +768,19 @@ func TestTodosAndStarts(t *testing.T) {
 			require.True(t, e.Item.StartAt.Before(clock(21, 15)), "a start time holds on its day only")
 		}
 	}
+}
+
+func TestRemindersSkipCopiesForLaterDays(t *testing.T) {
+	t.Parallel()
+	f := newFx(t)
+	f.newTask(store.NewTask{Title: "gym", RRule: testutil.Ptr("FREQ=DAILY")})
+	_, _, err := f.r.Plans.Generate(f.ctx, "2026-09-21", f.env()) // planning ahead makes tomorrow's copy
+	require.NoError(t, err)
+	b, _, err := f.r.Plans.Briefing(f.ctx, f.env())
+	require.NoError(t, err)
+	var due []string
+	for _, r := range b.Reminders {
+		due = append(due, r.DueDay.String())
+	}
+	require.Equal(t, []string{fxToday}, due, "today's copy is due today; tomorrow's is not news yet")
 }

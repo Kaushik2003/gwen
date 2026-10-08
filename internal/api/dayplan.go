@@ -121,7 +121,7 @@ func (s *Server) dayPlanRequest(ctx context.Context, dc store.DayPlanContext, pr
 		in.Busy = append(in.Busy, llm.BusyTime{Title: c.Title, Start: at(start), End: at(start.Add(c.Duration))})
 	}
 	for _, b := range dc.Busy {
-		in.Busy = append(in.Busy, llm.BusyTime{Title: "Busy", Start: at(b.Start), End: at(b.End)})
+		in.Busy = append(in.Busy, llm.BusyTime{Title: cmp.Or(b.Title, "Busy"), Start: at(b.Start), End: at(b.End)})
 	}
 	slices.SortStableFunc(in.Busy, func(a, b llm.BusyTime) int { return cmp.Compare(a.Start, b.Start) })
 	for _, f := range dc.Free {

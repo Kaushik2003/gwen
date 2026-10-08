@@ -18,3 +18,7 @@ func (c *Client) CalendarAuthStart(ctx context.Context) (*wire.CalendarAuth, err
 func (c *Client) CalendarSync(ctx context.Context) (*wire.CalendarStatus, error) {
 	return call[wire.CalendarStatus](ctx, c, http.MethodPost, "/v1/calendar/sync", nil, empty)
 }
+
+func (c *Client) CalendarCalendars(ctx context.Context) (*wire.CalendarList, error) {
+	return call[wire.CalendarList](ctx, c, http.MethodGet, "/v1/calendar/calendars", nil, nil)
+}

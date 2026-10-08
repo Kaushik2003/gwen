@@ -2,7 +2,7 @@ import { CalendarDays, CircleCheck, ExternalLink, FileJson, Plus, RefreshCw, X }
 import { useEffect, useState, type ReactNode } from "react";
 import { App, apiError, wire } from "../api";
 import { useToast } from "../components/feedback";
-import { Badge, Button, Callout, Input, Panel, ToggleRow } from "../components/ui";
+import { Badge, Button, Callout, Checkbox, Input, Panel, ToggleRow } from "../components/ui";
 import { useDaemon } from "../daemon";
 import { formatAgo } from "../format";
 import { useHasCredential } from "./Credential";
@@ -66,7 +66,7 @@ export default function CalendarSettings() {
     <>
       <Panel title="Google Calendar" icon={CalendarDays}>
         <p className="-mt-1 mb-4 text-[13px] leading-relaxed text-ink-subtle">
-          Gwen writes your plan to a calendar of its own and reads busy times from your other calendars, so plans fit around meetings.
+          Gwen writes your plan to a calendar of its own and reads the events of the calendars you choose, so plans fit around them.
         </p>
 
         {connected && status ? (
@@ -128,14 +128,14 @@ export default function CalendarSettings() {
               >
                 Your OAuth client is installed. Connect, and sign in with Google in the browser window that opens.
               </Callout>
-              {unavailable && <p className="text-xs text-ink-subtle">{unavailable.replace(/;\s*run gwen.*$/i, "")}</p>}
+              {unavailable && <p className="text-xs text-ink-subtle">{withoutCLI(unavailable)}</p>}
             </div>
           )
         )}
 
         {status?.last_error && (
           <Callout tone="danger" className="mt-4">
-            {status.last_error}
+            {withoutCLI(status.last_error)}
           </Callout>
         )}
 
@@ -148,7 +148,7 @@ export default function CalendarSettings() {
           </div>
         )}
       </Panel>
-      {hasClient && <CalendarOptions />}
+      {hasClient && <CalendarOptions connected={!!connected} onConnect={connect} connecting={busy === "connect"} />}
     </>
   );
 }
@@ -162,20 +162,45 @@ function Step({ n, children }: { n: number; children: ReactNode }) {
   );
 }
 
+/** A daemon message without its CLI hint, which the dashboard has a button for. */
+const withoutCLI = (msg: string) => msg.replace(/;\s*run gwen.*$/i, "");
+
 /** Which calendar Gwen writes to and which ones count as busy. */
-function CalendarOptions() {
+function CalendarOptions({ connected, onConnect, connecting }: { connected: boolean; onConnect: () => void; connecting: boolean }) {
   const d = useDaemon();
   const notify = useToast();
   const cal = d.config!.calendar;
   const [name, setName] = useState(cal.name);
   const [busy, setBusy] = useState<string[]>(cal.busy_calendars ?? []);
   const [adding, setAdding] = useState("");
+  // The account's calendars, once connected; listError is why they could not be listed.
+  const [calendars, setCalendars] = useState<wire.CalendarInfo[] | null>(null);
+  const [listError, setListError] = useState<string | null>(null);
   useEffect(() => {
     setName(cal.name);
   }, [cal.name]);
   useEffect(() => {
     setBusy(cal.busy_calendars ?? []);
   }, [cal.busy_calendars]);
+  useEffect(() => {
+    if (!connected) return;
+    let live = true;
+    App.CalendarCalendars().then(
+      (l) => {
+        if (!live) return;
+        setCalendars(l.calendars);
+        setListError(null);
+      },
+      (e) => {
+        if (!live) return;
+        setCalendars(null);
+        setListError(withoutCLI(apiError(e).message));
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [connected, d.integrationVersion]);
 
   const changed = name !== cal.name || busy.join("\n") !== (cal.busy_calendars ?? []).join("\n");
   async function save() {
@@ -186,6 +211,10 @@ function CalendarOptions() {
     if (v && !busy.includes(v)) setBusy([...busy, v]);
     setAdding("");
   }
+  const toggle = (id: string, on: boolean) => setBusy(on ? [...busy, id] : busy.filter((x) => x !== id));
+  // Busy calendars the list does not hold: added by address, or every one while the list is unknown.
+  const listed = new Set((calendars ?? []).map((c) => c.id));
+  const others = busy.filter((b) => !listed.has(b));
 
   return (
     <Panel title="Calendar options">
@@ -207,11 +236,34 @@ function CalendarOptions() {
         </div>
         <div className="py-3.5">
           <div className="text-sm font-medium text-ink">Busy calendars</div>
-          <div className="mt-0.5 text-[13px] text-ink-subtle">Their events take time out of the plan. primary is your main calendar; others go by their calendar ID.</div>
+          <div className="mt-0.5 text-[13px] text-ink-subtle">Their events show on your plan and take their time out of it. All-day events count only when shown as busy.</div>
+          {listError && (
+            <Callout
+              className="mt-3"
+              action={
+                <Button size="sm" tone="primary" onClick={onConnect} busy={connecting}>
+                  Reconnect
+                </Button>
+              }
+            >
+              {listError}
+            </Callout>
+          )}
+          {calendars && (
+            <ul className="mt-3 flex flex-col gap-1">
+              {calendars.map((c) => (
+                <li key={c.id} className="flex items-center gap-3 rounded-md px-1 py-1">
+                  <Checkbox checked={busy.includes(c.id)} onChange={(on) => toggle(c.id, on)} label={`Count ${c.name} as busy`} color={c.color || undefined} square />
+                  <span className="min-w-0 flex-1 truncate text-sm text-ink">{c.name}</span>
+                  {c.primary && <Badge>Main calendar</Badge>}
+                </li>
+              ))}
+            </ul>
+          )}
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            {busy.map((b) => (
+            {others.map((b) => (
               <Badge key={b} className="h-7 gap-1.5 pr-1 pl-2.5 text-[13px]">
-                {b}
+                {b === "primary" ? "Main calendar" : b}
                 <button type="button" aria-label={`Remove ${b}`} onClick={() => setBusy(busy.filter((x) => x !== b))} className="grid size-5 place-items-center rounded-full hover:bg-surface-4">
                   <X size={12} aria-hidden />
                 </button>
@@ -224,7 +276,7 @@ function CalendarOptions() {
                 add();
               }}
             >
-              <Input value={adding} onChange={(e) => setAdding(e.target.value)} placeholder="Calendar ID" className="h-7 w-52 text-[13px]" aria-label="Calendar to add" />
+              <Input value={adding} onChange={(e) => setAdding(e.target.value)} placeholder="Shared calendar's address" className="h-7 w-56 text-[13px]" aria-label="Calendar to add" />
               <Button size="sm" icon={Plus} type="submit" disabled={!adding.trim()}>
                 Add
               </Button>

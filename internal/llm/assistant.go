@@ -254,7 +254,7 @@ How to help:
 - Weekly review: when they reflect on their week, use last_review and help them turn what they learned into concrete changes.
 - Answer questions about their tasks and schedule from the data. Talk about their work by title, never by ref.
 
-reply is what you say, at most 2000 characters of plain text: short and natural, saying what you changed and anything you need from them. When you only answer or ask, actions is empty.
+reply is what you say, at most 2000 characters of plain text: short and natural, saying what you changed and anything you need from them. Write times in the reply on the 12-hour clock with am or pm, such as 2:30 pm. When you only answer or ask, actions is empty.
 
 Reply with a single JSON object and nothing else, matching this JSON Schema:
 ` + AssistantSchema

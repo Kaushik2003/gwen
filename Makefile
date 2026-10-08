@@ -14,13 +14,20 @@ TAGS := webkit2_41
 
 CONFIG_HOME := $(or $(XDG_CONFIG_HOME),$(HOME)/.config)
 
+# Voice input links sherpa-onnx and ONNX Runtime, which ship beside the
+# binaries in lib/gwen: /usr/lib/gwen, or ~/.local/lib/gwen after install-dev.
+SHERPA_LIB = $(shell $(GO) list -m -f '{{.Dir}}' github.com/k2-fsa/sherpa-onnx-go-linux)/lib/x86_64-unknown-linux-gnu
+VOICE_LIBS := libsherpa-onnx-c-api.so libonnxruntime.so
+
 .PHONY: build ui build-hub check docs-check package install-dev clean ui-stub
 
 build: ui-stub
 	@mkdir -p bin
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags '$(LDFLAGS)' -o bin/ ./cmd/gwend ./cmd/gwen ./cmd/gwen-tray
-	cd cmd/gwen-ui && $(GO) tool wails build -tags $(TAGS) -trimpath -ldflags '$(LDFLAGS)' -o gwen-ui
+	cd cmd/gwen-ui && CGO_LDFLAGS='-Wl,-rpath,$$ORIGIN/../lib/gwen' $(GO) tool wails build -tags $(TAGS) -trimpath -ldflags '$(LDFLAGS)' -o gwen-ui
 	cp cmd/gwen-ui/build/bin/gwen-ui bin/gwen-ui
+	@mkdir -p bin/lib
+	cd '$(SHERPA_LIB)' && install -m 0644 $(VOICE_LIBS) $(CURDIR)/bin/lib/
 
 ui:
 	cd ui && npm ci && npm run build
@@ -52,8 +59,13 @@ package: build
 install-dev: build
 	install -d $(HOME)/.local/bin $(CONFIG_HOME)/systemd/user
 	install -m 0755 bin/gwend bin/gwen bin/gwen-tray bin/gwen-ui $(HOME)/.local/bin/
+	install -d $(HOME)/.local/lib/gwen
+	install -m 0644 $(addprefix bin/lib/,$(VOICE_LIBS)) $(HOME)/.local/lib/gwen/
 	sed 's|^ExecStart=.*|ExecStart=%h/.local/bin/gwend|' packaging/gwend.service > $(CONFIG_HOME)/systemd/user/gwend.service
 	systemctl --user daemon-reload
+	@if command -v kpackagetool6 >/dev/null; then \
+		kpackagetool6 -t Plasma/Applet -u packaging/plasma/dev.gwen.panel 2>/dev/null || kpackagetool6 -t Plasma/Applet -i packaging/plasma/dev.gwen.panel; \
+	fi
 
 clean:
 	rm -rf bin dist

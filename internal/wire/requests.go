@@ -245,6 +245,15 @@ type SetDayHoursRequest struct {
 	WorkMinutes *int   `json:"work_minutes"`
 }
 
+// MovePlanTaskRequest is the POST /v1/plan/move body: TaskID's planned blocks
+// on Day go before BeforeTaskID's first item, or last when it is nil. Moved
+// blocks are unpinned, so the day is timed in the new order.
+type MovePlanTaskRequest struct {
+	Day          string  `json:"day"`
+	TaskID       string  `json:"task_id"`
+	BeforeTaskID *string `json:"before_task_id"`
+}
+
 // PatchPlanItemRequest is the PATCH /v1/plan/items/{id} body. Status is only
 // planned or skipped. Changing StartAt, Position, or PlannedMinutes pins the
 // item.

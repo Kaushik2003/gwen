@@ -34,8 +34,8 @@ func FormatDuration(d time.Duration) string {
 // FormatMillis is FormatDuration for a wire *_ms value.
 func FormatMillis(ms int64) string { return FormatDuration(time.Duration(ms) * time.Millisecond) }
 
-// FormatTime renders t as 24-hour "HH:MM" in t's location.
-func FormatTime(t time.Time) string { return t.Format("15:04") }
+// FormatTime renders t as 12-hour "3:04 pm" in t's location.
+func FormatTime(t time.Time) string { return t.Format("3:04 pm") }
 
 // FormatDay renders t's date as "YYYY-MM-DD" in t's location.
 func FormatDay(t time.Time) string { return t.Format(time.DateOnly) }

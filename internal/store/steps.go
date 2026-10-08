@@ -185,6 +185,32 @@ func fill(ctx context.Context, tx *sql.Tx, db *DB, session model.Task, ch *Chang
 	return nil
 }
 
+// refill deals a goal's queue out again after leftovers came back to it: the
+// open sessions from today on that nothing was done in yet let their steps
+// go, and the open sessions fill anew, earliest first, so the oldest items
+// lead.
+func refill(ctx context.Context, tx *sql.Tx, db *DB, goalID, today string, ch *Changes) error {
+	const qComingSessions = `SELECT ` + taskCols + ` FROM tasks WHERE deleted_at IS NULL AND status = 'open'
+		AND goal_id = ? AND template_id IS NOT NULL AND occurrence_day >= ? ORDER BY occurrence_day, id`
+	sessions, err := queryTasks(ctx, tx, qComingSessions, goalID, today)
+	if err != nil {
+		return err
+	}
+	for _, s := range sessions {
+		steps, err := stepsOf(ctx, tx, s.ID)
+		if err != nil {
+			return err
+		}
+		if len(openOnly(steps)) < len(steps) {
+			continue // work started on it stays where it is
+		}
+		if err := detach(ctx, tx, db, steps, ch); err != nil {
+			return err
+		}
+	}
+	return fillGoal(ctx, tx, db, goalID, ch)
+}
+
 // fillGoal fills the open sessions of a quantity goal, earliest first.
 func fillGoal(ctx context.Context, tx *sql.Tx, db *DB, goalID string, ch *Changes) error {
 	g, err := getGoal(ctx, tx, goalID)
@@ -209,8 +235,11 @@ func fillGoal(ctx context.Context, tx *sql.Tx, db *DB, goalID string, ch *Change
 }
 
 // completeTask completes t with its cascades: a session with steps counts
-// nothing itself and returns its open steps to the queue, and the last open
-// step completes its parent. A done task is returned unchanged.
+// nothing itself, and the last open step completes its parent. Steps never
+// move: a session done early keeps its open steps until its day is over,
+// when rollover returns them to the queue (settleSessions), so that reopening
+// it, as after a mistaken tick, gives back everything it held. A done task is
+// returned unchanged.
 func completeTask(ctx context.Context, tx *sql.Tx, db *DB, t model.Task, quantityDone *int, ch *Changes) (model.Task, error) {
 	if t.IsTemplate() {
 		return t, FailField(ErrInvalid, "id", "a recurring template is never completed; complete its occurrence")
@@ -244,11 +273,6 @@ func completeTask(ctx context.Context, tx *sql.Tx, db *DB, t model.Task, quantit
 	}
 	for _, d := range days {
 		ch.plan(d)
-	}
-	if session {
-		if err := detach(ctx, tx, db, openOnly(steps), ch); err != nil {
-			return t, err
-		}
 	}
 	changed, err := settleGoal(ctx, tx, db, t.GoalID, true)
 	if err != nil {

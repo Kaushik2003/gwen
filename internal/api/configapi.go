@@ -31,6 +31,7 @@ func (s *Server) patchConfig(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	s.Hub.Publish(wire.EventConfigChanged, c.Wire())
+	s.Replan(r.Context()) // the day's hours, target, and methods shape the plan
 	writeJSON(w, http.StatusOK, c.Wire())
 	return nil
 }

@@ -1,17 +1,19 @@
-import { BellOff, CalendarClock, CircleCheck, Coffee, ListTodo, Play, Plus, Radio, RefreshCw, ScrollText, Sparkles, Square, Target, TriangleAlert } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { BellOff, CalendarClock, CircleCheck, Coffee, ListTodo, Play, Plus, Radio, ScrollText, Sparkles, Square, Target, TriangleAlert } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { App, wire } from "../api";
 import { useBriefing } from "../components/Briefing";
 import { useCompleteTask } from "../components/complete";
 import { GoalMeter, PaceChip, goalAmount } from "../components/goal";
 import ProgressRing from "../components/ProgressRing";
 import { StepList, stepsDone } from "../components/steps";
+import TaskHover from "../components/TaskHover";
 import { ProjectTag } from "../components/tags";
 import Timeline, { type FixedBlock, type PlannedBlock } from "../components/Timeline";
-import { Badge, Button, Callout, Checkbox, Dot, DotSelect, Empty, IconButton, Input, PageHeader, Panel, Select, cx, stateColor, stateLabel, unassignedColor } from "../components/ui";
+import { Badge, Button, Callout, Checkbox, Dot, DotSelect, Empty, IconButton, Input, Panel, Select, cx, stateColor, stateLabel, unassignedColor } from "../components/ui";
 import { useDaemon, useTick } from "../daemon";
-import { clockFace, formatDuration, formatLongDate, formatTime, instantOn, parseDuration } from "../format";
+import { clockFace, formatClock, formatDuration, formatLongDate, formatTime, instantOn, parseDuration } from "../format";
 import { useNav } from "../nav";
+import { blockTimes, eventBlocks, groupPlan } from "../plan";
 import { clockOf, occursOn } from "../rrule";
 import { useTracking } from "../tracking";
 import { TaskForm } from "./Projects";
@@ -31,8 +33,8 @@ export default function Today() {
   const [commitments, setCommitments] = useState<wire.Commitment[]>([]);
   // What Clock in starts with: the last project and task, until another is picked.
   const [pick, setPick] = useState(d.lastAttribution);
-  const [planning, setPlanning] = useState(false);
   const [todo, setTodo] = useState("");
+  const addingTodo = useRef(false); // one to-do per Enter, however fast it is pressed
   const [adding, setAdding] = useState(false);
 
   useEffect(() => {
@@ -89,7 +91,7 @@ export default function Today() {
 
   const projectId = state === "off" ? pick.project_id : (st.project_id ?? null);
   const taskId = state === "off" ? pick.task_id : (st.task_id ?? null);
-  const projectTasks = d.tasks.filter((x) => !projectId || x.project_id === projectId || !x.project_id);
+  const projectTasks = d.tasks.filter((x) => (!projectId || x.project_id === projectId || !x.project_id) && !(x.occurrence_day && x.occurrence_day > today));
   const chooseProject = (id: string | null) => (state === "off" ? setPick({ project_id: id, task_id: null }) : t.switchTo(id, null));
   const chooseTask = (id: string | null) => {
     const task = d.tasks.find((x) => x.id === id);
@@ -102,6 +104,7 @@ export default function Today() {
   const from = instantOn(today, d.config?.planner.day_start ?? "09:00", rollover);
   const to = instantOn(today, d.config?.planner.day_end ?? "23:00", rollover);
   const items = plan?.items ?? [];
+  const groups = useMemo(() => groupPlan(plan?.items ?? []), [plan]);
   const planned: PlannedBlock[] = items
     .filter((it) => it.start_at != null && it.status !== "skipped")
     .map((it) => ({
@@ -119,13 +122,8 @@ export default function Today() {
       title: c.title,
       start: instantOn(today, clockOf(c.start_minute!), rollover),
       minutes: c.duration_minutes,
-    }));
-
-  async function planDay() {
-    setPlanning(true);
-    await d.act(() => App.GeneratePlan(wire.GeneratePlanRequest.createFrom({ day: today })));
-    setPlanning(false);
-  }
+    }))
+    .concat(eventBlocks(plan, from, to));
 
   const byProject = day?.summary.by_project ?? [];
   const byTotal = byProject.reduce((sum, p) => sum + p.worked_ms, 0);
@@ -141,62 +139,81 @@ export default function Today() {
   async function addTodo(e: React.FormEvent) {
     e.preventDefault();
     const title = todo.trim();
-    if (!title) return;
+    if (!title || addingTodo.current) return;
+    addingTodo.current = true;
     if (await d.act(() => App.CreateTask(wire.CreateTaskRequest.createFrom({ title, start_day: today })))) setTodo("");
+    addingTodo.current = false;
   }
 
   return (
-    <div className="flex flex-col gap-5">
-      <PageHeader
-        title={formatLongDate(today)}
-        actions={
-          <Button icon={ScrollText} onClick={openBriefing}>
+    // From two columns up the page fits the window: the panels scroll inside
+    // themselves, so everything is in view at once.
+    <div className="flex flex-col gap-4 @2xl:h-[calc(100dvh-3.5rem)] @2xl:min-h-[540px]">
+      <header className="flex shrink-0 flex-wrap items-center justify-between gap-3">
+        <h1 className="text-[22px] font-semibold tracking-[-0.02em] text-ink">{formatLongDate(today)}</h1>
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-ink-subtle tabular-nums">{formatTime(now)}</span>
+          <Button size="sm" icon={ScrollText} onClick={openBriefing}>
             Briefing
           </Button>
-        }
-      />
+        </div>
+      </header>
 
       {st.warnings.map((w) => (
-        <Callout key={w} tone="idle" icon={TriangleAlert}>
+        <p key={w} className="flex shrink-0 items-center gap-2 rounded-lg border border-idle/25 bg-idle/8 px-3 py-1.5 text-xs text-idle">
+          <TriangleAlert size={13} aria-hidden className="shrink-0" />
           {w}
-        </Callout>
+        </p>
       ))}
 
-      <section className="lift overflow-hidden rounded-2xl border border-line bg-surface-1">
-        <div className="flex flex-col gap-8 p-6 md:p-7 @3xl:flex-row @3xl:items-center">
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2.5 text-sm font-medium" style={{ color }}>
-              <Dot color={color} live={state === "working"} size={9} />
-              {stateLabel[state]}
-              {state !== "off" && <span className="font-normal text-ink-subtle">{t.onBreak ? `for ${formatDuration(elapsed)}` : `since ${formatTime(st.state_since_at)}`}</span>}
-            </div>
-
-            {state === "off" ? (
-              <div className="mt-3 text-[44px] leading-tight font-semibold tracking-[-0.03em] text-ink-subtle">Off the clock</div>
-            ) : (
-              <div className={cx("mt-2 text-display font-semibold tabular-nums", t.onBreak ? "text-ink-subtle" : "text-ink")} aria-label={`${formatDuration(worked)} worked today`}>
-                {clockFace(worked).slice(0, -3)}
-                <span className="text-ink-faint">{clockFace(worked).slice(-3)}</span>
+      <section className="lift shrink-0 overflow-hidden rounded-2xl border border-line bg-surface-1">
+        <div className="grid items-center gap-x-8 gap-y-4 px-6 py-5 @2xl:grid-cols-[auto_minmax(0,1fr)]">
+          <div className="flex min-w-0 items-center gap-5">
+            <ProgressRing fraction={target > 0 ? worked / target : 0} color={met ? stateColor.working : color} size={84} stroke={7} label="Worked against the daily target">
+              <span className="text-[17px] leading-none font-semibold tracking-[-0.02em] text-ink tabular-nums">{Math.round(target > 0 ? (worked / target) * 100 : 0)}%</span>
+              <span className="mt-0.5 text-[10px] text-ink-subtle">of {formatDuration(target)}</span>
+            </ProgressRing>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 text-[13px] font-medium whitespace-nowrap" style={{ color }}>
+                <Dot color={color} live={state === "working"} />
+                {stateLabel[state]}
+                {state !== "off" && <span className="font-normal text-ink-subtle">{t.onBreak ? `for ${formatDuration(elapsed)}` : `since ${formatTime(st.state_since_at)}`}</span>}
               </div>
-            )}
+              {state === "off" ? (
+                <div className="text-[30px] leading-tight font-semibold tracking-[-0.03em] whitespace-nowrap text-ink-subtle">Off the clock</div>
+              ) : (
+                <div
+                  className={cx("text-[40px] leading-tight font-semibold tracking-[-0.04em] tabular-nums", t.onBreak ? "text-ink-subtle" : "text-ink")}
+                  aria-label={`${formatDuration(worked)} worked today`}
+                >
+                  {clockFace(worked).slice(0, -3)}
+                  <span className="text-ink-faint">{clockFace(worked).slice(-3)}</span>
+                </div>
+              )}
+              <div className="flex items-center gap-2 text-xs whitespace-nowrap text-ink-subtle tabular-nums">
+                <span>Break {formatDuration(breakMs)}</span>
+                <span className="text-ink-faint">·</span>
+                {met ? (
+                  <span className="inline-flex items-center gap-1 text-working">
+                    <CircleCheck size={12} aria-hidden />
+                    Target met
+                  </span>
+                ) : (
+                  <span>{formatDuration(target - worked)} to go</span>
+                )}
+                {st.snoozed_until_at != null && st.snoozed_until_at > now && (
+                  <span className="inline-flex items-center gap-1" title={`Nudges snoozed for ${formatDuration(st.snoozed_until_at - now)}`}>
+                    <BellOff size={12} aria-hidden />
+                    {formatDuration(st.snoozed_until_at - now)}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
 
-            {state === "idle_pending" && st.idle_since_at && (
-              <Callout
-                tone="idle"
-                className="mt-4"
-                action={
-                  <Button size="sm" icon={Coffee} onClick={t.breakStart}>
-                    Count it as a break
-                  </Button>
-                }
-              >
-                No keyboard or mouse for {formatDuration(now - st.idle_since_at)}. It still counts as work until{" "}
-                {d.config?.tracking.hard_idle ? formatDuration(parseDuration(d.config.tracking.hard_idle)) : "the limit"}, then becomes a break.
-              </Callout>
-            )}
-
-            <div className="mt-5 flex flex-wrap items-center gap-2">
-              <DotSelect color={colors.get(projectId) ?? unassignedColor} value={projectId ?? ""} onChange={(e) => chooseProject(e.target.value || null)} aria-label="Project" className="w-52">
+          <div className="flex min-w-0 flex-col gap-2.5">
+            <div className="flex min-w-0 gap-2">
+              <DotSelect color={colors.get(projectId) ?? unassignedColor} value={projectId ?? ""} onChange={(e) => chooseProject(e.target.value || null)} aria-label="Project" className="w-40 shrink-0">
                 <option value="">Unassigned</option>
                 {d.projects.map((p) => (
                   <option key={p.id} value={p.id}>
@@ -204,7 +221,7 @@ export default function Today() {
                   </option>
                 ))}
               </DotSelect>
-              <Select value={taskId ?? ""} onChange={(e) => chooseTask(e.target.value || null)} aria-label="Task" className="w-64 max-w-full">
+              <Select value={taskId ?? ""} onChange={(e) => chooseTask(e.target.value || null)} aria-label="Task" className="min-w-0 flex-1">
                 <option value="">No task</option>
                 {projectTasks.map((x) => (
                   <option key={x.id} value={x.id}>
@@ -213,65 +230,57 @@ export default function Today() {
                 ))}
               </Select>
             </div>
-
-            <div className="mt-5 flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {state === "off" && (
-                <Button tone="primary" size="lg" icon={Play} onClick={() => t.clockIn(pick.project_id, pick.task_id)}>
+                <Button tone="primary" icon={Play} onClick={() => t.clockIn(pick.project_id, pick.task_id)}>
                   Clock in
                 </Button>
               )}
               {t.onBreak && (
-                <Button tone="primary" size="lg" icon={Play} onClick={t.breakEnd}>
+                <Button tone="primary" icon={Play} onClick={t.breakEnd}>
                   End break
                 </Button>
               )}
               {(state === "working" || state === "break_auto") && (
-                <Button size="lg" icon={Coffee} iconColor={stateColor.break_manual} onClick={t.breakStart}>
+                <Button icon={Coffee} iconColor={stateColor.break_manual} onClick={t.breakStart}>
                   {state === "break_auto" ? "Stay on break" : "Start break"}
                 </Button>
               )}
               {state !== "off" && (
-                <Button size="lg" icon={Square} iconColor="var(--color-danger)" onClick={t.clockOut}>
+                <Button icon={Square} iconColor="var(--color-danger)" onClick={t.clockOut}>
                   Clock out
                 </Button>
               )}
-              {state !== "off" && <IconButton icon={BellOff} label="Snooze nudges" tone="secondary" size="lg" onClick={t.snooze} />}
+              {state !== "off" && <IconButton icon={BellOff} label="Snooze nudges" tone="secondary" onClick={t.snooze} />}
             </div>
-            {st.snoozed_until_at != null && st.snoozed_until_at > now && (
-              <p className="mt-3 flex items-center gap-1.5 text-xs text-ink-subtle">
-                <BellOff size={12} aria-hidden />
-                Nudges snoozed for {formatDuration(st.snoozed_until_at - now)}
-              </p>
-            )}
-          </div>
-
-          <div className="flex shrink-0 flex-col items-center gap-4 @3xl:pr-2">
-            <ProgressRing fraction={target > 0 ? worked / target : 0} color={met ? stateColor.working : color} label="Worked against the daily target">
-              <span className="text-[30px] leading-none font-semibold tracking-[-0.03em] text-ink tabular-nums">{Math.round(target > 0 ? (worked / target) * 100 : 0)}%</span>
-              <span className="mt-1.5 text-xs text-ink-subtle">of {formatDuration(target)}</span>
-            </ProgressRing>
-            <dl className="grid grid-cols-2 gap-x-6 gap-y-0.5 text-center">
-              <dt className="text-xs text-ink-subtle">Worked</dt>
-              <dt className="text-xs text-ink-subtle">Break</dt>
-              <dd className="text-sm font-semibold text-ink tabular-nums">{formatDuration(worked)}</dd>
-              <dd className="text-sm font-semibold text-ink tabular-nums">{formatDuration(breakMs)}</dd>
-            </dl>
-            {met && (
-              <Badge tone="working" icon={CircleCheck}>
-                Target met
-              </Badge>
-            )}
           </div>
         </div>
-        <div className="border-t border-line bg-canvas/40 px-6 py-4 md:px-7">
+
+        {state === "idle_pending" && st.idle_since_at && (
+          <Callout
+            tone="idle"
+            className="mx-6 mb-4"
+            action={
+              <Button size="sm" icon={Coffee} onClick={t.breakStart}>
+                Count it as a break
+              </Button>
+            }
+          >
+            No keyboard or mouse for {formatDuration(now - st.idle_since_at)}. It still counts as work until{" "}
+            {d.config?.tracking.hard_idle ? formatDuration(parseDuration(d.config.tracking.hard_idle)) : "the limit"}, then becomes a break.
+          </Callout>
+        )}
+        <div className="border-t border-line bg-canvas/40 px-6 py-3">
           <Timeline segments={day?.segments ?? []} colors={colors} names={names} now={now} live from={from} to={to} planned={planned} fixed={fixed} />
         </div>
       </section>
 
-      <div className="grid gap-5 @3xl:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)]">
+      <div className="grid min-h-0 flex-1 gap-4 @2xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] @6xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,0.85fr)]">
         <Panel
           title="Today's plan"
           icon={CalendarClock}
+          className="flex min-h-64 flex-col"
+          bodyClassName="min-h-0 flex-1 overflow-y-auto"
           actions={
             <>
               {items.length > 0 && <span className="text-xs text-ink-subtle tabular-nums">{formatDuration(plannedLeft * 60_000)} left</span>}
@@ -280,61 +289,52 @@ export default function Today() {
               </Button>
               {items.length > 0 && (
                 <Button size="sm" tone="ghost" onClick={() => go("plan")}>
-                  Open plan
+                  Open
                 </Button>
               )}
             </>
           }
         >
           {plan && items.length === 0 ? (
-            <Empty
-              icon={CalendarClock}
-              title="Nothing planned yet"
-              action={
-                <Button tone="primary" icon={RefreshCw} onClick={planDay} busy={planning}>
-                  Plan my day
-                </Button>
-              }
-            >
-              Gwen fills the day from your goals and open tasks, around your commitments.
+            <Empty icon={CalendarClock} title="Nothing to plan yet">
+              Tasks with a time estimate and your goals' sessions show up here by themselves, timed around your commitments.
             </Empty>
           ) : (
             <ul className="-mx-2 flex flex-col">
-              {items.map((it) => {
-                const isDone = it.status === "done";
-                const skipped = it.status === "skipped";
-                const tracking = t.isTracking(it.task_id);
-                const project = d.projects.find((p) => p.id === it.task.project_id);
-                const steps = it.steps ?? [];
+              {groups.map((g) => {
+                const isDone = g.done;
+                const tracking = t.isTracking(g.task.id);
+                const project = d.projects.find((p) => p.id === g.task.project_id);
                 return (
-                  <li key={it.id} className={cx("rounded-lg", tracking && "bg-surface-2")}>
-                    <div className="flex items-center gap-3 px-2 py-2">
+                  <li key={g.task.id} className={cx("rounded-lg", tracking && "bg-surface-2")}>
+                    <TaskHover task={g.task} className="flex items-center gap-3 rounded-lg px-2 py-1.5 hover:bg-surface-2/60">
                       <Checkbox
                         checked={isDone}
-                        disabled={skipped}
-                        onChange={(on) => (on ? done.complete(it.task, steps.length > 0) : done.reopen(it.task))}
-                        label={isDone ? `Reopen ${it.task.title}` : `Complete ${it.task.title}`}
+                        disabled={g.skipped}
+                        onChange={(on) => (on ? done.complete(g.task, g.steps.length > 0) : done.reopen(g.task))}
+                        label={isDone ? `Reopen ${g.task.title}` : `Complete ${g.task.title}`}
                       />
                       <div className="min-w-0 flex-1">
-                        <div className={cx("truncate text-sm", isDone ? "text-ink-faint line-through" : skipped ? "text-ink-faint" : "text-ink")}>{it.task.title}</div>
+                        <div className={cx("truncate text-sm", isDone ? "text-ink-faint line-through" : g.skipped ? "text-ink-faint" : "text-ink")}>{g.task.title}</div>
                         <div className="mt-0.5 flex min-w-0 items-center gap-3">
                           <ProjectTag project={project} />
-                          {it.start_at != null && <span className="text-xs text-ink-subtle tabular-nums">{formatTime(it.start_at)}</span>}
-                          {steps.length > 0 && <span className="text-xs text-ink-subtle tabular-nums">{stepsDone(steps)}</span>}
-                          {it.rollover_count > 0 && <Badge tone="idle">Carried over {it.rollover_count}×</Badge>}
-                          {skipped && <Badge>Skipped</Badge>}
+                          {g.start != null && <span className="text-xs text-ink-subtle tabular-nums">{blockTimes(g)}</span>}
+                          {g.steps.length > 0 && <span className="text-xs text-ink-subtle tabular-nums">{stepsDone(g.steps)}</span>}
+                          {g.rollover > 0 && <Badge tone="idle">Carried over {g.rollover}×</Badge>}
+                          {g.skipped && <Badge>Skipped</Badge>}
+                          {!isDone && !g.skipped && g.start == null && <span className="text-xs text-idle">No room left today</span>}
                         </div>
                       </div>
-                      <span className="text-xs text-ink-subtle tabular-nums">{formatDuration(it.planned_minutes * 60_000)}</span>
+                      <span className="text-xs text-ink-subtle tabular-nums">{formatDuration(g.minutes * 60_000)}</span>
                       {tracking ? (
                         <Badge tone="working" icon={Radio}>
                           Tracking
                         </Badge>
                       ) : (
-                        !isDone && !skipped && <IconButton icon={Play} label={`Start ${it.task.title}`} tone="secondary" size="sm" onClick={() => t.startTask(it.task)} />
+                        !isDone && !g.skipped && <IconButton icon={Play} label={`Start ${g.task.title}`} tone="secondary" size="sm" onClick={() => t.startTask(g.task)} />
                       )}
-                    </div>
-                    {steps.length > 0 && <StepList parent={it.task} steps={steps} className="mb-2" />}
+                    </TaskHover>
+                    {g.steps.length > 0 && <StepList parent={g.task} steps={g.steps} adding={tracking} className="mb-2" />}
                   </li>
                 );
               })}
@@ -342,72 +342,53 @@ export default function Today() {
           )}
         </Panel>
 
-        <div className="flex min-w-0 flex-col gap-5">
+        <div className="flex min-h-0 min-w-0 flex-col gap-4">
           <Panel
             title="To-do"
             icon={ListTodo}
+            className="flex min-h-36 flex-[3] flex-col"
+            bodyClassName="flex min-h-0 flex-1 flex-col"
             actions={
               <Button size="sm" tone="ghost" icon={Plus} onClick={() => setAdding(true)}>
                 New task
               </Button>
             }
           >
-            <form className="flex gap-2" onSubmit={addTodo}>
+            <form className="flex shrink-0 gap-2" onSubmit={addTodo}>
               <Input className="min-w-0 flex-1" placeholder="Add a quick to-do, then Enter" value={todo} onChange={(e) => setTodo(e.target.value)} aria-label="New to-do" />
               <IconButton icon={Plus} label="Add to-do" tone="secondary" type="submit" disabled={!todo.trim()} />
             </form>
-            {todos.length > 0 && (
-              <ul className="-mx-2 mt-2 flex flex-col">
-                {todos.map((x) => (
-                  <li key={x.id} className="flex items-center gap-3 rounded-lg px-2 py-1.5 hover:bg-surface-2/60">
-                    <Checkbox checked={false} onChange={() => done.complete(x, false)} label={`Complete ${x.title}`} />
-                    <span className="min-w-0 flex-1 truncate text-sm text-ink">{x.title}</span>
-                    {x.start_minute != null && x.start_day === today && <span className="text-xs text-ink-subtle tabular-nums">{clockOf(x.start_minute)}</span>}
-                    {x.due_day && x.due_day <= today && <span className={cx("text-xs", x.due_day < today ? "text-danger" : "text-idle")}>{x.due_day < today ? "Late" : "Due today"}</span>}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Panel>
-
-          <Panel title="Where today went">
-            {byTotal === 0 ? (
-              <p className="text-[13px] text-ink-subtle">No work tracked yet today.</p>
-            ) : (
-              <>
-                <div className="flex h-2.5 overflow-hidden rounded-full bg-surface-3">
-                  {byProject.map((p) => (
-                    <span
-                      key={p.project_id ?? "none"}
-                      title={`${p.name}: ${formatDuration(p.worked_ms)}`}
-                      style={{
-                        width: `${(p.worked_ms / byTotal) * 100}%`,
-                        backgroundColor: p.color,
-                      }}
-                    />
-                  ))}
-                </div>
-                <ul className="mt-4 flex flex-col gap-2.5">
-                  {byProject.map((p) => (
-                    <li key={p.project_id ?? "none"} className="flex items-center gap-2.5 text-sm">
-                      <Dot color={p.color} />
-                      <span className="min-w-0 flex-1 truncate text-ink-muted">{p.name}</span>
-                      <span className="font-medium text-ink tabular-nums">{formatDuration(p.worked_ms)}</span>
-                      <span className="w-10 text-right text-xs text-ink-subtle tabular-nums">{Math.round((p.worked_ms / byTotal) * 100)}%</span>
+            {todos.length > 0 ? (
+              <ul className="-mx-2 mt-2 flex min-h-0 flex-1 flex-col overflow-y-auto">
+                {todos.map((x) => {
+                  const steps = d.tasks.filter((s) => s.parent_id === x.id);
+                  return (
+                    <li key={x.id}>
+                      <TaskHover task={x} className="flex items-center gap-3 rounded-lg px-2 py-1.5 hover:bg-surface-2/60">
+                        <Checkbox checked={false} onChange={() => done.complete(x, steps.length > 0)} label={`Complete ${x.title}`} />
+                        <span className="min-w-0 flex-1 truncate text-sm text-ink">{x.title}</span>
+                        {x.start_minute != null && x.start_day === today && <span className="text-xs text-ink-subtle tabular-nums">{formatClock(x.start_minute)}</span>}
+                        {x.due_day && x.due_day <= today && <span className={cx("text-xs", x.due_day < today ? "text-danger" : "text-idle")}>{x.due_day < today ? "Late" : "Due today"}</span>}
+                      </TaskHover>
+                      {steps.length > 0 && <StepList parent={x} steps={steps} adding={false} className="mb-1.5" />}
                     </li>
-                  ))}
-                </ul>
-              </>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p className="mt-3 text-[13px] text-ink-subtle">Nothing left to tick off.</p>
             )}
           </Panel>
 
           <Panel
             title="Goals"
             icon={Target}
+            className="flex min-h-36 flex-[2] flex-col"
+            bodyClassName="min-h-0 flex-1 overflow-y-auto"
             actions={
               goals.length > 0 && (
                 <Button size="sm" tone="ghost" onClick={() => go("goals")}>
-                  All goals
+                  All
                 </Button>
               )
             }
@@ -424,9 +405,9 @@ export default function Today() {
                 A goal such as 300 problems by December turns into daily sessions on your plan.
               </Empty>
             ) : (
-              <ul className="flex flex-col gap-4">
+              <ul className="flex flex-col gap-3.5">
                 {shownGoals.map((g) => (
-                  <li key={g.id} className="flex flex-col gap-2">
+                  <li key={g.id} className="flex flex-col gap-1.5">
                     <div className="flex items-center gap-2">
                       <span className="min-w-0 flex-1 truncate text-sm text-ink">{g.title}</span>
                       <PaceChip pace={g.progress.pace} />
@@ -439,6 +420,30 @@ export default function Today() {
             )}
           </Panel>
         </div>
+
+        <Panel title="Where today went" className="hidden min-h-0 flex-col @6xl:flex" bodyClassName="min-h-0 flex-1 overflow-y-auto">
+          {byTotal === 0 ? (
+            <p className="text-[13px] text-ink-subtle">No work tracked yet today.</p>
+          ) : (
+            <>
+              <div className="flex h-2 overflow-hidden rounded-full bg-surface-3">
+                {byProject.map((p) => (
+                  <span key={p.project_id ?? "none"} style={{ width: `${(p.worked_ms / byTotal) * 100}%`, backgroundColor: p.color }} />
+                ))}
+              </div>
+              <ul className="mt-3.5 flex flex-col gap-2">
+                {byProject.map((p) => (
+                  <li key={p.project_id ?? "none"} className="flex items-center gap-2.5 text-[13px]">
+                    <Dot color={p.color} />
+                    <span className="min-w-0 flex-1 truncate text-ink-muted">{p.name}</span>
+                    <span className="font-medium text-ink tabular-nums">{formatDuration(p.worked_ms)}</span>
+                    <span className="w-9 text-right text-xs text-ink-subtle tabular-nums">{Math.round((p.worked_ms / byTotal) * 100)}%</span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </Panel>
       </div>
       {adding && <TaskForm task={null} projects={d.projects} goals={goals} defaultProject="" onClose={() => setAdding(false)} />}
       {done.dialog}

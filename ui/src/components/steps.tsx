@@ -1,8 +1,9 @@
 import { Pencil, Plus, Trash2 } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { App, readOnly, wire } from "../api";
 import { useDaemon } from "../daemon";
 import { formatDuration, goDuration, parseDuration } from "../format";
+import { useCompleteTask } from "./complete";
 import DurationInput from "./DurationInput";
 import { useConfirm } from "./feedback";
 import { Button, Checkbox, Field, IconButton, Input, Modal, TextArea, cx } from "./ui";
@@ -20,11 +21,14 @@ export function StepList({ parent, steps, adding = true, className }: { parent: 
   const d = useDaemon();
   const [title, setTitle] = useState("");
   const [editing, setEditing] = useState<wire.Task | null>(null);
+  // One step per Enter, however fast it is pressed.
+  const inFlight = useRef(false);
 
   async function add(e: FormEvent) {
     e.preventDefault();
     const t = title.trim();
-    if (!t) return;
+    if (!t || inFlight.current) return;
+    inFlight.current = true;
     const created = await d.act(() =>
       App.CreateTask(
         wire.CreateTaskRequest.createFrom({
@@ -34,6 +38,7 @@ export function StepList({ parent, steps, adding = true, className }: { parent: 
         }),
       ),
     );
+    inFlight.current = false;
     if (created) setTitle("");
   }
 
@@ -71,11 +76,13 @@ export function StepList({ parent, steps, adding = true, className }: { parent: 
 function StepRow({ step: s, onEdit }: { step: wire.Task; onEdit: () => void }) {
   const d = useDaemon();
   const confirm = useConfirm();
+  const done = useCompleteTask();
   const [open, setOpen] = useState(false);
   const isDone = s.status === "done";
 
   function toggle(on: boolean) {
-    d.act(() => (on ? App.CompleteTask(s.id, wire.CompleteTaskRequest.createFrom({})) : App.ReopenTask(s.id)));
+    if (on) done.complete(s);
+    else done.reopen(s);
   }
   async function remove() {
     if (

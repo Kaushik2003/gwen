@@ -105,12 +105,12 @@ func menuFor(status *wire.Status, daemonUp bool, projects []wire.Project, now ti
 // EnergyLevels are the check-in submenu, level 1 first.
 var EnergyLevels = []string{"Drained", "Low", "Okay", "Good", "Peak"}
 
-// energyTitle is "Log energy", or "Energy: Good at 10:42" after a check-in.
+// energyTitle is "Log energy", or "Energy: Good at 10:42 am" after a check-in.
 func energyTitle(last *wire.EnergyLog) string {
 	if last == nil || last.Level < 1 || last.Level > len(EnergyLevels) {
 		return "Log energy"
 	}
-	return fmt.Sprintf("Energy: %s at %s", EnergyLevels[last.Level-1], wire.Time(last.At).Format("15:04"))
+	return fmt.Sprintf("Energy: %s at %s", EnergyLevels[last.Level-1], client.FormatTime(wire.Time(last.At)))
 }
 
 // targetLine is "72% of 8h · 2h 13m left", or "Target of 8h met".

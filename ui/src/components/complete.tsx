@@ -7,7 +7,9 @@ import { Button, Field, Input, Modal } from "./ui";
 /**
  * Completing and reopening a task. A task that covers several units of a
  * quantity goal first asks how many were done, as gwen task done --qty does;
- * a step, or a task whose steps count instead, never asks.
+ * a step, or a task whose steps count instead, never asks. Every tick can be
+ * undone from its toast, and undoing gives back exactly what was there: a
+ * task keeps its steps when ticked.
  */
 export function useCompleteTask(): {
   complete: (t: wire.Task, hasSteps?: boolean) => void;
@@ -21,7 +23,8 @@ export function useCompleteTask(): {
 
   async function done(t: wire.Task, quantity?: number) {
     const req = wire.CompleteTaskRequest.createFrom(quantity != null ? { quantity_done: quantity } : {});
-    if (await d.act(() => App.CompleteTask(t.id, req))) notify(`Completed ${t.title}`, "success");
+    if (await d.act(() => App.CompleteTask(t.id, req)))
+      notify(`Completed ${t.title}`, "success", { label: "Undo", run: () => void d.act(() => App.ReopenTask(t.id)) });
   }
 
   const dialog = asking && (

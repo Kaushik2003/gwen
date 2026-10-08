@@ -31,6 +31,7 @@ import Goals from "./screens/Goals";
 import History from "./screens/History";
 import Inbox from "./screens/Inbox";
 import Login from "./screens/Login";
+import NowCard from "./screens/NowCard";
 import Plan from "./screens/Plan";
 import Projects from "./screens/Projects";
 import Review from "./screens/Review";
@@ -211,11 +212,15 @@ function StatusDock() {
 }
 
 export default function App() {
+  // The tray's now card runs the same frontend in its own small window.
+  const [nowCard, setNowCard] = useState<boolean | null>(isHub ? false : null);
+  useEffect(() => {
+    if (!isHub) Host.IsNowCard().then(setNowCard, () => setNowCard(false));
+  }, []);
+  if (nowCard === null) return null;
   return (
     <FeedbackProvider>
-      <DaemonProvider>
-        <Shell />
-      </DaemonProvider>
+      <DaemonProvider>{nowCard ? <NowCard /> : <Shell />}</DaemonProvider>
     </FeedbackProvider>
   );
 }

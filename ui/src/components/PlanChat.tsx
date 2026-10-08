@@ -2,9 +2,8 @@ import { CalendarCheck2, CircleAlert, Clock, MessageSquarePlus, SendHorizontal, 
 import { useEffect, useRef, useState } from "react";
 import { App, apiError, wire } from "../api";
 import { useDaemon } from "../daemon";
-import { formatDuration, formatTime } from "../format";
+import { formatClock, formatDuration, formatTime } from "../format";
 import type { ChatMessage, DayPlanOutput, ProposedBlock, RunError } from "../llm";
-import { clockOf } from "../rrule";
 import { AiFailed, AiProgress, AiUnavailable, providerName } from "./ai";
 import { useToast } from "./feedback";
 import { ProjectTag } from "./tags";
@@ -35,7 +34,7 @@ function recall(day: string): string | null {
 export function hoursText(h: DayPlanOutput["hours"]): string {
   if (!h) return "";
   const parts: string[] = [];
-  if (h.start_minute != null) parts.push(`from ${clockOf(h.start_minute)}`);
+  if (h.start_minute != null) parts.push(`from ${formatClock(h.start_minute)}`);
   if (h.work_minutes != null) parts.push(h.work_minutes === 0 ? "no time for tasks" : `${formatDuration(h.work_minutes * 60_000)} for tasks`);
   return parts.join(" · ");
 }

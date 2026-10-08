@@ -312,6 +312,10 @@ func (f *Fake) PatchPlanItem(_ context.Context, id string, req wire.PatchPlanIte
 	return result[*wire.PlanItem](f, "PatchPlanItem", id, req)
 }
 
+func (f *Fake) MovePlanTask(_ context.Context, req wire.MovePlanTaskRequest) (*wire.Plan, error) {
+	return result[*wire.Plan](f, "MovePlanTask", req)
+}
+
 func (f *Fake) Briefing(context.Context) (*wire.Briefing, error) {
 	return result[*wire.Briefing](f, "Briefing")
 }

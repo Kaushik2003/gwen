@@ -1,5 +1,5 @@
 import { Archive, CalendarClock, Check, CircleCheck, Hand, Inbox as InboxIcon, ListTodo, Plus, Sparkles, Timer, Trash2, Wand2, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { App, wire } from "../api";
 import DurationInput from "../components/DurationInput";
 import { useConfirm, useToast } from "../components/feedback";
@@ -22,6 +22,7 @@ export default function Inbox() {
   const { go } = useNav();
   const [text, setText] = useState("");
   const [capturing, setCapturing] = useState(false);
+  const inFlight = useRef(false); // Enter and the button both capture: once per press, however quick
   const [processing, setProcessing] = useState(false);
   const inbox = d.tasks.filter((t) => t.stage === "inbox" && !t.parent_id);
   const someday = d.tasks.filter((t) => t.stage === "someday" && !t.parent_id);
@@ -33,11 +34,13 @@ export default function Inbox() {
       .split("\n")
       .map((l) => l.replace(/^[\s\-*•\d.)]+/, "").trim())
       .filter(Boolean);
-    if (!lines.length) return;
+    if (!lines.length || inFlight.current) return;
+    inFlight.current = true;
     setCapturing(true);
     let n = 0;
     for (const title of lines) if (await d.act(() => App.CreateTask(wire.CreateTaskRequest.createFrom({ title: title.slice(0, 200), stage: "inbox" })))) n++;
     setCapturing(false);
+    inFlight.current = false;
     if (n) {
       setText("");
       notify(n === 1 ? "Captured to your inbox" : `Captured ${n} things to your inbox`, "success");

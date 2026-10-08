@@ -87,8 +87,8 @@ export default function Timeline({
       <div className="relative ml-16 h-5 text-[11px] text-ink-faint tabular-nums">
         {ticks.map((t, i) =>
           i % step === 0 ? (
-            <span key={t} className={`absolute top-0 ${i === 0 ? "" : i === ticks.length - 1 ? "-translate-x-full" : "-translate-x-1/2"}`} style={{ left: pct(t) }}>
-              {formatTime(t)}
+            <span key={t} className={`absolute top-0 whitespace-nowrap ${i === 0 ? "" : i === ticks.length - 1 ? "-translate-x-full" : "-translate-x-1/2"}`} style={{ left: pct(t) }}>
+              {formatTime(t).replace(":00 ", " ")}
             </span>
           ) : null,
         )}

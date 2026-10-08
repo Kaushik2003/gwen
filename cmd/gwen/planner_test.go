@@ -32,9 +32,9 @@ const (
 	goalOut   = "0000a0a0  active  300 problems  12/300 problems  behind  due 2026-12-15  finish 2027-03-20\n"
 	commitOut = "0000c0c0  10:00–15:00  5h  Internship  Internship  FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR  counts  from 2026-09-01\n"
 	planOut   = "2026-09-15 · 1h 30m planned of 2h 30m capacity\n" +
-		"0000f1f1  15:00  1h 30m  planned          Two pointers\n" +
-		"0000f2f2  --:--  30m     skipped  pinned  Two pointers\n"
-	item1Out = "0000f1f1  15:00  1h 30m  planned    Two pointers\n"
+		"0000f1f1  3:00 pm  1h 30m  planned          Two pointers\n" +
+		"0000f2f2  --:--    30m     skipped  pinned  Two pointers\n"
+	item1Out = "0000f1f1  3:00 pm  1h 30m  planned    Two pointers\n"
 )
 
 // plannerFake answers the planner lookups too.
@@ -166,8 +166,8 @@ func TestPlannerGolden(t *testing.T) {
 			want: []any{wire.SetDayHoursRequest{Day: testutil.Day0, StartMinute: testutil.Ptr(19 * 60),
 				WorkMinutes: testutil.Ptr(180)}},
 			out: "2026-09-15 · 1h 30m planned of 2h 30m capacity\nHours: from 19:00 · 3h for tasks\n" +
-				"0000f1f1  15:00  1h 30m  planned          Two pointers\n" +
-				"0000f2f2  --:--  30m     skipped  pinned  Two pointers\n",
+				"0000f1f1  3:00 pm  1h 30m  planned          Two pointers\n" +
+				"0000f2f2  --:--    30m     skipped  pinned  Two pointers\n",
 		},
 		{
 			name: "plan hours keeps what it is not given", args: []string{"plan", "hours", "2026-09-16", "--work", "0"},

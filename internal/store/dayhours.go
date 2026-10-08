@@ -110,7 +110,8 @@ func (r planRepo) SetHours(ctx context.Context, day string, start, work *int, en
 				return err
 			}
 		}
-		if err := r.generate(ctx, tx, d, env, &ch); err != nil {
+		// New hours weigh the day afresh: what fits is planned again.
+		if err := r.generate(ctx, tx, d, env, false, &ch); err != nil {
 			return err
 		}
 		var err error
@@ -132,7 +133,7 @@ type DayPlanContext struct {
 	// window's start, less the times of the day's done items.
 	Free        []planner.Interval
 	Commitments []model.Commitment // those on the day
-	Busy        []planner.Interval // calendar busy time in the window
+	Busy        []BusyInterval     // calendar events in the window
 	Candidates  []Candidate        // the day's pool, most urgent first
 }
 
@@ -180,7 +181,7 @@ func (r planRepo) DayPlan(ctx context.Context, day string, env PlanEnv) (DayPlan
 			}
 		}
 		window := planner.Interval{Start: d.At(capIn.DayStart, env.Loc), End: d.At(capIn.DayEnd, env.Loc)}
-		for _, b := range capIn.Busy {
+		for _, b := range c.Plan.Events {
 			if b.Start.Before(window.End) && window.Start.Before(b.End) {
 				c.Busy = append(c.Busy, b)
 			}
@@ -309,9 +310,22 @@ func acceptDayPlan(ctx context.Context, tx *sql.Tx, db *DB, run model.LLMRun, in
 			byID[t.ID] = t
 		}
 	}
-	latest, err := latestBefore(ctx, tx, civil.MustParse(day), ids(tasks, func(t model.Task) string { return t.ID }))
+	taskIDs := ids(tasks, func(t model.Task) string { return t.ID })
+	latest, err := latestBefore(ctx, tx, civil.MustParse(day), taskIDs)
 	if err != nil {
 		return nil, ch, err
+	}
+	tracked, err := trackedTime(ctx, tx, taskIDs, db.Now())
+	if err != nil {
+		return nil, ch, err
+	}
+	// A task with an estimate gets no more time than it has work left: the
+	// blocks past that, in start order, are cut short or left out.
+	left := map[string]int{}
+	for _, t := range byID {
+		if t.Estimate != nil {
+			left[t.ID] = planner.RemainingMinutes(planner.Task{Task: t}, tracked[t.ID])
+		}
 	}
 	fresh := map[string]bool{} // items to insert rather than update
 	var planned []model.Task
@@ -321,12 +335,19 @@ func acceptDayPlan(ctx context.Context, tx *sql.Tx, db *DB, run model.LLMRun, in
 		if !ok {
 			continue // done or deleted since the proposal
 		}
+		minutes := b.PlannedMinutes
+		if room, capped := left[t.ID]; capped {
+			if minutes = min(minutes, room) / planner.BlockStep * planner.BlockStep; minutes < planner.BlockStep {
+				continue
+			}
+			left[t.ID] = room - minutes
+		}
 		var prev *model.PlanItem
 		if it, ok := latest[t.ID]; ok {
 			prev = &it
 		}
 		start := time.UnixMilli(b.StartAt)
-		it := model.PlanItem{ID: model.NewID(), Day: day, TaskID: t.ID, Planned: time.Duration(b.PlannedMinutes) * time.Minute,
+		it := model.PlanItem{ID: model.NewID(), Day: day, TaskID: t.ID, Planned: time.Duration(minutes) * time.Minute,
 			StartAt: &start, Status: model.PlanPlanned, Pinned: true}
 		it.RolloverCount, it.RolledFromID = planner.RolloverCount(prev)
 		fresh[it.ID] = true

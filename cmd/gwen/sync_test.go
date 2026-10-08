@@ -17,7 +17,7 @@ func TestSyncGolden(t *testing.T) {
 	f := fake().Returns("SyncStatus", ok, nil)
 	out, _, code := runCLI(t, f, "sync", "status")
 	require.Equal(t, exitOK, code)
-	require.Equal(t, "Sync: configured\nLast push: 2026-09-15 10:00\nLast pull: 2026-09-15 10:01\n", out)
+	require.Equal(t, "Sync: configured\nLast push: 2026-09-15 10:00 am\nLast pull: 2026-09-15 10:01 am\n", out)
 
 	failed := &wire.SyncStatus{Configured: true, LastError: testutil.Ptr("push: connection refused")}
 	f = fake().Returns("SyncNow", failed, nil)

@@ -5,7 +5,7 @@ import { useToast } from "../components/feedback";
 import TimeInput from "../components/TimeInput";
 import { Button, Panel, ToggleRow, cx } from "../components/ui";
 import { useDaemon } from "../daemon";
-import { formatTime } from "../format";
+import { formatClock, formatHHMM, formatTime } from "../format";
 
 export const energyLevels = [
   { level: 1, label: "Drained" },
@@ -64,16 +64,16 @@ export default function MethodsSettings() {
         </p>
         <ToggleRow
           title="Plan around my prime time"
-          description={prime ? `Hard work goes between ${planner.prime_start} and ${planner.prime_end}.` : "Off: hard work goes wherever it fits."}
+          description={prime ? `Hard work goes between ${formatHHMM(planner.prime_start)} and ${formatHHMM(planner.prime_end)}.` : "Off: hard work goes wherever it fits."}
           checked={prime}
           onChange={(on) => save(on ? { prime_start: start, prime_end: end } : { prime_start: "", prime_end: "" }, on ? "Prime time on" : "Prime time off")}
         />
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <span className="text-[13px] text-ink-muted">From</span>
-          <TimeInput value={start} onCommit={setStart} aria-label="Prime time starts" className="w-20" />
+          <TimeInput value={start} onCommit={setStart} aria-label="Prime time starts" className="w-24" />
           <span className="text-[13px] text-ink-muted">to</span>
-          <TimeInput value={end} onCommit={setEnd} aria-label="Prime time ends" className="w-20" />
-          <Button size="sm" tone="primary" disabled={prime && start === planner.prime_start && end === planner.prime_end} onClick={() => save({ prime_start: start, prime_end: end }, `Prime time is ${start}–${end}`)}>
+          <TimeInput value={end} onCommit={setEnd} aria-label="Prime time ends" className="w-24" />
+          <Button size="sm" tone="primary" disabled={prime && start === planner.prime_start && end === planner.prime_end} onClick={() => save({ prime_start: start, prime_end: end }, `Prime time is ${formatHHMM(start)}–${formatHHMM(end)}`)}>
             {prime ? "Save hours" : "Use these hours"}
           </Button>
         </div>
@@ -94,7 +94,7 @@ export default function MethodsSettings() {
           {report?.suggested_start && report.suggested_end && (
             <div className="mt-4 flex flex-wrap items-center gap-3 rounded-lg border border-accent/30 bg-accent/8 px-4 py-3">
               <span className="min-w-0 flex-1 text-[13px] text-ink">
-                Your energy peaks around <strong className="tabular-nums">{report.suggested_start}–{report.suggested_end}</strong>.
+                Your energy peaks around <strong className="tabular-nums">{formatHHMM(report.suggested_start)}–{formatHHMM(report.suggested_end)}</strong>.
               </span>
               {!(planner.prime_start === report.suggested_start && planner.prime_end === report.suggested_end) && (
                 <Button size="sm" tone="primary" onClick={() => save({ prime_start: report.suggested_start, prime_end: report.suggested_end }, "Prime time set from your check-ins")}>
@@ -137,7 +137,7 @@ function EnergyChart({ report }: { report: wire.EnergyReport }) {
                 />
               )}
               <div className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1 hidden -translate-x-1/2 rounded-md border border-line bg-surface-3 px-2 py-1 text-xs whitespace-nowrap text-ink group-hover:block">
-                {String(h).padStart(2, "0")}:00 · {e ? `${e.average.toFixed(1)} of 5 (${e.count})` : "no check-ins"}
+                {formatClock(h * 60, true)} · {e ? `${e.average.toFixed(1)} of 5 (${e.count})` : "no check-ins"}
               </div>
             </div>
           );
@@ -146,7 +146,7 @@ function EnergyChart({ report }: { report: wire.EnergyReport }) {
       <div className="mt-1 flex gap-0.5">
         {hours.map((h) => (
           <span key={h} className="flex-1 text-center text-[10px] text-ink-faint tabular-nums">
-            {h % 2 === 0 ? String(h).padStart(2, "0") : ""}
+            {h % 3 === 0 ? `${h % 12 || 12}${h < 12 ? "a" : "p"}` : ""}
           </span>
         ))}
       </div>

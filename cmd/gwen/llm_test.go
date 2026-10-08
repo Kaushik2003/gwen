@@ -55,8 +55,8 @@ func TestLLMGolden(t *testing.T) {
 		{"plan chat", "PlanChat", []string{"plan", "chat", "Start", "at", "14:00", "--run", runID},
 			dayPlanRun(wire.RunOK), []any{wire.PlanChatRequest{Day: testutil.Day0, Message: "Start at 14:00", RunID: testutil.Ptr(runID)}},
 			"Run " + runID + " · day_plan · ok\n\nPointers from 14:00.\n\n" +
-				"0  14:00  1h 30m  Two pointers\n" +
-				"1  15:40  1h      Two pointers\n" +
+				"0  2:00 pm  1h 30m  Two pointers\n" +
+				"1  3:40 pm  1h      Two pointers\n" +
 				"Sets the day's hours: from 14:00\n" +
 				"Apply with: gwen llm accept " + runID + "\n" +
 				"Reply with: gwen plan chat --day 2026-09-15 --run " + runID + " MESSAGE\n"},

@@ -14,6 +14,7 @@ import { CredentialField } from "../settings/Credential";
 import MethodsSettings from "../settings/Methods";
 import PersonalitySettings from "../settings/Personality";
 import SyncSettings from "../settings/Sync";
+import VoiceSettings from "../settings/Voice";
 import { ClipboardSetText } from "../wailsjs/runtime/runtime";
 
 type Kind =
@@ -128,6 +129,7 @@ export default function Settings() {
           {section === "ai" && (
             <>
               <AISettings />
+              <VoiceSettings />
               <PersonalitySettings />
             </>
           )}
@@ -363,7 +365,7 @@ function About() {
         <div className="py-3.5">
           <ToggleRow
             title="Show the tray icon at login"
-            description="The tray holds the same controls as the status box in the sidebar."
+            description="The tray holds the same controls as the status box in the sidebar. On KDE, the Gwen panel widget takes its place when it is on a panel."
             checked={autostart}
             onChange={async (on) => {
               try {

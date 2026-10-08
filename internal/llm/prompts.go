@@ -104,7 +104,7 @@ Reply with the whole plan for the day as you now propose it, replacing the curre
 - Plan only the tasks listed, by ref. When the student mentions work that is not a task, plan the rest and say they can add it as a task.
 - When the student asks to start at another time or to work a different amount of time, set hours: start as HH:MM before hours.end, work_minutes as the minutes for tasks, and null for the one that stays; then plan within it. Otherwise hours is null.
 
-reply is what you say to the student, at most 2000 characters of plain text: a sentence or two on what you planned and why, naming tasks by title, never by ref. When something is unclear, ask in the reply and still return a full plan.
+reply is what you say to the student, at most 2000 characters of plain text: a sentence or two on what you planned and why, naming tasks by title, never by ref, and times on the 12-hour clock with am or pm, such as 2:30 pm. When something is unclear, ask in the reply and still return a full plan.
 
 Reply with a single JSON object and nothing else, matching this JSON Schema:
 ` + DayPlanSchema

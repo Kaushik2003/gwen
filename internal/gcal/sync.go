@@ -1,12 +1,14 @@
 package gcal
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/kzark/gwen/internal/model"
@@ -33,35 +35,60 @@ func (c *Changes) plan(day string) {
 	}
 }
 
-// cycle runs steps 1 to 4 of docs/07-integrations.md#sync-cycle.
-func (s *Service) cycle(ctx context.Context) (Changes, error) {
-	var ch Changes
+// client is a Calendar API client on the stored token. done keeps a
+// refreshed token, so the next call need not refresh again.
+func (s *Service) client(ctx context.Context) (svc *calendar.Service, done func(), err error) {
 	cfg, err := s.oauthConfig()
 	if err != nil {
-		return ch, err
+		return nil, nil, err
 	}
 	tok, err := s.token()
 	if err != nil {
-		return ch, err
+		return nil, nil, err
 	}
 	ctx = s.ctx(ctx)
 	ts := cfg.TokenSource(ctx, tok)
-	defer func() {
-		// Keep a refreshed token, so the next cycle need not refresh again.
+	done = func() {
 		if t, err := ts.Token(); err == nil && t.AccessToken != tok.AccessToken {
 			if err := s.saveToken(t); err != nil {
 				slog.Warn("save refreshed calendar token", "err", err)
 			}
 		}
-	}()
+	}
 	opts := []option.ClientOption{option.WithHTTPClient(oauth2.NewClient(ctx, ts))}
 	if s.o.Endpoint != "" {
 		opts = append(opts, option.WithEndpoint(s.o.Endpoint))
 	}
-	svc, err := calendar.NewService(ctx, opts...)
-	if err != nil {
-		return ch, fmt.Errorf("calendar client: %w", err)
+	if svc, err = calendar.NewService(ctx, opts...); err != nil {
+		return nil, nil, fmt.Errorf("calendar client: %w", err)
 	}
+	return svc, done, nil
+}
+
+// errScope is the error while the token lacks a scope Gwen asks for: it was
+// granted before Gwen read events, or a scope was unticked on Google's page.
+var errScope = errors.New("Google Calendar needs to be connected again so Gwen can read your calendars and their events; " +
+	"run gwen cal connect")
+
+// scopeMissing reports whether err is Google refusing a call for want of a
+// scope.
+func scopeMissing(err error) bool {
+	var ge *googleapi.Error
+	if !errors.As(err, &ge) || ge.Code != http.StatusForbidden {
+		return false
+	}
+	return slices.ContainsFunc(ge.Errors, func(e googleapi.ErrorItem) bool { return e.Reason == "insufficientPermissions" })
+}
+
+// cycle runs steps 1 to 4 of docs/07-integrations.md#sync-cycle.
+func (s *Service) cycle(ctx context.Context) (Changes, error) {
+	var ch Changes
+	svc, done, err := s.client(ctx)
+	if err != nil {
+		return ch, err
+	}
+	defer done()
+	ctx = s.ctx(ctx)
 	calID, err := s.ensureCalendar(ctx, svc)
 	if err != nil {
 		return ch, fmt.Errorf("ensure the calendar: %w", err)
@@ -72,8 +99,10 @@ func (s *Service) cycle(ctx context.Context) (Changes, error) {
 	if err := s.push(ctx, svc, calID); err != nil {
 		return ch, fmt.Errorf("push events: %w", err)
 	}
-	if err := s.busy(ctx, svc); err != nil {
-		return ch, fmt.Errorf("read busy times: %w", err)
+	if err := s.busy(ctx, svc, calID); scopeMissing(err) {
+		return ch, errScope
+	} else if err != nil {
+		return ch, fmt.Errorf("read busy calendars: %w", err)
 	}
 	return ch, nil
 }
@@ -294,37 +323,136 @@ func (s *Service) eventFor(e store.PlanEntry) *calendar.Event {
 	}
 }
 
-// busy replaces the cached busy times for today and the next 13 days.
-func (s *Service) busy(ctx context.Context, svc *calendar.Service) error {
+// busy replaces the cached busy times for today and the next 13 days with
+// the busy calendars' events. A busy calendar that is gone is skipped.
+func (s *Service) busy(ctx context.Context, svc *calendar.Service, calID string) error {
 	today := civil.MustParse(s.o.DayOf(s.o.Clock.Now()))
 	from, to := today.Midnight(s.o.Loc), today.AddDays(Window).Midnight(s.o.Loc)
 	var rows []store.BusyInterval
-	if ids := s.o.Config().Calendar.BusyCalendars; len(ids) > 0 {
-		req := &calendar.FreeBusyRequest{TimeMin: from.Format(time.RFC3339), TimeMax: to.Format(time.RFC3339)}
-		for _, id := range ids {
-			req.Items = append(req.Items, &calendar.FreeBusyRequestItem{Id: id})
+	// The same calendar can be listed twice, as "primary" and by its address,
+	// and an invitation sits on every attendee's calendar: each counts once.
+	seen := map[string]bool{}
+	for _, id := range s.o.Config().Calendar.BusyCalendars {
+		if id == calID {
+			continue // the plan itself
 		}
-		res, err := svc.Freebusy.Query(req).Context(ctx).Do()
-		if err != nil {
-			return err
-		}
-		for _, id := range ids {
-			cal, ok := res.Calendars[id]
-			if !ok {
-				continue
+		page := ""
+		for {
+			call := svc.Events.List(id).TimeMin(from.Format(time.RFC3339)).TimeMax(to.Format(time.RFC3339)).
+				SingleEvents(true).MaxResults(2500).Context(ctx)
+			if page != "" {
+				call = call.PageToken(page)
 			}
-			if len(cal.Errors) > 0 {
-				slog.Warn("busy times unavailable for a calendar", "calendar", id, "reason", cal.Errors[0].Reason)
-				continue
+			res, err := call.Do()
+			if isStatus(err, http.StatusNotFound, http.StatusGone) {
+				slog.Warn("a busy calendar is gone", "calendar", id)
+				break
 			}
-			for _, b := range cal.Busy {
-				start, err1 := time.Parse(time.RFC3339, b.Start)
-				end, err2 := time.Parse(time.RFC3339, b.End)
-				if err1 == nil && err2 == nil {
-					rows = append(rows, store.BusyInterval{CalendarID: id, Start: start, End: end})
+			if err != nil {
+				return err
+			}
+			for _, ev := range res.Items {
+				b, ok := s.busyOf(id, ev)
+				key := ev.Id + "@" + b.Start.String()
+				if ok && !seen[key] {
+					seen[key] = true
+					rows = append(rows, b)
 				}
+			}
+			if page = res.NextPageToken; page == "" {
+				break
 			}
 		}
 	}
 	return s.o.Repo.ReplaceBusy(ctx, from, to, rows)
+}
+
+// busyOf is the time an event of a busy calendar takes. Every timed event
+// counts, even one shown as free: it is still something at that time. An
+// all-day event counts only when shown as busy, since most (birthdays,
+// holidays, reminders) take no time. Declined invitations and working
+// location markers never count.
+func (s *Service) busyOf(calID string, ev *calendar.Event) (store.BusyInterval, bool) {
+	if ev.Status == "cancelled" || ev.EventType == "workingLocation" || ev.Start == nil || ev.End == nil {
+		return store.BusyInterval{}, false
+	}
+	if slices.ContainsFunc(ev.Attendees, func(a *calendar.EventAttendee) bool { return a.Self && a.ResponseStatus == "declined" }) {
+		return store.BusyInterval{}, false
+	}
+	b := store.BusyInterval{CalendarID: calID, EventID: ev.Id, Title: ev.Summary}
+	if start, end, ok := eventTimes(ev); ok {
+		b.Start, b.End = start, end
+		return b, true
+	}
+	if ev.Transparency == "transparent" {
+		return store.BusyInterval{}, false
+	}
+	first, err1 := civil.Parse(ev.Start.Date)
+	last, err2 := civil.Parse(ev.End.Date) // exclusive
+	if err1 != nil || err2 != nil || !last.After(first) {
+		return store.BusyInterval{}, false
+	}
+	b.Start, b.End = first.Midnight(s.o.Loc), last.Midnight(s.o.Loc)
+	return b, true
+}
+
+// Calendar is one of the user's calendars.
+type Calendar struct {
+	ID      string // "primary" for the main one
+	Name    string
+	Color   string
+	Primary bool
+}
+
+// Calendars lists the user's calendars but Gwen's own, the main one first,
+// then by name.
+func (s *Service) Calendars(ctx context.Context) ([]Calendar, error) {
+	if err := s.Available(); err != nil {
+		return nil, err
+	}
+	svc, done, err := s.client(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer done()
+	ctx = s.ctx(ctx)
+	gwenID, _ := store.GetLocal(ctx, s.o.DB.SQL(), store.KeyGcalCalendarID)
+	var out []Calendar
+	page := ""
+	for {
+		call := svc.CalendarList.List().MinAccessRole("freeBusyReader").Context(ctx)
+		if page != "" {
+			call = call.PageToken(page)
+		}
+		res, err := call.Do()
+		if scopeMissing(err) {
+			return nil, &unavailable{errScope.Error()}
+		}
+		if err != nil {
+			return nil, fmt.Errorf("list calendars: %w", err)
+		}
+		for _, c := range res.Items {
+			if c.Id == gwenID || c.Deleted {
+				continue
+			}
+			cal := Calendar{ID: c.Id, Name: cmp.Or(c.SummaryOverride, c.Summary, c.Id), Color: c.BackgroundColor, Primary: c.Primary}
+			if c.Primary {
+				cal.ID = "primary"
+			}
+			out = append(out, cal)
+		}
+		if page = res.NextPageToken; page == "" {
+			break
+		}
+	}
+	slices.SortStableFunc(out, func(a, b Calendar) int {
+		if a.Primary != b.Primary {
+			if a.Primary {
+				return -1
+			}
+			return 1
+		}
+		return strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
+	})
+	return out, nil
 }

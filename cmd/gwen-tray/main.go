@@ -37,10 +37,22 @@ func main() {
 		os.Exit(0) // another tray is already showing: not an error
 	}
 	defer unlock()
+	if widgetInPanel(currentDesktop(), paths.ConfigHome) {
+		slog.Info("the Gwen panel widget is on a KDE panel and does the tray's job; the tray stays out")
+		return
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	sv := &systrayView{}
 	c := &controller{api: client.New(paths.SocketPath()), clk: clock.Real(), view: sv, exec: execRunner{}}
+	// A left click opens the now card, dropped down from the icon; the right
+	// click keeps the menu.
+	systray.SetOnTapped(c.openNowCard)
+	go func() {
+		if err := placeNowCard(currentDesktop(), paths.RuntimeDir, runOutput); err != nil {
+			slog.Warn("could not set where the now card opens", "err", err)
+		}
+	}()
 	systray.Run(func() {
 		sv.build(c, cancel)
 		go c.run(ctx)
@@ -118,6 +130,7 @@ func (v *systrayView) build(c *controller, quit context.CancelFunc) {
 	ask := systray.AddMenuItem("Ask the assistant…", "Talk to your AI assistant")
 	capture := systray.AddMenuItem("Capture to inbox…", "Jot down a task to sort out later")
 	board := systray.AddMenuItem("Task board", "Your tasks by stage")
+	nowCard := systray.AddMenuItem("Now card", "The day at a glance; a left click on the icon opens it too")
 	open := systray.AddMenuItem("Open dashboard", "")
 	v.startGwen = addItem("Start Gwen", "Start the Gwen daemon")
 	quitItem := systray.AddMenuItem("Quit tray", "Close the tray; tracking goes on")
@@ -134,6 +147,7 @@ func (v *systrayView) build(c *controller, quit context.CancelFunc) {
 	on(v.endBreak.mi, c.endBreak)
 	on(v.snooze.mi, c.snooze)
 	on(v.clockOut.mi, c.clockOut)
+	on(nowCard, c.openNowCard)
 	on(open, c.openDashboard)
 	on(ask, func() { c.openScreen("assistant") })
 	on(capture, func() { c.openScreen("inbox") })

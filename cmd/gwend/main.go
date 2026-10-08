@@ -84,6 +84,7 @@ func mainErr(args []string, stderr io.Writer) int {
 		calendar:   true,
 		llm:        true,
 		sync:       true,
+		keeper:     true,
 	})
 	if err != nil {
 		slog.Error("gwend failed", "err", err)

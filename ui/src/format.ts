@@ -20,8 +20,28 @@ export function clockFace(ms: number, seconds = true): string {
   return seconds ? `${h}:${m}:${String(s % 60).padStart(2, "0")}` : `${h}:${m}`;
 }
 
-/** 24-hour "HH:MM" in the local zone. */
+/** 12-hour "9:05 am" in the local zone (IST). */
 export function formatTime(ms: number): string {
+  const d = new Date(ms);
+  return formatClock(d.getHours() * 60 + d.getMinutes());
+}
+
+/** "9:05 am" of minutes after midnight; short drops ":00", as in "9 am". */
+export function formatClock(minutes: number, short = false): string {
+  const m = ((minutes % 1440) + 1440) % 1440;
+  const h = Math.floor(m / 60);
+  const mm = m % 60;
+  const suffix = h < 12 ? "am" : "pm";
+  return short && mm === 0 ? `${h % 12 || 12} ${suffix}` : `${h % 12 || 12}:${pad(mm)} ${suffix}`;
+}
+
+/** "9:05 am" of a stored "HH:MM". */
+export function formatHHMM(hhmm: string): string {
+  return formatClock(minutesOf(hhmm));
+}
+
+/** 24-hour "HH:MM" in the local zone: the value a TimeInput holds, never shown as is. */
+export function clockValue(ms: number): string {
   const d = new Date(ms);
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }

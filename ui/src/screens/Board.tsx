@@ -11,6 +11,9 @@ import { useNav } from "../nav";
 import { useTracking } from "../tracking";
 import { TaskForm } from "./Projects";
 
+/** What a dragged card carries: never text, so no text field takes it as typing. */
+const dragType = "application/x-gwen-task";
+
 /** The board's columns: the stages, then Done. */
 const columns = [...stages.map((s) => ({ id: s.value, label: s.label, hint: s.hint })), { id: "done", label: "Done", hint: "Finished this week" }];
 
@@ -49,9 +52,13 @@ export default function Board() {
     App.ListGoals("active").then((l) => setGoals(l.goals), d.fail);
   }, [d.goalsVersion, d.fail]);
 
+  // A repeating task's copy for a later day is not work yet: only today's is on the board.
   const tasks = useMemo(
-    () => [...d.tasks.filter((t) => !t.parent_id), ...done].filter((t) => !project || (project === "none" ? !t.project_id : t.project_id === project)),
-    [d.tasks, done, project],
+    () =>
+      [...d.tasks.filter((t) => !t.parent_id && !(t.occurrence_day && t.occurrence_day > today)), ...done].filter(
+        (t) => !project || (project === "none" ? !t.project_id : t.project_id === project),
+      ),
+    [d.tasks, done, project, today],
   );
 
   return (
@@ -161,7 +168,7 @@ function Kanban({ tasks, onEdit, onAdd }: { tasks: wire.Task[]; onEdit: (t: wire
   function drop(e: DragEvent, to: string) {
     e.preventDefault();
     setOver(null);
-    const t = byId.get(e.dataTransfer.getData("text/plain"));
+    const t = byId.get(e.dataTransfer.getData(dragType));
     if (t) move(t, to);
   }
 
@@ -202,7 +209,7 @@ function Kanban({ tasks, onEdit, onAdd }: { tasks: wire.Task[]; onEdit: (t: wire
                       task={t}
                       dragging={dragging === t.id}
                       onDragStart={(e) => {
-                        e.dataTransfer.setData("text/plain", t.id);
+                        e.dataTransfer.setData(dragType, t.id);
                         e.dataTransfer.effectAllowed = "move";
                         setDragging(t.id);
                       }}

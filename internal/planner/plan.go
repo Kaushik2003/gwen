@@ -118,6 +118,14 @@ type GenerateInput struct {
 	// Prime is the day's biological prime time, minutes after midnight, or
 	// nil: hard work goes there first.
 	Prime *[2]int
+	// Sticky keeps the work the day already holds. Its floating items (planned,
+	// not pinned) stay on the plan in the order they stand, keeping at least
+	// their minutes while their task has that much left: room running out keeps
+	// new work off the day but never drops what is there. New work slots in
+	// before the first held work that is less urgent, and every floating item
+	// is timed again from the free time left. A plan that is not sticky weighs
+	// the whole pool afresh.
+	Sticky bool
 }
 
 // PlanItemDraft is an item of a generated plan. A kept item carries its id
@@ -132,21 +140,34 @@ type PlanItemDraft struct {
 	RolloverCount int
 	notBefore     time.Time // its task's start time on the day, when it has one
 	effort        int       // its task's effort, medium when unrated
+	urgency       float64   // its task's urgency on the day
+	held          bool      // its task held floating items on a sticky plan
 }
 
 // Keep reports whether regenerating keeps an item: pinned, or no longer planned.
 func Keep(it PlanItem) bool { return it.Pinned || it.Status != model.PlanPlanned }
 
 // Generate builds the plan for in.Day (docs/06-planner.md#generating-a-plan),
-// steps 2 to 9: the kept items followed by the new ones, in position order.
-// An existing item missing from the result is soft-deleted by the caller.
+// steps 2 to 9. A fresh plan is the kept items followed by the new ones; a
+// sticky plan keeps the day's order (see GenerateInput.Sticky). Positions run
+// in that order. An existing item missing from the result is soft-deleted by
+// the caller.
 func Generate(in GenerateInput) []PlanItemDraft {
 	var kept []PlanItem
 	keptTasks := map[string]bool{}
 	capacityLeft := in.Capacity.Minutes
 	free := in.Capacity.Free
+	// What a sticky plan's floating items hold, by task: their minutes, and
+	// the position of the first.
+	holding, holdingAt := map[string]int{}, map[string]int{}
 	for _, it := range in.Existing {
 		if !Keep(it) {
+			if in.Sticky {
+				holding[it.TaskID] += int(it.Planned / time.Minute)
+				if at, ok := holdingAt[it.TaskID]; !ok || it.Position < at {
+					holdingAt[it.TaskID] = it.Position
+				}
+			}
 			continue
 		}
 		kept = append(kept, it)
@@ -170,19 +191,89 @@ func Generate(in GenerateInput) []PlanItemDraft {
 		} else if timedSession(t, in.Goals) {
 			blocks, maxBlock = 1, remaining // the time a day the user chose, in one block
 		}
-		for n := 0; n < blocks && remaining > 0 && capacityLeft >= MinBlock; n++ {
-			block := min(remaining, maxBlock, capacityLeft) / BlockStep * BlockStep
-			if block < MinBlock {
-				break
-			}
-			fresh = append(fresh, PlanItemDraft{TaskID: t.ID, Planned: time.Duration(block) * time.Minute,
+		sizes := blockSizes(min(remaining, capacityLeft), blocks, maxBlock)
+		h, isHeld := holding[t.ID]
+		if floor := max(min(h, remaining), MinBlock); isHeld && sum(sizes) < floor {
+			sizes = blockSizes(floor, blocks, maxBlock)
+		}
+		for _, m := range sizes {
+			fresh = append(fresh, PlanItemDraft{TaskID: t.ID, Planned: time.Duration(m) * time.Minute,
 				RolloverCount: c.RolloverCount, RolledFromID: c.RolledFromID, notBefore: notBefore,
-				effort: effortOf(t.Task)})
-			remaining -= block
-			capacityLeft -= block
+				effort: effortOf(t.Task), urgency: c.Urgency, held: isHeld})
+			capacityLeft -= m
 		}
 	}
 
+	var seq []PlanItemDraft
+	if in.Sticky {
+		seq = stickyOrder(kept, fresh, holdingAt)
+	} else {
+		seq = freshOrder(kept, fresh, in.Frog || in.Prime != nil)
+	}
+	var prime []Interval
+	if in.Prime != nil {
+		prime = within(free, Interval{in.Day.At(in.Prime[0], in.Loc), in.Day.At(in.Prime[1], in.Loc)})
+	}
+	for i := range seq {
+		d := &seq[i]
+		d.Position = i
+		if d.ExistingID != "" {
+			continue
+		}
+		if d.effort == model.EffortHard && prime != nil {
+			// Hard work takes prime time when it fits there.
+			if at, ok := earliestFit(prime, d.Planned, d.notBefore); ok {
+				d.StartAt = &at
+				cut := Interval{at, at.Add(held(d.Planned))}
+				free, prime = subtract(free, cut), subtract(prime, cut)
+				continue
+			}
+		}
+		if at, ok := earliestFit(free, d.Planned, d.notBefore); ok {
+			d.StartAt = &at
+			cut := Interval{at, at.Add(held(d.Planned))}
+			free = subtract(free, cut)
+			if prime != nil {
+				prime = subtract(prime, cut)
+			}
+		}
+	}
+	return seq
+}
+
+// blockSizes splits n minutes into at most blocks blocks of at most maxBlock
+// minutes, each a multiple of BlockStep and at least MinBlock.
+func blockSizes(n, blocks, maxBlock int) []int {
+	var out []int
+	for len(out) < blocks && n >= MinBlock {
+		b := min(n, maxBlock) / BlockStep * BlockStep
+		if b < MinBlock {
+			break
+		}
+		out = append(out, b)
+		n -= b
+	}
+	return out
+}
+
+func sum(xs []int) int {
+	n := 0
+	for _, x := range xs {
+		n += x
+	}
+	return n
+}
+
+// keptDraft is a kept item as it goes into a plan.
+func keptDraft(it PlanItem) PlanItemDraft {
+	return PlanItemDraft{ExistingID: it.ID, TaskID: it.TaskID, Planned: it.Planned, StartAt: it.StartAt,
+		Position: it.Position, RolledFromID: it.RolledFromID, RolloverCount: it.RolloverCount}
+}
+
+// freshOrder is a fresh plan's order: the kept items by start time, then the
+// new work most urgent first, or, eating the frog, the work with a chosen
+// time and then the hardest.
+func freshOrder(kept []PlanItem, fresh []PlanItemDraft, frog bool) []PlanItemDraft {
 	slices.SortStableFunc(kept, func(a, b PlanItem) int {
 		switch {
 		case a.StartAt != nil && b.StartAt != nil:
@@ -198,10 +289,9 @@ func Generate(in GenerateInput) []PlanItemDraft {
 	})
 	out := make([]PlanItemDraft, 0, len(kept)+len(fresh))
 	for _, it := range kept {
-		out = append(out, PlanItemDraft{ExistingID: it.ID, TaskID: it.TaskID, Planned: it.Planned, StartAt: it.StartAt,
-			Position: len(out), RolledFromID: it.RolledFromID, RolloverCount: it.RolloverCount})
+		out = append(out, keptDraft(it))
 	}
-	if in.Frog || in.Prime != nil {
+	if frog {
 		// Eat the frog: after the work with a chosen time, the hardest first.
 		slices.SortStableFunc(fresh, func(a, b PlanItemDraft) int {
 			timed := func(d PlanItemDraft) int {
@@ -213,31 +303,40 @@ func Generate(in GenerateInput) []PlanItemDraft {
 			return cmp.Or(cmp.Compare(timed(a), timed(b)), cmp.Compare(b.effort, a.effort))
 		})
 	}
-	var prime []Interval
-	if in.Prime != nil {
-		prime = within(free, Interval{in.Day.At(in.Prime[0], in.Loc), in.Day.At(in.Prime[1], in.Loc)})
+	return append(out, fresh...)
+}
+
+// stickyOrder is a sticky plan's order: the kept items and the held work
+// where they stand, each task's blocks together, then each new task's
+// blocks slotted in before the first held work that is less urgent.
+func stickyOrder(kept []PlanItem, fresh []PlanItemDraft, holdingAt map[string]int) []PlanItemDraft {
+	type standing struct {
+		d  PlanItemDraft
+		at int
 	}
+	var stand []standing
+	for _, it := range kept {
+		stand = append(stand, standing{keptDraft(it), it.Position})
+	}
+	var added []PlanItemDraft
 	for _, d := range fresh {
-		d.Position = len(out)
-		if d.effort == model.EffortHard && prime != nil {
-			// Hard work takes prime time when it fits there.
-			if at, ok := earliestFit(prime, d.Planned, d.notBefore); ok {
-				d.StartAt = &at
-				cut := Interval{at, at.Add(held(d.Planned))}
-				free, prime = subtract(free, cut), subtract(prime, cut)
-				out = append(out, d)
-				continue
-			}
+		if d.held {
+			stand = append(stand, standing{d, holdingAt[d.TaskID]})
+		} else {
+			added = append(added, d)
 		}
-		if at, ok := earliestFit(free, d.Planned, d.notBefore); ok {
-			d.StartAt = &at
-			cut := Interval{at, at.Add(held(d.Planned))}
-			free = subtract(free, cut)
-			if prime != nil {
-				prime = subtract(prime, cut)
-			}
+	}
+	slices.SortStableFunc(stand, func(a, b standing) int { return cmp.Compare(a.at, b.at) })
+	out := make([]PlanItemDraft, 0, len(stand)+len(added))
+	for _, s := range stand {
+		out = append(out, s.d)
+	}
+	for _, d := range added {
+		i := slices.IndexFunc(out, func(o PlanItemDraft) bool { return o.held && o.urgency < d.urgency })
+		if i < 0 {
+			i = len(out)
 		}
-		out = append(out, d)
+		out = slices.Insert(out, i, d)
 	}
 	return out
 }

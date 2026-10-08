@@ -161,6 +161,9 @@ func (c *controller) switchTo(project *string) {
 
 func (c *controller) openDashboard() { c.launch("gwen-ui") }
 
+// openNowCard opens the now card, or closes it when it is open already.
+func (c *controller) openNowCard() { c.launch("gwen-ui", "--now") }
+
 // openScreen opens the dashboard on one screen, such as "assistant".
 func (c *controller) openScreen(screen string) { c.launch("gwen-ui", "--screen", screen) }
 

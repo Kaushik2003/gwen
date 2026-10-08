@@ -64,7 +64,7 @@ func newRootCmd(c *cli) *cobra.Command {
 		c.projectCmd(), c.taskCmd(),
 		c.goalCmd(), c.commitCmd(), c.planCmd(), c.briefCmd(),
 		c.calCmd(), c.llmCmd(), c.retroCmd(), c.syncCmd(),
-		c.statsCmd(), c.configCmd(), c.notifyCmd(), c.watchCmd(),
+		c.statsCmd(), c.configCmd(), c.notifyCmd(), c.watchCmd(), c.energyCmd(), c.panelCmd(),
 		newSetupCmd(),
 	)
 	return root

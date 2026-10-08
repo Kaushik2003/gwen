@@ -50,6 +50,9 @@ type Plan struct {
 	Start, End int // the capacity window, minutes after local midnight
 	Hours      *model.DayHours
 	Items      []PlanEntry
+	// Events are the busy calendars' events in the window, from the earlier
+	// of planner.day_start and the window's start; none while Busy is unset.
+	Events []BusyInterval
 }
 
 // GoalProgress is a goal with its progress today.
@@ -79,18 +82,30 @@ type PlanItemPatch struct {
 
 // PlanRepo runs the planner over the store: every call loads its inputs,
 // runs the pure planner, and writes the results in one transaction.
+//
+// Plans keep themselves current. Reading today's plan or a later day's
+// brings it up to date, and so does every write here: a sticky regeneration
+// (planner.GenerateInput.Sticky) that keeps what the day holds, times the
+// floating items from the time left, and adds new work that fits. Only
+// today's first plan, an explicit Generate, and new day hours weigh the day
+// afresh. A day is announced in Changes only when its items changed.
 type PlanRepo interface {
-	// Get returns the plan for day ("" means today). For today it first runs
-	// rollover and, when today has no live items, generates the plan.
+	// Get returns the plan for day ("" means today), brought up to date: for
+	// today after rollover. A past day is read as stored.
 	Get(ctx context.Context, day string, env PlanEnv) (Plan, Changes, error)
 	// Read returns the stored plan for day ("" means today) and never rolls
 	// over or generates; the sync hub serves plans this way.
 	Read(ctx context.Context, day string, env PlanEnv) (Plan, error)
-	// Generate regenerates the plan for today or a later day.
+	// Generate plans today or a later day afresh, keeping only pinned and
+	// settled items.
 	Generate(ctx context.Context, day string, env PlanEnv) (Plan, Changes, error)
-	// UpdateItem edits an item. Changing start_at, position, or
-	// planned_minutes also pins it.
-	UpdateItem(ctx context.Context, id string, p PlanItemPatch) (PlanEntry, error)
+	// UpdateItem edits an item, then brings its day up to date. Changing
+	// start_at, position, or planned_minutes also pins it.
+	UpdateItem(ctx context.Context, id string, p PlanItemPatch, env PlanEnv) (PlanEntry, Changes, error)
+	// Move puts a task's planned blocks on day before beforeTaskID's first
+	// item, or last when it is "", and unpins them, so the day's floating
+	// work is timed again in the new order.
+	Move(ctx context.Context, day, taskID, beforeTaskID string, env PlanEnv) (Plan, Changes, error)
 	// Briefing runs rollover and implicit generation for today and returns
 	// the briefing.
 	Briefing(ctx context.Context, env PlanEnv) (Briefing, Changes, error)
@@ -117,8 +132,8 @@ type PlanRepo interface {
 	// Unschedule removes a task's planned blocks from today on, or on day
 	// only when day is not "", and regenerates today's plan.
 	Unschedule(ctx context.Context, taskID, day string, env PlanEnv) (Changes, error)
-	// Refresh regenerates today's plan after tasks changed, so new and edited
-	// tasks show up without asking. It keeps pinned items.
+	// Refresh brings today's plan up to date, as Get does, after anything it
+	// depends on changed or time moved on.
 	Refresh(ctx context.Context, env PlanEnv) (Changes, error)
 }
 
@@ -279,10 +294,8 @@ func (r planRepo) Get(ctx context.Context, day string, env PlanEnv) (Plan, Chang
 		ch Changes
 	)
 	err = r.db.InTx(ctx, func(tx *sql.Tx) error {
-		if d == env.today() {
-			if err := r.prepareToday(ctx, tx, env, &ch); err != nil {
-				return err
-			}
+		if err := r.prepare(ctx, tx, d, env, &ch); err != nil {
+			return err
 		}
 		var err error
 		p, err = r.read(ctx, tx, d, env)
@@ -292,6 +305,27 @@ func (r planRepo) Get(ctx context.Context, day string, env PlanEnv) (Plan, Chang
 		return Plan{}, Changes{}, fmt.Errorf("plan for %s: %w", d, err)
 	}
 	return p, ch, nil
+}
+
+// prepare brings d's plan up to date: today's after rollover, and a later
+// day's, sticky, once it has been planned. A later day nobody planned stays
+// empty, so that looking ahead makes no copies of repeating tasks; a past
+// day is left as it is.
+func (r planRepo) prepare(ctx context.Context, tx *sql.Tx, d civil.Day, env PlanEnv, ch *Changes) error {
+	switch today := env.today(); {
+	case d == today:
+		return r.prepareToday(ctx, tx, env, ch)
+	case d.After(today):
+		const qPlanned = `SELECT EXISTS (SELECT 1 FROM plan_items WHERE day = ? AND pinned = 0 AND deleted_at IS NULL)`
+		var planned bool
+		if err := tx.QueryRowContext(ctx, qPlanned, d.String()).Scan(&planned); err != nil {
+			return fmt.Errorf("plan for %s: %w", d, err)
+		}
+		if planned {
+			return r.generate(ctx, tx, d, env, true, ch)
+		}
+	}
+	return nil
 }
 
 func (r planRepo) Read(ctx context.Context, day string, env PlanEnv) (Plan, error) {
@@ -325,7 +359,7 @@ func (r planRepo) Generate(ctx context.Context, day string, env PlanEnv) (Plan, 
 				return err
 			}
 		}
-		if err := r.generate(ctx, tx, d, env, &ch); err != nil {
+		if err := r.generate(ctx, tx, d, env, false, &ch); err != nil {
 			return err
 		}
 		var err error
@@ -338,51 +372,43 @@ func (r planRepo) Generate(ctx context.Context, day string, env PlanEnv) (Plan, 
 	return p, ch, nil
 }
 
-// prepareToday runs rollover for today and generates today's plan when it has
-// no live items.
+// prepareToday runs rollover for today and brings today's plan up to date.
+// The day's first plan weighs everything afresh; after that the plan is
+// sticky, so time passing re-times it but never empties it. Both write, and
+// announce, only what changed: clients that reread on plan_changed settle.
 func (r planRepo) prepareToday(ctx context.Context, tx *sql.Tx, env PlanEnv, ch *Changes) error {
 	today := env.today()
 	if err := r.rollover(ctx, tx, today, ch); err != nil {
 		return err
 	}
-	const qCountItems = `SELECT count(*) FROM plan_items p JOIN tasks t ON t.id = p.task_id
-		WHERE p.day = ? AND p.deleted_at IS NULL AND t.deleted_at IS NULL`
-	var n int
-	if err := tx.QueryRowContext(ctx, qCountItems, today.String()).Scan(&n); err != nil {
-		return fmt.Errorf("count plan items: %w", err)
-	}
 	planned, err := GetLocal(ctx, tx, KeyPlannedDay)
 	if err != nil && !isNotFound(err) {
 		return err
 	}
-	if planned != today.String() {
-		return r.generate(ctx, tx, today, env, ch)
-	}
-	if n > 0 {
-		return nil
-	}
-	// Generated today but empty: try again, since work may fit now, but a plan
-	// that stays empty changed nothing. Announcing it would have every client
-	// that rereads on plan_changed read again, forever.
-	announced := slices.Contains(ch.PlanDays, today.String())
-	if err := r.generate(ctx, tx, today, env, ch); err != nil {
-		return err
-	}
-	if err := tx.QueryRowContext(ctx, qCountItems, today.String()).Scan(&n); err != nil {
-		return fmt.Errorf("count plan items: %w", err)
-	}
-	if n == 0 && !announced {
-		ch.PlanDays = slices.DeleteFunc(ch.PlanDays, func(d string) bool { return d == today.String() })
-	}
-	return nil
+	return r.generate(ctx, tx, today, env, planned == today.String(), ch)
 }
 
 // rollover settles the planned items of earlier days and expires overdue
 // occurrences (docs/06-planner.md#rollover).
 func (r planRepo) rollover(ctx context.Context, tx *sql.Tx, today civil.Day, ch *Changes) error {
-	if err := r.settleSessions(ctx, tx, today, ch); err != nil {
+	goals, err := r.settleSessions(ctx, tx, today, ch)
+	if err != nil {
 		return fmt.Errorf("rollover: %w", err)
 	}
+	if err := r.settlePlanned(ctx, tx, today, ch); err != nil {
+		return err
+	}
+	for _, g := range goals {
+		if err := refill(ctx, tx, r.db, g, today.String(), ch); err != nil {
+			return fmt.Errorf("rollover: %w", err)
+		}
+	}
+	return nil
+}
+
+// settlePlanned rolls the planned items of earlier days over and expires
+// overdue occurrences.
+func (r planRepo) settlePlanned(ctx context.Context, tx *sql.Tx, today civil.Day, ch *Changes) error {
 	const qStale = `SELECT ` + planItemCols + ` FROM plan_items
 		WHERE deleted_at IS NULL AND status = 'planned' AND day < ?`
 	items, err := queryPlanItems(ctx, tx, qStale, today.String())
@@ -424,44 +450,53 @@ func (r planRepo) rollover(ctx context.Context, tx *sql.Tx, today civil.Day, ch 
 	return nil
 }
 
-// settleSessions returns the open steps of expired sessions to their goals'
-// queues and completes those with a done step, whose steps already count.
-func (r planRepo) settleSessions(ctx context.Context, tx *sql.Tx, today civil.Day, ch *Changes) error {
-	const qExpiredSessions = `SELECT ` + taskCols + ` FROM tasks WHERE deleted_at IS NULL AND status = 'open'
-		AND template_id IS NOT NULL AND goal_id IS NOT NULL AND due_day < ? ORDER BY occurrence_day, id`
-	expired, err := queryTasks(ctx, tx, qExpiredSessions, today.String())
+// settleSessions returns the open steps of sessions whose day is over to
+// their goals' queues. An open one with a done step is completed, since its
+// steps already count; one done early only lets its leftovers go. It returns
+// the goals whose queues got steps back.
+func (r planRepo) settleSessions(ctx context.Context, tx *sql.Tx, today civil.Day, ch *Changes) ([]string, error) {
+	const qOverSessions = `SELECT ` + taskCols + ` FROM tasks WHERE deleted_at IS NULL AND template_id IS NOT NULL
+		AND goal_id IS NOT NULL AND due_day < ? AND (status = 'open' OR id IN (SELECT parent_id FROM tasks
+		WHERE parent_id IS NOT NULL AND status = 'open' AND deleted_at IS NULL)) ORDER BY occurrence_day, id`
+	over, err := queryTasks(ctx, tx, qOverSessions, today.String())
 	if err != nil {
-		return err
+		return nil, err
 	}
-	for _, t := range expired {
+	var goals []string
+	for _, t := range over {
 		session, err := isSession(ctx, tx, t)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if !session {
 			continue
 		}
 		steps, err := stepsOf(ctx, tx, t.ID)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		if err := detach(ctx, tx, r.db, openOnly(steps), ch); err != nil {
-			return err
+		leftovers := openOnly(steps)
+		if err := detach(ctx, tx, r.db, leftovers, ch); err != nil {
+			return nil, err
 		}
-		if len(openOnly(steps)) == len(steps) {
-			continue // nothing done: it expires
+		if len(leftovers) > 0 && !slices.Contains(goals, *t.GoalID) {
+			goals = append(goals, *t.GoalID)
+		}
+		if t.Status != model.TaskOpen || len(leftovers) == len(steps) {
+			continue // done already, or nothing done: it expires
 		}
 		zero := 0
 		if _, err := completeTask(ctx, tx, r.db, t, &zero, ch); err != nil {
-			return err
+			return nil, err
 		}
 		ch.task(t.ID)
 	}
-	return nil
+	return goals, nil
 }
 
 // materialize creates the occurrences of every live template that recurs on
-// d and has none there yet, even a deleted one.
+// d and has none there yet, even a deleted one. An open copy the user moved
+// onto d stands for d's own (see Schedule), so the day gets no second one.
 func (r planRepo) materialize(ctx context.Context, tx *sql.Tx, d civil.Day, env PlanEnv, ch *Changes) error {
 	const qTemplates = `SELECT ` + taskCols + ` FROM tasks WHERE deleted_at IS NULL AND rrule IS NOT NULL
 		ORDER BY created_at, id`
@@ -474,9 +509,11 @@ func (r planRepo) materialize(ctx context.Context, tx *sql.Tx, d civil.Day, env 
 		if err != nil || !rule.Matches(tmpl.Anchor, d) {
 			continue
 		}
-		const qHasOccurrence = `SELECT count(*) FROM tasks WHERE template_id = ? AND occurrence_day = ?`
+		const qHasOccurrence = `SELECT count(*) FROM tasks t WHERE t.template_id = ? AND (t.occurrence_day = ?
+			OR (t.deleted_at IS NULL AND t.status = 'open' AND EXISTS (SELECT 1 FROM plan_items p WHERE p.task_id = t.id
+			AND p.day = ? AND p.status = 'planned' AND p.pinned = 1 AND p.deleted_at IS NULL)))`
 		var n int
-		if err := tx.QueryRowContext(ctx, qHasOccurrence, tmpl.ID, d.String()).Scan(&n); err != nil {
+		if err := tx.QueryRowContext(ctx, qHasOccurrence, tmpl.ID, d.String(), d.String()).Scan(&n); err != nil {
 			return fmt.Errorf("materialize: %w", err)
 		}
 		if n > 0 {
@@ -533,10 +570,11 @@ func (r planRepo) session(ctx context.Context, tx *sql.Tx, goalID string, d civi
 	return true, nil
 }
 
-// generateInput loads the planner's input for d, with every live item on d
-// (Existing holds those whose task is live).
+// generateInput loads the planner's input for d, with every live item on d by
+// position (Existing holds those whose task is live).
 func (r planRepo) generateInput(ctx context.Context, q Querier, d civil.Day, env PlanEnv) (planner.GenerateInput, []model.PlanItem, error) {
-	const qDayItems = `SELECT ` + planItemCols + ` FROM plan_items WHERE day = ? AND deleted_at IS NULL`
+	const qDayItems = `SELECT ` + planItemCols + ` FROM plan_items WHERE day = ? AND deleted_at IS NULL
+		ORDER BY position, id`
 	onDay, err := queryPlanItems(ctx, q, qDayItems, d.String())
 	if err != nil {
 		return planner.GenerateInput{}, nil, err
@@ -589,8 +627,9 @@ func (r planRepo) generateInput(ctx context.Context, q Querier, d civil.Day, env
 }
 
 // generate runs steps 1 to 9 of docs/06-planner.md#generating-a-plan for d,
-// after rollover.
-func (r planRepo) generate(ctx context.Context, tx *sql.Tx, d civil.Day, env PlanEnv, ch *Changes) error {
+// after rollover; sticky is planner.GenerateInput.Sticky. It writes only the
+// items that change and announces d only then, or on today's first plan.
+func (r planRepo) generate(ctx context.Context, tx *sql.Tx, d civil.Day, env PlanEnv, sticky bool, ch *Changes) error {
 	if err := r.materialize(ctx, tx, d, env, ch); err != nil {
 		return err
 	}
@@ -598,14 +637,22 @@ func (r planRepo) generate(ctx context.Context, tx *sql.Tx, d civil.Day, env Pla
 	if err != nil {
 		return fmt.Errorf("generate: %w", err)
 	}
+	in.Sticky = sticky
 	drafts := planner.Generate(in)
+	changed := false
 	if d == env.today() {
-		if err := SetLocal(ctx, tx, KeyPlannedDay, d.String(), r.db.Now()); err != nil {
+		planned, err := GetLocal(ctx, tx, KeyPlannedDay)
+		if err != nil && !isNotFound(err) {
 			return fmt.Errorf("generate: %w", err)
+		}
+		if planned != d.String() {
+			if err := SetLocal(ctx, tx, KeyPlannedDay, d.String(), r.db.Now()); err != nil {
+				return fmt.Errorf("generate: %w", err)
+			}
+			changed = true // the day's first plan is news, even an empty one
 		}
 	}
 
-	ch.plan(d.String())
 	kept := map[string]planner.PlanItemDraft{}
 	for _, dr := range drafts {
 		if dr.ExistingID != "" {
@@ -626,6 +673,7 @@ func (r planRepo) generate(ctx context.Context, tx *sql.Tx, d civil.Day, env Pla
 			if err := writePlanItem(ctx, tx, r.db, it); err != nil {
 				return fmt.Errorf("generate: %w", err)
 			}
+			changed = true
 		}
 	}
 	for _, dr := range drafts {
@@ -642,6 +690,7 @@ func (r planRepo) generate(ctx context.Context, tx *sql.Tx, d civil.Day, env Pla
 			if err := writePlanItem(ctx, tx, r.db, it); err != nil {
 				return fmt.Errorf("generate: %w", err)
 			}
+			changed = true
 			continue
 		}
 		it := model.PlanItem{ID: model.NewID(), Day: d.String(), TaskID: dr.TaskID, Planned: dr.Planned,
@@ -650,13 +699,18 @@ func (r planRepo) generate(ctx context.Context, tx *sql.Tx, d civil.Day, env Pla
 		if err := insertPlanItem(ctx, tx, r.db, &it); err != nil {
 			return fmt.Errorf("generate: %w", err)
 		}
+		changed = true
 	}
 	for _, old := range reusable {
 		for _, it := range old {
 			if err := softDelete(ctx, tx, r.db, "plan_items", it.ID); err != nil {
 				return fmt.Errorf("generate: %w", err)
 			}
+			changed = true
 		}
+	}
+	if changed {
+		ch.plan(d.String())
 	}
 	return nil
 }
@@ -903,6 +957,11 @@ func (r planRepo) read(ctx context.Context, q Querier, d civil.Day, env PlanEnv)
 	}
 	p := Plan{Day: d.String(), Capacity: capacity.Minutes, Start: capacity.Start, End: capacity.End,
 		Hours: capacity.Hours, Items: entries}
+	if env.Busy {
+		if p.Events, err = busyBetween(ctx, q, d.At(min(env.DayStart, capacity.Start), env.Loc), d.At(capacity.End, env.Loc)); err != nil {
+			return Plan{}, err
+		}
+	}
 	for _, e := range entries {
 		if e.Item.Status == model.PlanPlanned || e.Item.Status == model.PlanDone {
 			p.Planned += int(e.Item.Planned / time.Minute)
@@ -940,10 +999,14 @@ func withTasks(ctx context.Context, q Querier, items []model.PlanItem) ([]PlanEn
 	return out, nil
 }
 
-func (r planRepo) UpdateItem(ctx context.Context, id string, p PlanItemPatch) (PlanEntry, error) {
-	var e PlanEntry
+const qGetPlanItem = `SELECT ` + planItemCols + ` FROM plan_items WHERE id = ? AND deleted_at IS NULL`
+
+func (r planRepo) UpdateItem(ctx context.Context, id string, p PlanItemPatch, env PlanEnv) (PlanEntry, Changes, error) {
+	var (
+		e  PlanEntry
+		ch Changes
+	)
 	err := r.db.InTx(ctx, func(tx *sql.Tx) error {
-		const qGetPlanItem = `SELECT ` + planItemCols + ` FROM plan_items WHERE id = ? AND deleted_at IS NULL`
 		it, err := scanPlanItem(tx.QueryRowContext(ctx, qGetPlanItem, id))
 		if err != nil {
 			return notFound(err, "plan item", id)
@@ -985,13 +1048,113 @@ func (r planRepo) UpdateItem(ctx context.Context, id string, p PlanItemPatch) (P
 		if err := writePlanItem(ctx, tx, r.db, &it); err != nil {
 			return err
 		}
+		// Skipping and pinning are about the task's day, not one block: its
+		// other blocks there follow, so none is left behind half-way.
+		if p.Status != nil || p.Pinned != nil {
+			const qSiblings = `SELECT ` + planItemCols + ` FROM plan_items WHERE task_id = ? AND day = ? AND id <> ?
+				AND status IN ('planned', 'skipped') AND deleted_at IS NULL`
+			siblings, err := queryPlanItems(ctx, tx, qSiblings, it.TaskID, it.Day, it.ID)
+			if err != nil {
+				return err
+			}
+			for i := range siblings {
+				s := &siblings[i]
+				was := *s
+				if p.Status != nil {
+					s.Status = it.Status
+				}
+				if p.Pinned != nil {
+					s.Pinned = it.Pinned
+				}
+				if s.Status == was.Status && s.Pinned == was.Pinned {
+					continue
+				}
+				if err := writePlanItem(ctx, tx, r.db, s); err != nil {
+					return err
+				}
+			}
+		}
+		ch.plan(it.Day)
+		// The rest of the day flows around the change.
+		if err := r.prepare(ctx, tx, civil.MustParse(it.Day), env, &ch); err != nil {
+			return err
+		}
+		if it, err = scanPlanItem(tx.QueryRowContext(ctx, qGetPlanItem, id)); err != nil {
+			return notFound(err, "plan item", id)
+		}
 		e = PlanEntry{Item: it, Task: entries[0].Task, Steps: entries[0].Steps}
 		return nil
 	})
 	if err != nil {
-		return PlanEntry{}, fmt.Errorf("update plan item %s: %w", id, err)
+		return PlanEntry{}, Changes{}, fmt.Errorf("update plan item %s: %w", id, err)
 	}
-	return e, nil
+	return e, ch, nil
+}
+
+func (r planRepo) Move(ctx context.Context, day, taskID, beforeTaskID string, env PlanEnv) (Plan, Changes, error) {
+	d, err := r.plannable(day, env)
+	if err != nil {
+		return Plan{}, Changes{}, err
+	}
+	if taskID == beforeTaskID {
+		return Plan{}, Changes{}, FailField(ErrInvalid, "before_task_id", "a task cannot go before itself")
+	}
+	var (
+		p  Plan
+		ch Changes
+	)
+	err = r.db.InTx(ctx, func(tx *sql.Tx) error {
+		if d == env.today() {
+			if err := r.rollover(ctx, tx, d, &ch); err != nil {
+				return err
+			}
+		}
+		const qDayItems = `SELECT ` + planItemCols + ` FROM plan_items WHERE day = ? AND deleted_at IS NULL
+			ORDER BY position, id`
+		items, err := queryPlanItems(ctx, tx, qDayItems, d.String())
+		if err != nil {
+			return err
+		}
+		moving := slices.DeleteFunc(slices.Clone(items), func(it model.PlanItem) bool {
+			return it.TaskID != taskID || it.Status != model.PlanPlanned
+		})
+		if len(moving) == 0 {
+			return FailField(ErrInvalid, "task_id", "the task has nothing planned on %s to move", d)
+		}
+		rest := slices.DeleteFunc(items, func(it model.PlanItem) bool {
+			return it.TaskID == taskID && it.Status == model.PlanPlanned
+		})
+		at := len(rest)
+		if beforeTaskID != "" {
+			if at = slices.IndexFunc(rest, func(it model.PlanItem) bool { return it.TaskID == beforeTaskID }); at < 0 {
+				return FailField(ErrNotFound, "before_task_id", "that task is not on the plan for %s", d)
+			}
+		}
+		order := slices.Concat(rest[:at], moving, rest[at:])
+		for i := range order {
+			it := &order[i]
+			moved := it.TaskID == taskID && it.Status == model.PlanPlanned
+			if it.Position == i && !(moved && it.Pinned) {
+				continue
+			}
+			// Moving a block hands its time back to the planner: it is now
+			// timed by its place in the order.
+			it.Position, it.Pinned = i, it.Pinned && !moved
+			if err := writePlanItem(ctx, tx, r.db, it); err != nil {
+				return err
+			}
+			ch.plan(d.String())
+		}
+		if err := r.prepare(ctx, tx, d, env, &ch); err != nil {
+			return err
+		}
+		p, err = r.read(ctx, tx, d, env)
+		return err
+	})
+	if err != nil {
+		return Plan{}, Changes{}, fmt.Errorf("move task %s on %s: %w", taskID, d, err)
+	}
+	return p, ch, nil
 }
 
 func (r planRepo) Briefing(ctx context.Context, env PlanEnv) (Briefing, Changes, error) {
@@ -1056,9 +1219,12 @@ func (r planRepo) pending(ctx context.Context, q Querier) ([]PlanEntry, error) {
 // reminders computes the briefing's reminders for today.
 func (r planRepo) reminders(ctx context.Context, q Querier, env PlanEnv, plan Plan, progress map[string]planner.GoalProgress) ([]planner.Reminder, error) {
 	today := env.today()
+	// A repeating task's copy for a later day, made by planning ahead, is
+	// not due yet: its own day reminds of it.
 	const qDueTasks = `SELECT ` + taskCols + ` FROM tasks WHERE deleted_at IS NULL AND status = 'open'
-		AND rrule IS NULL AND due_day IS NOT NULL ORDER BY created_at, id`
-	tasks, err := queryTasks(ctx, q, qDueTasks)
+		AND rrule IS NULL AND due_day IS NOT NULL AND (occurrence_day IS NULL OR occurrence_day <= ?)
+		ORDER BY created_at, id`
+	tasks, err := queryTasks(ctx, q, qDueTasks, today.String())
 	if err != nil {
 		return nil, fmt.Errorf("reminders: %w", err)
 	}

@@ -15,10 +15,12 @@ import (
 // with the same names and wire types and without the context, except Events:
 // the host forwards the event stream itself (docs/08-clients.md#gui).
 type App struct {
-	ctx    context.Context
-	api    client.API
-	host   *host
-	screen string // the screen to open on, from --screen
+	ctx     context.Context
+	api     client.API
+	host    *host
+	voice   *dictation
+	screen  string // the screen to open on, from --screen
+	nowCard bool   // the tray's now card, from --now
 }
 
 // hostError carries an API failure to the frontend as JSON, so the UI can
@@ -168,6 +170,9 @@ func (a *App) SetDayHours(req wire.SetDayHoursRequest) (*wire.Plan, error) {
 func (a *App) PatchPlanItem(id string, req wire.PatchPlanItemRequest) (*wire.PlanItem, error) {
 	return call(a.api.PatchPlanItem(a.ctx, id, req))
 }
+func (a *App) MovePlanTask(req wire.MovePlanTaskRequest) (*wire.Plan, error) {
+	return call(a.api.MovePlanTask(a.ctx, req))
+}
 func (a *App) Briefing() (*wire.Briefing, error) { return call(a.api.Briefing(a.ctx)) }
 
 // Host-only methods.
@@ -177,6 +182,24 @@ func (a *App) StartScreen() string {
 	s := a.screen
 	a.screen = ""
 	return s
+}
+
+// IsNowCard reports whether this window is the tray's now card rather than
+// the dashboard.
+func (a *App) IsNowCard() bool { return a.nowCard }
+
+// OpenDashboard opens the dashboard on a screen, or "" for Today; a running
+// dashboard comes to the front instead.
+func (a *App) OpenDashboard(screen string) error {
+	exe, err := os.Executable()
+	if err != nil {
+		exe = "gwen-ui"
+	}
+	var args []string
+	if screen != "" {
+		args = []string{"--screen", screen}
+	}
+	return wrap(a.host.start(exe, args...))
 }
 
 // Version is the GUI's own version.

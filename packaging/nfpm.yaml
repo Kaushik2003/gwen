@@ -16,10 +16,15 @@ overrides:
     depends:
       - webkit2gtk4.1
       - gtk3
+    # pw-record, which voice input records the microphone with.
+    recommends:
+      - pipewire-utils
   deb:
     depends:
       - libwebkit2gtk-4.1-0
       - libgtk-3-0
+    recommends:
+      - pipewire-bin
 
 contents:
   - src: bin/gwend
@@ -34,6 +39,13 @@ contents:
   - src: bin/gwen-ui
     dst: /usr/bin/gwen-ui
     file_info: {mode: 0755}
+  # Voice input: sherpa-onnx and ONNX Runtime, which gwen-ui finds here.
+  - src: bin/lib/libsherpa-onnx-c-api.so
+    dst: /usr/lib/gwen/libsherpa-onnx-c-api.so
+    file_info: {mode: 0644}
+  - src: bin/lib/libonnxruntime.so
+    dst: /usr/lib/gwen/libonnxruntime.so
+    file_info: {mode: 0644}
   - src: packaging/gwend.service
     dst: /usr/lib/systemd/user/gwend.service
     file_info: {mode: 0644}
@@ -51,6 +63,22 @@ contents:
     file_info: {mode: 0644}
   - src: packaging/icons/gwen-128.png
     dst: /usr/share/icons/hicolor/128x128/apps/gwen.png
+    file_info: {mode: 0644}
+  # The KDE panel widget: the timer and the tracked task beside the tray.
+  - src: packaging/plasma/dev.gwen.panel/metadata.json
+    dst: /usr/share/plasma/plasmoids/dev.gwen.panel/metadata.json
+    file_info: {mode: 0644}
+  - src: packaging/plasma/dev.gwen.panel/contents/ui/main.qml
+    dst: /usr/share/plasma/plasmoids/dev.gwen.panel/contents/ui/main.qml
+    file_info: {mode: 0644}
+  - src: packaging/plasma/dev.gwen.panel/contents/ui/NowCard.qml
+    dst: /usr/share/plasma/plasmoids/dev.gwen.panel/contents/ui/NowCard.qml
+    file_info: {mode: 0644}
+  - src: packaging/plasma/dev.gwen.panel/contents/fonts/InterVariable.ttf
+    dst: /usr/share/plasma/plasmoids/dev.gwen.panel/contents/fonts/InterVariable.ttf
+    file_info: {mode: 0644}
+  - src: packaging/plasma/dev.gwen.panel/contents/fonts/LICENSE-Inter.txt
+    dst: /usr/share/plasma/plasmoids/dev.gwen.panel/contents/fonts/LICENSE-Inter.txt
     file_info: {mode: 0644}
 
 scripts:

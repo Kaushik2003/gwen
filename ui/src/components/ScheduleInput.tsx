@@ -45,7 +45,7 @@ export default function ScheduleInput({ value, today, onChange }: { value: Block
           />
           <Input type="date" value={value.day} min={today} onChange={(e) => e.target.value && onChange({ ...value, day: e.target.value })} aria-label="Day" className="w-40" />
           <span className="text-xs text-ink-subtle">at</span>
-          <TimeInput value={clockOf(value.minute)} onCommit={(hhmm) => hhmm && onChange({ ...value, minute: minutesOf(hhmm) })} aria-label="Start time" className="w-20" />
+          <TimeInput value={clockOf(value.minute)} onCommit={(hhmm) => hhmm && onChange({ ...value, minute: minutesOf(hhmm) })} aria-label="Start time" className="w-24" />
           <span className="text-xs text-ink-subtle">for</span>
           <DurationInput value={value.length} onChange={(length) => onChange({ ...value, length })} label="How long" />
         </div>

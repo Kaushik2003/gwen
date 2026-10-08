@@ -1,5 +1,5 @@
 import { Archive, ArchiveRestore, CheckSquare, ChevronDown, ChevronRight, FolderKanban, Layers, ListChecks, ListPlus, Pencil, Play, Plus, Radio, Repeat, SlidersHorizontal, Target, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { App, wire } from "../api";
 import { projectPalette } from "../components/color";
 import { useCompleteTask } from "../components/complete";
@@ -12,7 +12,7 @@ import { StepList } from "../components/steps";
 import { DueTag, EffortTag, PriorityFlag, ProjectTag, StageTag, StartTag } from "../components/tags";
 import { Badge, Button, Checkbox, Dot, Empty, Field, IconButton, Input, Modal, PageHeader, Panel, Segmented, Select, TextArea, Toggle, cx, priorities } from "../components/ui";
 import { useDaemon } from "../daemon";
-import { formatDuration, goDuration, parseDuration } from "../format";
+import { formatDate, formatDuration, goDuration, parseDuration, relativeDay } from "../format";
 import { describeRule } from "../rrule";
 import { useTracking } from "../tracking";
 
@@ -69,14 +69,25 @@ export default function Projects() {
   // Counts leave out steps and lined-up items, which live under their parent or goal.
   const openCount = (id?: string) => d.tasks.filter((x) => (id === undefined || x.project_id === id) && !x.parent_id && !isItem(x)).length;
   const shown = (x: wire.Task) => status === "all" || x.status === status;
-  const top = all.filter((x) => !(x.parent_id && listed.has(x.parent_id)) && !isItem(x) && shown(x));
+  // A repeating task's copies sit under it, so the task and today's copy never read as two of the same task.
+  const shownIds = new Set(all.filter(shown).map((x) => x.id));
+  const copiesOf = (id: string) => all.filter((x) => x.template_id === id && shown(x)).sort((a, b) => (a.occurrence_day ?? "").localeCompare(b.occurrence_day ?? ""));
+  const top = all.filter((x) => !(x.parent_id && listed.has(x.parent_id)) && !(x.template_id && shownIds.has(x.template_id)) && !isItem(x) && shown(x));
   const queues = goals
     .map((g) => ({
       goal: g,
       items: all.filter((x) => isItem(x) && x.goal_id === g.id),
     }))
     .filter((q) => q.items.length > 0 && status !== "done");
-  const visible = [...top.flatMap((x) => [x, ...stepsOf(x.id)]), ...queues.flatMap((q) => (openQueues.has(q.goal.id) ? q.items : []))];
+  const visible = [
+    ...top.flatMap((x) => [x, ...stepsOf(x.id), ...copiesOf(x.id).flatMap((c) => [c, ...stepsOf(c.id)])]),
+    ...queues.flatMap((q) => (openQueues.has(q.goal.id) ? q.items : [])),
+  ];
+  const copyLabel = (c: wire.Task) => {
+    if (!c.occurrence_day) return undefined;
+    const rel = relativeDay(c.occurrence_day, today);
+    return ["today", "tomorrow", "yesterday"].includes(rel) ? rel[0].toUpperCase() + rel.slice(1) : formatDate(c.occurrence_day);
+  };
 
   async function addProject(e: React.FormEvent) {
     e.preventDefault();
@@ -145,11 +156,12 @@ export default function Projects() {
     return n;
   };
 
-  const row = (x: wire.Task, step = false) => (
+  const row = (x: wire.Task, step = false, label?: string) => (
     <TaskRow
       key={x.id}
       x={x}
       step={step}
+      label={label}
       goal={goalOf(x)}
       project={!selected ? (projects.find((p) => p.id === x.project_id) ?? d.projects.find((p) => p.id === x.project_id)) : undefined}
       today={today}
@@ -159,7 +171,7 @@ export default function Projects() {
       onComplete={(on) => (on ? done.complete(x, stepsOf(x.id).length > 0) : done.reopen(x))}
       onEdit={() => setEditing(x)}
       onDelete={() => removeTask(x)}
-      onStep={step || x.rrule ? undefined : () => setStepping((s) => flip(s, x.id))}
+      onStep={x.parent_id || x.rrule || (step && !x.template_id) ? undefined : () => setStepping((s) => flip(s, x.id))}
     />
   );
 
@@ -276,9 +288,25 @@ export default function Projects() {
             <ul className="flex flex-col">
               {top.map((x) => {
                 const steps = stepsOf(x.id);
+                const copies = copiesOf(x.id);
                 return (
                   <li key={x.id}>
                     <ul>{row(x)}</ul>
+                    {copies.length > 0 && (
+                      <ul className="ml-[1.85rem] border-l border-line pl-2">
+                        {copies.map((c) => {
+                          const cs = stepsOf(c.id);
+                          return (
+                            <li key={c.id}>
+                              <ul>{row(c, true, copyLabel(c))}</ul>
+                              {picking
+                                ? cs.length > 0 && <ul className="ml-[1.85rem] border-l border-line pl-2">{cs.map((s) => row(s, true))}</ul>
+                                : (cs.length > 0 || stepping.has(c.id)) && <StepList parent={c} steps={cs} adding={stepping.has(c.id) || cs.length > 0} className="mb-1.5" />}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
                     {picking
                       ? steps.length > 0 && <ul className="ml-[1.85rem] border-l border-line pl-2">{steps.map((s) => row(s, true))}</ul>
                       : (steps.length > 0 || stepping.has(x.id)) && <StepList parent={x} steps={steps} adding={stepping.has(x.id) || steps.length > 0} className="mb-1.5" />}
@@ -337,6 +365,7 @@ export default function Projects() {
 function TaskRow({
   x,
   step,
+  label,
   goal,
   project,
   today,
@@ -350,6 +379,8 @@ function TaskRow({
 }: {
   x: wire.Task;
   step: boolean;
+  /** Before the title, such as the day of a repeating task's copy. */
+  label?: string;
   goal?: wire.Goal;
   project?: wire.Project;
   today: string;
@@ -379,7 +410,10 @@ function TaskRow({
         )}
       </span>
       <button type="button" className="min-w-0 flex-1 text-left" onClick={picking ? onPick : onEdit} tabIndex={-1}>
-        <div className={cx(step ? "text-[13px]" : "text-sm", isDone ? "text-ink-faint line-through" : "text-ink")}>{x.title}</div>
+        <div className={cx(step ? "text-[13px]" : "text-sm", isDone ? "text-ink-faint line-through" : "text-ink")}>
+          {label && <span className="mr-1.5 text-xs font-medium text-ink-subtle">{label}</span>}
+          {x.title}
+        </div>
         {x.notes && <div className={cx("mt-0.5 text-xs whitespace-pre-line text-ink-subtle", step ? "line-clamp-2" : "line-clamp-1")}>{x.notes}</div>}
         {!step && (
           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -551,12 +585,15 @@ export function TaskForm({
   // A time set by hand: a pinned block on the plan.
   const [block, setBlock] = useState<Block | null>(null);
   const [saving, setSaving] = useState(false);
+  // Enter and the button both save: one save at a time, so a quick double press never makes the task twice.
+  const inFlight = useRef(false);
   // Occurrences of a repeating task cannot repeat themselves.
   const canRepeat = !task?.template_id;
   const goalKind = goals.find((g) => g.id === goal)?.kind;
 
   async function save() {
-    if (!title.trim()) return;
+    if (!title.trim() || inFlight.current) return;
+    inFlight.current = true;
     setSaving(true);
     const minutes = Math.round(parseDuration(estimate) / 60_000);
     const at = startDay && startMinute != null ? startMinute : null;
@@ -605,6 +642,7 @@ export function TaskForm({
     if (ok && task && schedule && !rule) await d.act(() => App.ScheduleTask(wire.ScheduleRequest.createFrom({ task_id: task.id, ...schedule })));
     setSaving(false);
     if (ok) onClose();
+    else inFlight.current = false; // a failed save may be tried again; a closed form never saves twice
   }
 
   return (

@@ -229,9 +229,15 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) error {
 	return s.taskReplanned(w, r, http.StatusCreated, t, nil)
 }
 
-// replan regenerates today's plan after tasks changed, so the change shows
-// on it at once. A failure is logged: the write it follows stands.
-func (s *Server) replan(ctx context.Context) {
+// replan brings today's plan up to date after what it depends on changed,
+// so the change shows on it at once. A failure is logged: the write it
+// follows stands.
+func (s *Server) replan(ctx context.Context) { s.Replan(ctx) }
+
+// Replan brings today's plan up to date and announces what changed. The
+// daemon also calls it as time moves on, so planned blocks never sit in the
+// past (docs/06-planner.md#generating-a-plan).
+func (s *Server) Replan(ctx context.Context) {
 	ch, err := s.Repos.Plans.Refresh(ctx, s.planEnv())
 	if err != nil {
 		slog.Warn("today's plan was not refreshed", "err", err)

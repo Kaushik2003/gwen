@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -275,4 +278,53 @@ func TestSingleInstance(t *testing.T) {
 	again, err := singleInstance(path)
 	require.NoError(t, err)
 	again()
+}
+
+func TestPlaceNowCardAddsItsRuleOnceAndLoadsTheScript(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	rules := "other"
+	var calls []string
+	run := func(name string, args ...string) (string, error) {
+		calls = append(calls, name+" "+strings.Join(args, " "))
+		switch {
+		case name == "kreadconfig6":
+			return rules + "\n", nil
+		case name == "kwriteconfig6" && args[3] == "General" && args[5] == "rules":
+			rules = args[6]
+		case name == "gdbus" && slices.Contains(args, "org.kde.kwin.Scripting.loadScript"):
+			return "(3,)\n", nil
+		}
+		return "", nil
+	}
+	require.NoError(t, placeNowCard("KDE", dir, run))
+	require.Equal(t, "other,gwen-now-card", rules)
+	require.Contains(t, calls, "kwriteconfig6 --file kwinrulesrc --group gwen-now-card --key aboverule 2")
+	require.Contains(t, calls, "kwriteconfig6 --file kwinrulesrc --group gwen-now-card --key placement --delete")
+	require.Contains(t, calls, "kwriteconfig6 --file kwinrulesrc --group General --key count 2")
+	script, err := os.ReadFile(filepath.Join(dir, "now-card.js"))
+	require.NoError(t, err)
+	require.Contains(t, string(script), "Gwen · now", "the script finds the card by the title gwen-ui gives it")
+	require.Contains(t, calls, "gdbus call --session --dest org.kde.KWin --object-path /Scripting --method org.kde.kwin.Scripting.loadScript "+
+		filepath.Join(dir, "now-card.js")+" gwen-now-card")
+	require.Equal(t, "gdbus call --session --dest org.kde.KWin --object-path /Scripting/Script3 --method org.kde.kwin.Script.run", calls[len(calls)-1])
+
+	require.NoError(t, placeNowCard("KDE", dir, run))
+	require.Equal(t, "other,gwen-now-card", rules, "a second run keeps one copy")
+
+	calls = nil
+	require.NoError(t, placeNowCard("GNOME", dir, run))
+	require.Empty(t, calls, "only KDE has KWin")
+}
+
+func TestTheTrayStepsAsideForThePanelWidget(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	rc := filepath.Join(dir, "plasma-org.kde.plasma.desktop-appletsrc")
+	require.False(t, widgetInPanel("KDE", dir), "no Plasma config")
+	require.NoError(t, os.WriteFile(rc, []byte("[Containments][2][Applets][7]\nplugin=org.kde.plasma.systemtray\n"), 0o600))
+	require.False(t, widgetInPanel("KDE", dir))
+	require.NoError(t, os.WriteFile(rc, []byte("[Containments][2][Applets][38]\nimmutability=1\nplugin=dev.gwen.panel\n"), 0o600))
+	require.True(t, widgetInPanel("KDE", dir))
+	require.False(t, widgetInPanel("GNOME", dir), "Plasma's config means nothing elsewhere")
 }

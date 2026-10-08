@@ -68,6 +68,7 @@ func (s *Server) Handler() http.Handler {
 	route("POST /v1/plan/generate", s.generatePlan)
 	route("POST /v1/plan/hours", s.setDayHours)
 	route("PATCH /v1/plan/items/{id}", s.patchPlanItem)
+	route("POST /v1/plan/move", s.movePlanTask)
 	route("POST /v1/plan/schedule", s.scheduleTask)
 	route("POST /v1/plan/unschedule", s.unscheduleTask)
 	route("GET /v1/briefing", s.briefing)
@@ -81,6 +82,7 @@ func (s *Server) Handler() http.Handler {
 	route("GET /v1/calendar/status", s.calendarStatus)
 	route("POST /v1/calendar/auth/start", s.calendarAuthStart)
 	route("POST /v1/calendar/sync", s.calendarSync)
+	route("GET /v1/calendar/calendars", s.calendarCalendars)
 
 	route("POST /v1/goals/{id}/breakdown", s.breakdown)
 	route("POST /v1/plan/chat", s.planChat)

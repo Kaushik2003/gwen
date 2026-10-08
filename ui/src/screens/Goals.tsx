@@ -10,7 +10,7 @@ import TimeInput from "../components/TimeInput";
 import { ProjectTag } from "../components/tags";
 import { Badge, Button, Callout, Checkbox, Empty, Field, IconButton, Input, Modal, PageHeader, Panel, Segmented, Select, TextArea, ToggleRow, cx } from "../components/ui";
 import { useDaemon } from "../daemon";
-import { daysBetween, formatDate, formatDuration, goDuration, parseDuration } from "../format";
+import { daysBetween, formatClock, formatDate, formatDuration, goDuration, parseDuration } from "../format";
 import { clockOf, describeRule, litWeekdays, weekdayCodes } from "../rrule";
 
 export default function Goals() {
@@ -582,7 +582,7 @@ function Commitments() {
                 </div>
               </div>
               <span className="w-28 text-right text-[13px] text-ink-muted tabular-nums">
-                {c.start_minute == null ? "Any time" : `${clockOf(c.start_minute)}–${clockOf(c.start_minute + c.duration_minutes)}`}
+                {c.start_minute == null ? "Any time" : `${formatClock(c.start_minute)}–${formatClock(c.start_minute + c.duration_minutes)}`}
               </span>
               <span className="w-14 text-right text-[13px] text-ink-subtle tabular-nums">{formatDuration(c.duration_minutes * 60_000)}</span>
               {!readOnly && (

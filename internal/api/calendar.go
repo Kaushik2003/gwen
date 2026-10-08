@@ -17,6 +17,7 @@ type CalendarService interface {
 	Status(ctx context.Context) gcal.Status
 	AuthStart(ctx context.Context) (string, error)
 	Sync(ctx context.Context) (gcal.Status, error)
+	Calendars(ctx context.Context) ([]gcal.Calendar, error)
 }
 
 // calendar returns the service, or unavailable when it is not configured.
@@ -97,5 +98,22 @@ func (s *Server) calendarSync(w http.ResponseWriter, r *http.Request) error {
 		return calendarErr(err)
 	}
 	writeJSON(w, http.StatusOK, calendarWire(st))
+	return nil
+}
+
+func (s *Server) calendarCalendars(w http.ResponseWriter, r *http.Request) error {
+	c, err := s.calendar()
+	if err != nil {
+		return err
+	}
+	cals, err := c.Calendars(r.Context())
+	if err != nil {
+		return calendarErr(err)
+	}
+	out := wire.CalendarList{Calendars: []wire.CalendarInfo{}}
+	for _, cal := range cals {
+		out.Calendars = append(out.Calendars, wire.CalendarInfo{ID: cal.ID, Name: cal.Name, Color: cal.Color, Primary: cal.Primary})
+	}
+	writeJSON(w, http.StatusOK, out)
 	return nil
 }

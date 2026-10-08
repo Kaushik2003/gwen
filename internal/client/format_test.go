@@ -38,9 +38,9 @@ func TestFormatDuration(t *testing.T) {
 func TestFormatTimeAndDay(t *testing.T) {
 	t.Parallel()
 	at := time.Date(2026, 9, 15, 7, 5, 59, 0, time.UTC)
-	require.Equal(t, "07:05", client.FormatTime(at))
+	require.Equal(t, "7:05 am", client.FormatTime(at))
 	require.Equal(t, "2026-09-15", client.FormatDay(at))
-	require.Equal(t, "19:30", client.FormatTime(time.Date(2026, 9, 15, 19, 30, 0, 0, time.UTC)))
+	require.Equal(t, "7:30 pm", client.FormatTime(time.Date(2026, 9, 15, 19, 30, 0, 0, time.UTC)))
 }
 
 func TestShortID(t *testing.T) {

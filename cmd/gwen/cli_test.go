@@ -112,7 +112,7 @@ func TestGolden(t *testing.T) {
 				f.Returns("Status", st, nil)
 			},
 			method: "Status",
-			out:    "Idle since 10:22 (still counting)\nToday   5h 47m worked · 38m break · target 8h (72%)\n",
+			out:    "Idle since 10:22 am (still counting)\nToday   5h 47m worked · 38m break · target 8h (72%)\n",
 		},
 		{
 			name: "health", args: []string{"health"},
@@ -165,12 +165,12 @@ func TestGolden(t *testing.T) {
 				f.Returns("Snooze", st, nil)
 			},
 			method: "Snooze",
-			out:    "Working · 3h 12m on Internship (task 0000cccc)\nToday   5h 47m worked · 38m break · target 8h (72%)\nNudges snoozed until 10:40\n",
+			out:    "Working · 3h 12m on Internship (task 0000cccc)\nToday   5h 47m worked · 38m break · target 8h (72%)\nNudges snoozed until 10:40 am\n",
 		},
 		{
 			name: "today", args: []string{"today"}, method: "GetDay", want: []any{testutil.Day0},
 			out: "2026-09-15 · 5h 47m worked · 38m break · target 8h (72%)\n" +
-				"0000dddd  09:00–10:00  work  Internship  user  1h\n" +
+				"0000dddd  9:00 am–10:00 am  work  Internship  user  1h\n" +
 				"Internship  5h 47m\n",
 		},
 		{
@@ -186,7 +186,7 @@ func TestGolden(t *testing.T) {
 		{
 			name: "day show", args: []string{"day", "show", "2026-09-14"}, method: "GetDay", want: []any{"2026-09-14"},
 			out: "2026-09-15 · 5h 47m worked · 38m break · target 8h (72%)\n" +
-				"0000dddd  09:00–10:00  work  Internship  user  1h\n" +
+				"0000dddd  9:00 am–10:00 am  work  Internship  user  1h\n" +
 				"Internship  5h 47m\n",
 		},
 		{
@@ -205,7 +205,7 @@ func TestGolden(t *testing.T) {
 			method: "CreateSegment",
 			want: []any{wire.CreateSegmentRequest{Day: testutil.Day0, Kind: "work", ProjectID: &pID,
 				StartedAt: wire.Millis(testutil.At("11:00")), EndedAt: &endMs}},
-			out: "0000dddd  09:00–10:00  work  Internship  user  1h\n",
+			out: "0000dddd  9:00 am–10:00 am  work  Internship  user  1h\n",
 		},
 		{
 			name: "seg add after midnight belongs to the work day", args: []string{"seg", "add", "--day", "2026-09-14", "--kind", "break_manual", "--start", "23:30", "--end", "01:00"},
@@ -213,14 +213,14 @@ func TestGolden(t *testing.T) {
 			method: "CreateSegment",
 			want: []any{wire.CreateSegmentRequest{Day: "2026-09-14", Kind: "break_manual",
 				StartedAt: wire.Millis(testutil.AtOn("2026-09-14", "23:30")), EndedAt: testutil.Ptr(wire.Millis(testutil.AtOn("2026-09-15", "01:00")))}},
-			out: "0000dddd  09:00–10:00  work  Internship  user  1h\n",
+			out: "0000dddd  9:00 am–10:00 am  work  Internship  user  1h\n",
 		},
 		{
 			name: "seg edit", args: []string{"seg", "edit", "0000dddd", "--end", "10:15", "--project", "none"},
 			script: func(f *clienttest.Fake) { f.Returns("PatchSegment", &segment, nil) },
 			method: "PatchSegment",
 			want:   []any{sID, wire.PatchSegmentRequest{EndedAt: testutil.Ptr(wire.Millis(testutil.At("10:15"))), ProjectID: wire.Null[string]()}},
-			out:    "0000dddd  09:00–10:00  work  Internship  user  1h\n",
+			out:    "0000dddd  9:00 am–10:00 am  work  Internship  user  1h\n",
 		},
 		{
 			name: "seg split", args: []string{"seg", "split", "0000dddd", "09:30"},
@@ -230,7 +230,7 @@ func TestGolden(t *testing.T) {
 				f.Returns("SplitSegment", &wire.SegmentList{Segments: []wire.Segment{a, b}}, nil)
 			},
 			method: "SplitSegment", want: []any{sID, wire.SplitSegmentRequest{At: wire.Millis(testutil.At("09:30"))}},
-			out: "0000dddd  09:00–09:30  work  Internship  user  30m\n0000dddd  09:30–10:00  work  Internship  user  30m\n",
+			out: "0000dddd  9:00 am–9:30 am   work  Internship  user  30m\n0000dddd  9:30 am–10:00 am  work  Internship  user  30m\n",
 		},
 		{
 			name: "seg rm", args: []string{"seg", "rm", "0000dddd"},

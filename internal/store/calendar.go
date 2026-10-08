@@ -17,9 +17,11 @@ type GcalLink struct {
 	SyncedAt   time.Time
 }
 
-// BusyInterval is time another calendar is busy.
+// BusyInterval is time another calendar is busy: one of its events.
 type BusyInterval struct {
 	CalendarID string
+	EventID    string // empty for an unnamed interval; one is made from its times
+	Title      string
 	Start, End time.Time
 }
 
@@ -168,14 +170,18 @@ func (r calendarRepo) ReplaceBusy(ctx context.Context, from, to time.Time, busy 
 		if _, err := tx.ExecContext(ctx, qClearBusy, to.UnixMilli(), from.UnixMilli()); err != nil {
 			return err
 		}
-		const qInsertBusy = `INSERT OR REPLACE INTO calendar_busy (calendar_id, event_id, start_at, end_at, fetched_at)
-			VALUES (?, ?, ?, ?, ?)`
+		const qInsertBusy = `INSERT OR REPLACE INTO calendar_busy (calendar_id, event_id, title, start_at, end_at, fetched_at)
+			VALUES (?, ?, ?, ?, ?, ?)`
 		for _, b := range busy {
 			s, e := b.Start.UnixMilli(), b.End.UnixMilli()
 			if e <= s {
 				continue
 			}
-			if _, err := tx.ExecContext(ctx, qInsertBusy, b.CalendarID, fmt.Sprintf("%d-%d", s, e), s, e, now); err != nil {
+			id := b.EventID
+			if id == "" {
+				id = fmt.Sprintf("%d-%d", s, e)
+			}
+			if _, err := tx.ExecContext(ctx, qInsertBusy, b.CalendarID, id, b.Title, s, e, now); err != nil {
 				return classify(err)
 			}
 		}
@@ -189,8 +195,8 @@ func (r calendarRepo) ReplaceBusy(ctx context.Context, from, to time.Time, busy 
 
 // busyBetween is the busy time intersecting [from, to), for capacity.
 func busyBetween(ctx context.Context, q Querier, from, to time.Time) ([]BusyInterval, error) {
-	const qBusy = `SELECT calendar_id, start_at, end_at FROM calendar_busy WHERE start_at < ? AND end_at > ?
-		ORDER BY start_at`
+	const qBusy = `SELECT calendar_id, event_id, title, start_at, end_at FROM calendar_busy WHERE start_at < ? AND end_at > ?
+		ORDER BY start_at, end_at, title`
 	rows, err := q.QueryContext(ctx, qBusy, to.UnixMilli(), from.UnixMilli())
 	if err != nil {
 		return nil, fmt.Errorf("busy times: %w", err)
@@ -200,7 +206,7 @@ func busyBetween(ctx context.Context, q Querier, from, to time.Time) ([]BusyInte
 	for rows.Next() {
 		var b BusyInterval
 		var s, e int64
-		if err := rows.Scan(&b.CalendarID, &s, &e); err != nil {
+		if err := rows.Scan(&b.CalendarID, &b.EventID, &b.Title, &s, &e); err != nil {
 			return nil, fmt.Errorf("busy times: %w", err)
 		}
 		b.Start, b.End = timeOf(s), timeOf(e)

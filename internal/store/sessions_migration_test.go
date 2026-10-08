@@ -51,7 +51,7 @@ func TestSessionsMigrationOnV3Data(t *testing.T) {
 	db, err := Open(ctx, dir, clock.NewFake(time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)))
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
-	require.Equal(t, int64(7), db.SchemaVersion())
+	require.Equal(t, int64(8), db.SchemaVersion())
 
 	r := NewRepos(db)
 	g, err := r.Goals.Get(ctx, "00000000-0000-7000-8000-000000000001")

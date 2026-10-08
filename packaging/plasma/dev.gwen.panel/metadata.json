@@ -1,0 +1,13 @@
+{
+    "KPackageStructure": "Plasma/Applet",
+    "KPlugin": {
+        "Authors": [{ "Name": "Kaushik Samadder" }],
+        "Category": "Utilities",
+        "Description": "Gwen's timer and what you are working on, right in the panel",
+        "Icon": "chronometer",
+        "Id": "dev.gwen.panel",
+        "Name": "Gwen",
+        "Version": "1.0"
+    },
+    "X-Plasma-API-Minimum-Version": "6.0"
+}

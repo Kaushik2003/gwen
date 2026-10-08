@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -22,6 +23,7 @@ import (
 	"github.com/kzark/gwen/internal/clock"
 	"github.com/kzark/gwen/internal/config"
 	"github.com/kzark/gwen/internal/model"
+	"github.com/kzark/gwen/internal/planner/civil"
 	"github.com/kzark/gwen/internal/store"
 	"github.com/kzark/gwen/internal/testutil"
 	"github.com/kzark/gwen/internal/timeengine"
@@ -43,7 +45,9 @@ type fakeCalendar struct {
 	created   int  // calendars ever created
 	expire    bool // every sync token is 410 Gone
 	fail      bool // every call is a 500
-	busy      map[string][]*calendar.TimePeriod
+	others    map[string][]*calendar.Event // the busy calendars' events, by calendar id
+	list      []*calendar.CalendarListEntry
+	scopeless bool // reading other calendars is refused for want of a scope
 	lists     []string // the sync token of each list call
 	inserts   int
 	patches   int
@@ -52,7 +56,7 @@ type fakeCalendar struct {
 
 func newFakeCalendar() *fakeCalendar {
 	return &fakeCalendar{calendars: map[string]*calendar.Calendar{}, events: map[string]*calendar.Event{},
-		changed: map[string]int{}, busy: map[string][]*calendar.TimePeriod{}}
+		changed: map[string]int{}, others: map[string][]*calendar.Event{}}
 }
 
 func (f *fakeCalendar) touch(ev *calendar.Event) {
@@ -64,6 +68,13 @@ func (f *fakeCalendar) touch(ev *calendar.Event) {
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(v)
+}
+
+func scopeError(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusForbidden)
+	fmt.Fprint(w, `{"error": {"code": 403, "message": "Request had insufficient authentication scopes.",
+		"errors": [{"message": "Insufficient Permission", "domain": "global", "reason": "insufficientPermissions"}]}}`)
 }
 
 func apiError(w http.ResponseWriter, code int) {
@@ -91,6 +102,19 @@ func (f *fakeCalendar) handler() http.Handler {
 		writeJSON(w, c)
 	})
 	mux.HandleFunc("GET /calendars/{cal}/events", func(w http.ResponseWriter, r *http.Request) {
+		if _, ours := f.calendars[r.PathValue("cal")]; !ours {
+			if f.scopeless {
+				scopeError(w)
+				return
+			}
+			evs, ok := f.others[r.PathValue("cal")]
+			if !ok {
+				apiError(w, http.StatusNotFound)
+				return
+			}
+			writeJSON(w, calendar.Events{Items: evs})
+			return
+		}
 		token := r.URL.Query().Get("syncToken")
 		f.lists = append(f.lists, token)
 		if token != "" && f.expire {
@@ -143,14 +167,16 @@ func (f *fakeCalendar) handler() http.Handler {
 		f.deletes++
 		w.WriteHeader(http.StatusNoContent)
 	})
-	mux.HandleFunc("POST /freeBusy", func(w http.ResponseWriter, r *http.Request) {
-		var req calendar.FreeBusyRequest
-		json.NewDecoder(r.Body).Decode(&req)
-		res := calendar.FreeBusyResponse{Calendars: map[string]calendar.FreeBusyCalendar{}}
-		for _, it := range req.Items {
-			res.Calendars[it.Id] = calendar.FreeBusyCalendar{Busy: f.busy[it.Id]}
+	mux.HandleFunc("GET /users/me/calendarList", func(w http.ResponseWriter, r *http.Request) {
+		if f.scopeless {
+			scopeError(w)
+			return
 		}
-		writeJSON(w, res)
+		items := slices.Clone(f.list)
+		for id, c := range f.calendars {
+			items = append(items, &calendar.CalendarListEntry{Id: id, Summary: c.Summary})
+		}
+		writeJSON(w, calendar.CalendarList{Items: items})
 	})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
@@ -316,8 +342,8 @@ func TestFirstSyncCreatesTheCalendarAndPushes(t *testing.T) {
 
 	// An edited item is patched.
 	f.clk.Advance(time.Minute)
-	_, err = f.repos.Plans.UpdateItem(f.ctx, item.ID, store.PlanItemPatch{
-		StartAt: store.Nullable[time.Time]{Set: true, Value: testutil.Ptr(at("11:00"))}})
+	_, _, err = f.repos.Plans.UpdateItem(f.ctx, item.ID, store.PlanItemPatch{
+		StartAt: store.Nullable[time.Time]{Set: true, Value: testutil.Ptr(at("11:00"))}}, f.env())
 	require.NoError(t, err)
 	f.clk.Advance(time.Minute)
 	f.sync()
@@ -337,7 +363,7 @@ func TestFirstSyncCreatesTheCalendarAndPushes(t *testing.T) {
 	f.clk.Advance(time.Minute)
 	_, err = f.repos.Tasks.Reopen(f.ctx, tk.ID, testutil.Day0)
 	require.NoError(t, err)
-	_, err = f.repos.Plans.UpdateItem(f.ctx, item.ID, store.PlanItemPatch{Status: testutil.Ptr(model.PlanSkipped)})
+	_, _, err = f.repos.Plans.UpdateItem(f.ctx, item.ID, store.PlanItemPatch{Status: testutil.Ptr(model.PlanSkipped)}, f.env())
 	require.NoError(t, err)
 	f.clk.Advance(time.Minute)
 	f.sync()
@@ -388,8 +414,8 @@ func TestPullAppliesMovesAndCancellations(t *testing.T) {
 	f.clk.Advance(time.Minute)
 	stale := f.clk.Now()
 	f.clk.Advance(time.Minute)
-	_, err = f.repos.Plans.UpdateItem(f.ctx, moved.ID, store.PlanItemPatch{
-		StartAt: store.Nullable[time.Time]{Set: true, Value: testutil.Ptr(at("15:00"))}})
+	_, _, err = f.repos.Plans.UpdateItem(f.ctx, moved.ID, store.PlanItemPatch{
+		StartAt: store.Nullable[time.Time]{Set: true, Value: testutil.Ptr(at("15:00"))}}, f.env())
 	require.NoError(t, err)
 	f.cal.move(lm.EventID, at("16:00"), at("16:30"), stale)
 	f.clk.Advance(time.Minute)
@@ -429,37 +455,117 @@ func TestAMissingCalendarIsCreatedAgain(t *testing.T) {
 	require.True(t, ok)
 }
 
+// timed is a timed event from hm to hm on Day0.
+func timed(id, title, from, to string) *calendar.Event {
+	return &calendar.Event{Id: id, Summary: title, Status: "confirmed",
+		Start: &calendar.EventDateTime{DateTime: at(from).Format(time.RFC3339)}, End: &calendar.EventDateTime{DateTime: at(to).Format(time.RFC3339)}}
+}
+
+func (f *fx) busyRows() []string {
+	rows, err := f.db.SQL().Query(`SELECT calendar_id, event_id, title FROM calendar_busy ORDER BY start_at, event_id`)
+	require.NoError(f.t, err)
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var c, e, title string
+		require.NoError(f.t, rows.Scan(&c, &e, &title))
+		out = append(out, c+" "+e+" "+title)
+	}
+	return out
+}
+
 func TestBusyTimesAreReplacedAndReduceCapacity(t *testing.T) {
 	t.Parallel()
 	f := newFx(t)
 	before := f.plan().Capacity
-	f.cal.busy["primary"] = []*calendar.TimePeriod{{Start: at("10:00").Format(time.RFC3339), End: at("11:00").Format(time.RFC3339)}}
+	f.cal.others["primary"] = []*calendar.Event{timed("standup", "Standup", "10:00", "11:00")}
 	f.sync()
-	busy := func() []string {
-		rows, err := f.db.SQL().Query(`SELECT calendar_id, event_id FROM calendar_busy ORDER BY start_at`)
-		require.NoError(t, err)
-		defer rows.Close()
-		var out []string
-		for rows.Next() {
-			var c, e string
-			require.NoError(t, rows.Scan(&c, &e))
-			out = append(out, c+" "+e)
-		}
-		return out
-	}
-	require.Equal(t, []string{fmt.Sprintf("primary %d-%d", at("10:00").UnixMilli(), at("11:00").UnixMilli())}, busy())
+	require.Equal(t, []string{"primary standup Standup"}, f.busyRows())
 	p, _, err := f.repos.Plans.Generate(f.ctx, testutil.Day0, f.env())
 	require.NoError(t, err)
 	require.Equal(t, before, p.Capacity, "the target, not the window, limits a free day")
+	require.Len(t, p.Events, 1)
+	require.Equal(t, "Standup", p.Events[0].Title)
+	require.True(t, p.Events[0].Start.Equal(at("10:00")))
 	env := f.env()
 	env.DayEnd = 17 * 60 // 8 h window: now busy time binds
 	p, _, err = f.repos.Plans.Generate(f.ctx, testutil.Day0, env)
 	require.NoError(t, err)
 	require.Equal(t, 7*60-30, p.Capacity)
 
-	f.cal.busy["primary"] = []*calendar.TimePeriod{{Start: at("14:00").Format(time.RFC3339), End: at("14:30").Format(time.RFC3339)}}
+	f.cal.others["primary"] = []*calendar.Event{timed("review", "Review", "14:00", "14:30")}
 	f.sync()
-	require.Equal(t, []string{fmt.Sprintf("primary %d-%d", at("14:00").UnixMilli(), at("14:30").UnixMilli())}, busy())
+	require.Equal(t, []string{"primary review Review"}, f.busyRows())
+}
+
+func TestWhichEventsAreBusy(t *testing.T) {
+	t.Parallel()
+	f := newFx(t)
+	f.cfg.Calendar.BusyCalendars = []string{"primary", "work@example.com", "gone@example.com"}
+	free := timed("free", "Gym", "07:00", "08:00")
+	free.Transparency = "transparent"
+	declined := timed("declined", "All hands", "12:00", "13:00")
+	declined.Attendees = []*calendar.EventAttendee{{Email: "me@example.com", Self: true, ResponseStatus: "declined"}}
+	location := timed("location", "Office", "09:00", "17:00")
+	location.EventType = "workingLocation"
+	cancelled := timed("cancelled", "Lunch", "13:00", "14:00")
+	cancelled.Status = "cancelled"
+	allDay := func(id string, transparency string) *calendar.Event {
+		return &calendar.Event{Id: id, Summary: id, Status: "confirmed", Transparency: transparency,
+			Start: &calendar.EventDateTime{Date: testutil.Day0}, End: &calendar.EventDateTime{Date: civil.MustParse(testutil.Day0).AddDays(1).String()}}
+	}
+	f.cal.others["primary"] = []*calendar.Event{free, declined, location, cancelled, allDay("birthday", "transparent")}
+	f.cal.others["work@example.com"] = []*calendar.Event{timed("1on1", "1:1", "15:00", "15:30"), allDay("offsite", "")}
+	st := f.sync()
+	require.Empty(t, st.LastError, "a busy calendar that is gone is skipped")
+	require.Equal(t, []string{"work@example.com offsite offsite", "primary free Gym", "work@example.com 1on1 1:1"}, f.busyRows())
+	var offsite store.BusyInterval
+	for _, e := range f.plan().Events {
+		if e.Title == "offsite" {
+			offsite = e
+		}
+	}
+	require.True(t, offsite.Start.Equal(civil.MustParse(testutil.Day0).Midnight(time.UTC)), "an all-day event runs midnight to midnight")
+}
+
+func TestACalendarListedTwiceCountsOnce(t *testing.T) {
+	t.Parallel()
+	f := newFx(t)
+	f.cfg.Calendar.BusyCalendars = []string{"primary", "me@example.com"}
+	standup := timed("standup", "Standup", "10:00", "11:00")
+	f.cal.others["primary"] = []*calendar.Event{standup}
+	f.cal.others["me@example.com"] = []*calendar.Event{standup}
+	require.Empty(t, f.sync().LastError)
+	require.Equal(t, []string{"primary standup Standup"}, f.busyRows())
+}
+
+func TestMissingScopeAsksToReconnect(t *testing.T) {
+	t.Parallel()
+	f := newFx(t)
+	f.cal.scopeless = true
+	st := f.sync()
+	require.Contains(t, st.LastError, "connected again")
+	_, err := f.s.Calendars(f.ctx)
+	require.ErrorIs(t, err, ErrUnavailable)
+	require.Contains(t, err.Error(), "connected again")
+}
+
+func TestCalendarsListsAllButGwens(t *testing.T) {
+	t.Parallel()
+	f := newFx(t)
+	f.sync() // creates Gwen's calendar
+	f.cal.list = []*calendar.CalendarListEntry{
+		{Id: "work@example.com", Summary: "work", SummaryOverride: "Work", BackgroundColor: "#16a765"},
+		{Id: "me@example.com", Summary: "me@example.com", Primary: true},
+		{Id: "anniv@example.com", Summary: "Birthdays"},
+	}
+	cals, err := f.s.Calendars(f.ctx)
+	require.NoError(t, err)
+	require.Equal(t, []Calendar{
+		{ID: "primary", Name: "me@example.com", Primary: true},
+		{ID: "anniv@example.com", Name: "Birthdays"},
+		{ID: "work@example.com", Name: "Work", Color: "#16a765"},
+	}, cals)
 }
 
 func TestFailuresBackOff(t *testing.T) {
