@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="assets/readme/moods.png" alt="Gwen's moods: smiling, happy, winking, thinking, smug, shocked, annoyed, in love" width="760">
-</p>
-
 <h1 align="center">Gwen</h1>
 
 <p align="center">
