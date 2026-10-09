@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "Stepping away from the desk",
+    "output": "tracking.html",
+    "viewBox": [1040, 560],
+    "column_fit": "spread",
+    "quality_profile": "showcase"
+  },
+  "participants": [
+    { "id": "you", "type": "external", "label": "You", "sublabel": "at the keyboard" },
+    { "id": "activity", "type": "backend", "label": "Activity monitor", "sublabel": "Wayland idle" },
+    { "id": "engine", "type": "backend", "label": "Time engine", "sublabel": "inside gwend" },
+    { "id": "notify", "type": "messagebus", "label": "Notifier", "sublabel": "desktop + ntfy" },
+    { "id": "store", "type": "database", "label": "SQLite", "sublabel": "segments" }
+  ],
+  "segments": [
+    { "from": 150, "to": 262, "label": "Step away" },
+    { "from": 272, "to": 362, "label": "Reclaim" },
+    { "from": 372, "to": 470, "label": "Come back" }
+  ],
+  "messages": [
+    { "id": "go-quiet", "from": "you", "to": "activity", "y": 165, "label": "no input", "variant": "dashed" },
+    { "id": "soft-idle", "from": "activity", "to": "engine", "y": 192, "label": "idle 3 min", "variant": "emphasis" },
+    { "id": "send-nudge", "from": "engine", "to": "notify", "y": 220, "label": "idle nudge", "variant": "default" },
+    { "id": "nudge-you", "from": "notify", "to": "you", "y": 248, "label": "still there? (desktop + phone)", "variant": "return" },
+    { "id": "hard-idle", "from": "activity", "to": "engine", "y": 285, "label": "idle 10 min", "variant": "emphasis" },
+    { "id": "reclaim", "from": "engine", "to": "store", "y": 315, "label": "end work at last input, start break", "variant": "emphasis" },
+    { "id": "withdraw", "from": "engine", "to": "notify", "y": 345, "label": "withdraw nudge", "variant": "dashed" },
+    { "id": "come-back", "from": "you", "to": "activity", "y": 390, "label": "input returns", "variant": "default" },
+    { "id": "active", "from": "activity", "to": "engine", "y": 420, "label": "active", "variant": "emphasis" },
+    { "id": "resume", "from": "engine", "to": "store", "y": 452, "label": "end break, start work", "variant": "emphasis" }
+  ],
+  "activations": [
+    { "participant": "engine", "from": 187, "to": 458, "type": "backend" },
+    { "participant": "notify", "from": 215, "to": 254, "type": "messagebus" },
+    { "participant": "store", "from": 310, "to": 321, "type": "database" },
+    { "participant": "store", "from": 447, "to": 458, "type": "database" }
+  ],
+  "cards": [
+    { "dot": "emerald", "title": "Only presence", "items": ["Input or no input is the only signal read", "Nothing about what you type or which app is focused"] },
+    { "dot": "amber", "title": "Honest hours", "items": ["Idle past 10 min becomes a break from the last input", "Lock and suspend start a break at once"] },
+    { "dot": "violet", "title": "Gentle nudges", "items": ["Desktop and phone at once", "Withdrawn as soon as they no longer apply"] }
+  ]
+}

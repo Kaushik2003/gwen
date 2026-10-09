@@ -1,0 +1,387 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Gwen architecture",
+    "output": "architecture.html",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1340,
+      700
+    ],
+    "repository": {
+      "url": "https://github.com/Kaushik2003/gwen",
+      "link_mode": "local-only",
+      "revision": "40eca1da801085f1d6232532d64c66b382c2b50b",
+      "provider": "github"
+    }
+  },
+  "components": [
+    {
+      "id": "voice",
+      "type": "backend",
+      "label": "Voice",
+      "sublabel": "Parakeet STT · Kokoro TTS",
+      "pos": [
+        30,
+        300
+      ],
+      "size": [
+        160,
+        64
+      ],
+      "sources": [
+        {
+          "path": "internal/voice/engine.go"
+        }
+      ]
+    },
+    {
+      "id": "panel",
+      "type": "frontend",
+      "label": "KDE panel widget",
+      "sublabel": "Plasma QML",
+      "pos": [
+        280,
+        110
+      ],
+      "size": [
+        170,
+        64
+      ],
+      "sources": [
+        {
+          "path": "packaging/plasma/dev.gwen.panel/contents/ui/main.qml"
+        }
+      ]
+    },
+    {
+      "id": "ui",
+      "type": "frontend",
+      "label": "gwen-ui",
+      "sublabel": "Wails + React dashboard",
+      "pos": [
+        280,
+        300
+      ],
+      "size": [
+        170,
+        64
+      ],
+      "sources": [
+        {
+          "path": "cmd/gwen-ui/main.go"
+        }
+      ]
+    },
+    {
+      "id": "cli",
+      "type": "frontend",
+      "label": "gwen · gwen-tray",
+      "sublabel": "CLI and tray icon",
+      "pos": [
+        280,
+        490
+      ],
+      "size": [
+        170,
+        64
+      ],
+      "sources": [
+        {
+          "path": "cmd/gwen/root.go"
+        },
+        {
+          "path": "cmd/gwen-tray/main.go"
+        }
+      ]
+    },
+    {
+      "id": "activity",
+      "type": "backend",
+      "label": "Activity monitor",
+      "sublabel": "Wayland idle · login1",
+      "pos": [
+        570,
+        110
+      ],
+      "size": [
+        180,
+        64
+      ],
+      "sources": [
+        {
+          "path": "internal/activity/activity.go"
+        }
+      ]
+    },
+    {
+      "id": "gwend",
+      "type": "backend",
+      "label": "gwend",
+      "sublabel": "time engine · planner · LLM",
+      "tag": "Unix socket API",
+      "pos": [
+        570,
+        300
+      ],
+      "size": [
+        180,
+        72
+      ],
+      "sources": [
+        {
+          "path": "cmd/gwend/daemon.go"
+        }
+      ]
+    },
+    {
+      "id": "store",
+      "type": "database",
+      "label": "SQLite",
+      "sublabel": "gwen.db",
+      "pos": [
+        570,
+        500
+      ],
+      "size": [
+        180,
+        64
+      ],
+      "sources": [
+        {
+          "path": "internal/store/db.go"
+        }
+      ]
+    },
+    {
+      "id": "llm",
+      "type": "external",
+      "label": "LLM provider",
+      "sublabel": "Anthropic · Ollama · Claude Code",
+      "pos": [
+        890,
+        60
+      ],
+      "size": [
+        200,
+        64
+      ],
+      "sources": [
+        {
+          "path": "internal/llm/providers.go"
+        }
+      ]
+    },
+    {
+      "id": "gcal",
+      "type": "external",
+      "label": "Google Calendar",
+      "sublabel": "OAuth desktop client",
+      "pos": [
+        890,
+        220
+      ],
+      "size": [
+        200,
+        64
+      ],
+      "sources": [
+        {
+          "path": "internal/gcal/gcal.go"
+        }
+      ]
+    },
+    {
+      "id": "ntfy",
+      "type": "external",
+      "label": "ntfy",
+      "sublabel": "ntfy.sh or the Pi",
+      "pos": [
+        890,
+        380
+      ],
+      "size": [
+        200,
+        64
+      ],
+      "sources": [
+        {
+          "path": "internal/notify/ntfy.go"
+        }
+      ]
+    },
+    {
+      "id": "hub",
+      "type": "cloud",
+      "label": "Sync hub",
+      "sublabel": "gwend on a Raspberry Pi",
+      "pos": [
+        890,
+        560
+      ],
+      "size": [
+        200,
+        64
+      ],
+      "sources": [
+        {
+          "path": "cmd/gwend/hub.go"
+        }
+      ]
+    },
+    {
+      "id": "phone",
+      "type": "external",
+      "label": "Phone",
+      "sublabel": "ntfy app · web dashboard",
+      "pos": [
+        1170,
+        470
+      ],
+      "size": [
+        140,
+        64
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Your Linux desktop",
+      "wraps": [
+        "voice",
+        "panel",
+        "ui",
+        "cli",
+        "activity",
+        "gwend",
+        "store"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "ui-api",
+      "from": "ui",
+      "to": "gwend",
+      "label": "API + SSE",
+      "variant": "emphasis"
+    },
+    {
+      "id": "ui-voice",
+      "from": "ui",
+      "to": "voice",
+      "label": "mic / speech"
+    },
+    {
+      "id": "panel-ui",
+      "from": "panel",
+      "to": "ui",
+      "label": "opens, talk",
+      "labelAt": [
+        365,
+        237
+      ]
+    },
+    {
+      "id": "cli-api",
+      "from": "cli",
+      "to": "gwend",
+      "label": "socket API"
+    },
+    {
+      "id": "activity-gwend",
+      "from": "activity",
+      "to": "gwend",
+      "label": "idle, lock, suspend",
+      "labelAt": [
+        660,
+        237
+      ]
+    },
+    {
+      "id": "gwend-store",
+      "from": "gwend",
+      "to": "store",
+      "label": "sole owner",
+      "labelAt": [
+        660,
+        436
+      ]
+    },
+    {
+      "id": "gwend-llm",
+      "from": "gwend",
+      "to": "llm",
+      "label": "proposals",
+      "variant": "dashed",
+      "labelSegment": 2
+    },
+    {
+      "id": "gwend-gcal",
+      "from": "gwend",
+      "to": "gcal",
+      "label": "plan, busy",
+      "variant": "dashed",
+      "labelSegment": 2
+    },
+    {
+      "id": "gwend-ntfy",
+      "from": "gwend",
+      "to": "ntfy",
+      "label": "nudges",
+      "variant": "dashed",
+      "labelSegment": 2
+    },
+    {
+      "id": "gwend-hub",
+      "from": "gwend",
+      "to": "hub",
+      "label": "push / pull",
+      "variant": "dashed",
+      "labelSegment": 2
+    },
+    {
+      "id": "ntfy-phone",
+      "from": "ntfy",
+      "to": "phone",
+      "label": "push"
+    },
+    {
+      "id": "hub-phone",
+      "from": "hub",
+      "to": "phone",
+      "label": "read-only"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Clients",
+      "items": [
+        "Every client talks to gwend over its Unix socket",
+        "No client opens the database",
+        "Closing the dashboard never stops tracking"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Daemon",
+      "items": [
+        "Pure time engine and planner",
+        "Idle signal is input or no input, nothing else",
+        "LLM only proposes; you accept"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Optional reach",
+      "items": [
+        "Phone nudges through ntfy",
+        "Plan written to Google Calendar",
+        "Pi hub syncs and serves a read-only phone view"
+      ]
+    }
+  ]
+}
