@@ -45,7 +45,7 @@ type Server struct {
 	Calendar CalendarService
 	// LLM builds the LLM adapter for the configuration in effect, nil when
 	// the daemon runs none.
-	LLM func(cfg config.LLM) (llm.Planner, error)
+	LLM func(cfg config.LLM, self llm.Self) (llm.Planner, error)
 	// Sync is the sync hub client, nil when the daemon runs none.
 	Sync       SyncService
 	Clock      clock.Clock

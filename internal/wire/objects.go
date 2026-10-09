@@ -263,10 +263,8 @@ type LLMConfig struct {
 	Endpoint string `json:"endpoint" toml:"endpoint"`
 	Command  string `json:"command" toml:"command"`
 	Timeout  string `json:"timeout" toml:"timeout"`
-	// The assistant's name, personality preset, and the user's own words
-	// added to its prompt.
+	// The assistant's name and the user's own words added to its prompt.
 	AssistantName string `json:"assistant_name" toml:"assistant_name"`
-	Personality   string `json:"personality" toml:"personality"`
 	Instructions  string `json:"instructions" toml:"instructions"`
 }
 

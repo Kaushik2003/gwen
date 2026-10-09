@@ -42,6 +42,9 @@ type Options struct {
 	HTTPClient *http.Client // nil means http.DefaultClient
 	// AnthropicURL overrides the Messages API endpoint, for tests.
 	AnthropicURL string
+	// Self is how the assistant has chosen to treat the user, which opens
+	// the prompts that talk to them.
+	Self Self
 }
 
 // New returns the adapter for the configured provider. Credentials are read
@@ -51,7 +54,7 @@ func New(cfg config.LLM, o Options) (Planner, error) {
 	if client == nil {
 		client = http.DefaultClient
 	}
-	a := &adapter{name: cfg.Provider, timeout: cfg.Timeout, persona: PersonaPrompt(cfg)}
+	a := &adapter{name: cfg.Provider, timeout: cfg.Timeout, persona: PersonaPrompt(cfg, o.Self)}
 	switch cfg.Provider {
 	case config.ProviderAnthropic:
 		key, err := apiKey(o.CredDir)

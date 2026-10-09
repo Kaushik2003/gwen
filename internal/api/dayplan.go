@@ -35,7 +35,7 @@ func (s *Server) planChat(w http.ResponseWriter, r *http.Request) error {
 	if n := utf8.RuneCountInString(msg); n < 1 || n > llm.MaxMessage {
 		return badRequest("message", "a message is 1 to %d characters", llm.MaxMessage)
 	}
-	p, err := s.planner()
+	p, err := s.planner(r.Context())
 	if err != nil {
 		return err
 	}

@@ -10,6 +10,15 @@ func (f *Fake) AssistantChat(_ context.Context, req wire.AssistantChatRequest) (
 	return result[*wire.LlmRun](f, "AssistantChat", req)
 }
 
+func (f *Fake) AssistantSelf(_ context.Context) (*wire.AssistantSelf, error) {
+	return result[*wire.AssistantSelf](f, "AssistantSelf")
+}
+
+func (f *Fake) ResetAssistantSelf(_ context.Context) error {
+	_, err := f.invoke("ResetAssistantSelf")
+	return err
+}
+
 func (f *Fake) ScheduleTask(_ context.Context, req wire.ScheduleRequest) (*wire.PlanItem, error) {
 	return result[*wire.PlanItem](f, "ScheduleTask", req)
 }

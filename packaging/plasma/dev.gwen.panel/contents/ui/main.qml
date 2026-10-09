@@ -1,7 +1,8 @@
 // Gwen in the KDE panel: the day's worked timer and the task or project being
 // tracked. A click drops down the now card (NowCard.qml) as Plasma's own
-// popup; a right click has the tray's commands. It polls `gwen panel` every
-// few seconds and ticks the timers in between.
+// popup; a right click has the tray's commands. Talk opens a call with Gwen
+// in her own window (gwen-ui --talk). It polls `gwen panel` every few seconds
+// and ticks the timers in between.
 import QtQuick
 import QtQuick.Layouts
 import org.kde.plasma.plasmoid
@@ -30,6 +31,15 @@ PlasmoidItem {
     readonly property string stateLabel: ({
         off: "Not clocked in", working: "Working", idle_pending: "Idle", break_auto: "On break", break_manual: "On break"
     })[line.state] || "Gwen isn't running"
+    // Gwen's face for the state, a sprite in contents/images: sorted while you
+    // work and won over once the target is met, wondering where you went when
+    // idle, glad on a break, and in tears when she isn't running.
+    readonly property bool targetMet: line.target_ms > 0 && worked >= line.target_ms
+    readonly property string mood: line.state === "down" ? "crying"
+        : line.state === "idle_pending" ? "thinking"
+        : onBreak ? "happy"
+        : working ? (targetMet ? "love" : "cool")
+        : "smiling"
 
     preferredRepresentation: compactRepresentation
     Plasmoid.backgroundHints: PlasmaCore.Types.NoBackground | PlasmaCore.Types.ConfigurableBackground
@@ -38,6 +48,7 @@ PlasmoidItem {
         : [line.project + (line.task ? " — " + line.task : ""),
            line.target_ms > 0 ? Math.round(worked * 100 / line.target_ms) + "% of " + duration(line.target_ms) : ""].filter(s => s).join("\n")
 
+    function face(mood) { return Qt.resolvedUrl("../images/" + mood + ".png"); }
     // "4:03:12" for a ticking timer.
     function clock(ms) {
         const s = Math.max(0, Math.floor(ms / 1000));
@@ -64,6 +75,11 @@ PlasmoidItem {
     function openDashboard(screen) {
         root.expanded = false;
         exec.connectSource(screen ? "gwen-ui --screen " + screen : "gwen-ui");
+    }
+    // Opens a spoken conversation with Gwen, listening at once.
+    function talk() {
+        root.expanded = false;
+        exec.connectSource("gwen-ui --talk");
     }
     // Tracks a project, "" for none, without a task: switches to it, or
     // clocks in on it when off the clock.
@@ -143,6 +159,12 @@ PlasmoidItem {
             isSeparator: true
         },
         PlasmaCore.Action {
+            text: "Talk to Gwen"
+            icon.name: "audio-input-microphone"
+            visible: root.line.state !== "down"
+            onTriggered: root.talk()
+        },
+        PlasmaCore.Action {
             text: "Ask the assistant…"
             icon.name: "dialog-messages"
             onTriggered: root.openDashboard("assistant")
@@ -165,6 +187,7 @@ PlasmoidItem {
     ]
 
     compactRepresentation: MouseArea {
+        id: compact
         Layout.minimumWidth: row.implicitWidth + Kirigami.Units.smallSpacing * 2
         Layout.preferredWidth: Layout.minimumWidth
         hoverEnabled: true
@@ -176,9 +199,26 @@ PlasmoidItem {
             anchors.centerIn: parent
             spacing: Kirigami.Units.smallSpacing
 
-            Rectangle {
-                width: Kirigami.Units.smallSpacing * 2; height: width; radius: width / 2
-                color: root.stateColor
+            // Gwen's face, with the state's colour as a dot on its corner.
+            Item {
+                implicitWidth: Math.min(Kirigami.Units.iconSizes.medium, compact.height)
+                implicitHeight: implicitWidth
+                Image {
+                    anchors.fill: parent
+                    source: root.face(root.mood)
+                    sourceSize: Qt.size(width * 2, height * 2)
+                    fillMode: Image.PreserveAspectFit
+                    smooth: true
+                    mipmap: true
+                }
+                Rectangle {
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    width: Kirigami.Units.smallSpacing * 2 + 2; height: width; radius: width / 2
+                    color: root.stateColor
+                    border.width: 1.5
+                    border.color: Kirigami.Theme.backgroundColor
+                }
             }
             PlasmaComponents.Label {
                 text: root.line.state === "down" ? "Gwen off"

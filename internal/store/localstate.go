@@ -22,12 +22,15 @@ const (
 	// KeyPlannedDay is the last day this daemon generated a plan for, so a
 	// day whose only items were placed by hand ahead of time still gets one.
 	KeyPlannedDay = "planned_day"
+	// KeyAssistantSelf is how the assistant chose to treat the user, as the
+	// JSON of wire.AssistantSelf.
+	KeyAssistantSelf = "assistant_self"
 )
 
 func knownKey(key string) bool {
 	switch key {
 	case KeyDeviceID, KeyHeartbeatAt, KeyShutdownAt, KeyGcalCalendarID, KeyGcalSyncToken,
-		KeySyncPushWatermark, KeySyncPullCursor, KeyPlannedDay:
+		KeySyncPushWatermark, KeySyncPullCursor, KeyPlannedDay, KeyAssistantSelf:
 		return true
 	}
 	return false

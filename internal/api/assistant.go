@@ -17,11 +17,16 @@ import (
 	"github.com/kzark/gwen/internal/model"
 	"github.com/kzark/gwen/internal/planner/civil"
 	"github.com/kzark/gwen/internal/store"
+	"github.com/kzark/gwen/internal/timeengine"
 	"github.com/kzark/gwen/internal/wire"
 )
 
-// assistantDays is how many days from today a task's planned blocks are sent.
-const assistantDays = 7
+// assistantDays is how many days from today a task's planned blocks are sent,
+// and recentDays how many days up to today the time worked is.
+const (
+	assistantDays = 7
+	recentDays    = 7
+)
 
 // assistantChat is POST /v1/assistant/chat: one message to the assistant,
 // which answers and changes tasks, the plan, projects, and goals by itself.
@@ -34,7 +39,7 @@ func (s *Server) assistantChat(w http.ResponseWriter, r *http.Request) error {
 	if n := utf8.RuneCountInString(msg); n < 1 || n > llm.MaxMessage {
 		return badRequest("message", "a message is 1 to %d characters", llm.MaxMessage)
 	}
-	p, err := s.planner()
+	p, err := s.planner(r.Context())
 	if err != nil {
 		return err
 	}
@@ -59,8 +64,13 @@ func (s *Server) assistantChat(w http.ResponseWriter, r *http.Request) error {
 		run, err = s.Repos.LLMRuns.Create(ctx, model.RunAssistant, today, model.RunFailed, wire.RunError{Error: err.Error()})
 	} else {
 		results := s.applyActions(ctx, out.Actions, refs)
+		// Her attitude only colours the reply; the reply and its changes stand without it.
+		switched, serr := s.changeSelf(ctx, out.Attitude, out.SelfNote)
+		if serr != nil {
+			slog.Warn("assistant attitude not saved", "err", serr)
+		}
 		history = append(history, wire.AssistantMessage{Role: llm.RoleAssistant, Text: out.Reply,
-			At: wire.Millis(s.now()), Actions: results})
+			At: wire.Millis(s.now()), Mood: out.Mood, Attitude: switched, Actions: results})
 		run, err = s.Repos.LLMRuns.Create(ctx, model.RunAssistant, today, model.RunOK,
 			wire.AssistantOutput{Messages: history})
 	}
@@ -69,6 +79,88 @@ func (s *Server) assistantChat(w http.ResponseWriter, r *http.Request) error {
 	}
 	writeJSON(w, http.StatusOK, runWire(run))
 	return nil
+}
+
+// getAssistantSelf is GET /v1/assistant/self.
+func (s *Server) getAssistantSelf(w http.ResponseWriter, r *http.Request) error {
+	self, err := s.assistantSelf(r.Context())
+	if err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, self)
+	return nil
+}
+
+// resetAssistantSelf is DELETE /v1/assistant/self: the assistant forgets the
+// attitude it chose and its note, and starts fresh.
+func (s *Server) resetAssistantSelf(w http.ResponseWriter, r *http.Request) error {
+	if err := store.DeleteLocal(r.Context(), s.DB.SQL(), store.KeyAssistantSelf); err != nil {
+		return err
+	}
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
+// assistantSelf is how the assistant chose to treat the user, empty before
+// it chose. A value that no longer reads is dropped, as if it never chose.
+func (s *Server) assistantSelf(ctx context.Context) (wire.AssistantSelf, error) {
+	var self wire.AssistantSelf
+	v, err := store.GetLocal(ctx, s.DB.SQL(), store.KeyAssistantSelf)
+	if errors.Is(err, store.ErrNotFound) {
+		return self, nil
+	}
+	if err != nil {
+		return self, err
+	}
+	if err := json.Unmarshal([]byte(v), &self); err != nil {
+		slog.Warn("assistant self unreadable, starting fresh", "err", err)
+		return wire.AssistantSelf{}, nil
+	}
+	return self, nil
+}
+
+// llmSelf is self as the prompts word it, with the day it was chosen.
+func (s *Server) llmSelf(self wire.AssistantSelf) llm.Self {
+	out := llm.Self{Attitude: self.Attitude, Note: self.Note}
+	if self.Since != nil {
+		out.Since = timeengine.ConfigFrom(s.Tracker.Config(), s.Loc).DayOf(time.UnixMilli(*self.Since))
+	}
+	return out
+}
+
+// changeSelf applies what a reply changed of how the assistant treats the
+// user: a nil attitude or note keeps the one it had. It returns the attitude
+// switched to, or "" when it kept its own.
+func (s *Server) changeSelf(ctx context.Context, attitude, note *string) (string, error) {
+	if attitude == nil && note == nil {
+		return "", nil
+	}
+	self, err := s.assistantSelf(ctx)
+	if err != nil {
+		return "", err
+	}
+	was := self
+	switched := ""
+	if attitude != nil && *attitude != self.Attitude {
+		switched, self.Attitude = *attitude, *attitude
+		now := wire.Millis(s.now())
+		self.Since = &now
+	}
+	if note != nil {
+		self.Note = *note
+	}
+	if self.Attitude == was.Attitude && self.Note == was.Note {
+		return "", nil
+	}
+	b, err := json.Marshal(self)
+	if err != nil {
+		return "", err
+	}
+	if err := store.SetLocal(ctx, s.DB.SQL(), store.KeyAssistantSelf, string(b), s.now()); err != nil {
+		return "", err
+	}
+	slog.Info("assistant changed how it treats the user", "attitude", self.Attitude, "switched", switched != "")
+	return switched, nil
 }
 
 // assistantHistory is the conversation of an answered assistant run.
@@ -239,6 +331,16 @@ func (s *Server) assistantRequest(ctx context.Context, history []wire.AssistantM
 			Energy: rv.Energy, Decisions: rv.Decisions, Improvements: rv.Improvements}
 	case !errors.Is(err, store.ErrNotFound):
 		return in, nil, err
+	}
+
+	days, err := s.Repos.Stats.Days(ctx, today.AddDays(-recentDays+1).String(), today.String(), now)
+	if err != nil {
+		return in, nil, err
+	}
+	in.Recent = []llm.AssistantDay{}
+	for _, d := range days {
+		in.Recent = append(in.Recent, llm.AssistantDay{Day: d.Day, WorkedMinutes: int(d.Worked / time.Minute),
+			TargetMinutes: int(d.Target / time.Minute)})
 	}
 
 	for _, m := range history[max(0, len(history)-llm.MaxAssistantMessages):] {

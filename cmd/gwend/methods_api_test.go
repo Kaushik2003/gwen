@@ -138,7 +138,7 @@ func TestAssistantChat(t *testing.T) {
 	t.Cleanup(fake.Close)
 	d := startDaemonWith(t, setup{llm: true}, func(o *options) { o.anthropicURL = fake.URL })
 	_, err := d.c.PatchConfig(d.ctx, wire.ConfigPatch{"llm": {"provider": "anthropic", "assistant_name": "Rex",
-		"personality": "sergeant", "instructions": "Call me boss."}})
+		"instructions": "Call me boss."}})
 	require.NoError(t, err)
 	require.NoError(t, config.WriteCredential(config.CredentialsDir(d.dataDir), config.CredLLMAPIKey, []byte("sk\n")))
 	p, err := d.c.CreateProject(d.ctx, wire.CreateProjectRequest{Name: "School"})
@@ -156,7 +156,10 @@ func TestAssistantChat(t *testing.T) {
 		return string(b)
 	}
 	mu.Lock()
-	reply = `{"reply": "Done, boss.", "actions": [` +
+	self, err := d.c.AssistantSelf(d.ctx)
+	require.NoError(t, err)
+	require.Equal(t, wire.AssistantSelf{}, *self, "no attitude before she chooses one")
+	reply = `{"reply": "Done, boss.", "mood": "smug", "attitude": "angry", "self_note": "Third excuse about the essay.", "actions": [` +
 		null(`{"type": "create_task", "key": "n1", "title": "Essay", "project": "p1", "estimate_minutes": 90, "effort": 3}`) + `,` +
 		null(`{"type": "schedule_task", "ref": "n1", "day": "2026-09-15", "start": "10:00", "minutes": 60}`) + `,` +
 		null(`{"type": "update_task", "ref": "t9", "stage": "waiting"}`) + `,` +
@@ -170,6 +173,8 @@ func TestAssistantChat(t *testing.T) {
 	require.NoError(t, json.Unmarshal(run.Output, &out))
 	require.Len(t, out.Messages, 2)
 	require.Equal(t, "Done, boss.", out.Messages[1].Text)
+	require.Equal(t, "smug", out.Messages[1].Mood)
+	require.Equal(t, "angry", out.Messages[1].Attitude, "the turn says she switched")
 	acts := out.Messages[1].Actions
 	require.Len(t, acts, 4)
 	require.True(t, acts[0].OK, acts[0].Error)
@@ -180,10 +185,17 @@ func TestAssistantChat(t *testing.T) {
 	require.True(t, acts[3].OK, acts[3].Error)
 
 	mu.Lock()
-	require.Contains(t, sent, "Your name is Rex.")
-	require.Contains(t, sent, "drill sergeant")
+	require.Contains(t, sent, "The user calls you Rex.")
+	require.Contains(t, sent, "# GWEN STACY")
+	require.NotContains(t, sent, "How you have chosen to treat them", "the first turn had no attitude yet")
 	require.Contains(t, sent, "Call me boss.")
+	require.Contains(t, sent, `"recent_days":[]`)
 	mu.Unlock()
+	self, err = d.c.AssistantSelf(d.ctx)
+	require.NoError(t, err)
+	require.Equal(t, "angry", self.Attitude)
+	require.Equal(t, "Third excuse about the essay.", self.Note)
+	require.Equal(t, wire.Millis(testutil.At("08:00")), *self.Since)
 
 	tasks, err := d.c.ListTasks(d.ctx, wire.TaskQuery{ProjectID: p.ID})
 	require.NoError(t, err)
@@ -198,13 +210,27 @@ func TestAssistantChat(t *testing.T) {
 	require.Equal(t, "Score 80%", goals.Goals[0].Specific)
 
 	mu.Lock()
-	reply = `{"reply": "You have the essay at ten.", "actions": []}`
+	reply = `{"reply": "You have the essay at ten.", "mood": "dancing", "actions": []}`
 	mu.Unlock()
 	run, err = d.c.AssistantChat(d.ctx, wire.AssistantChatRequest{Message: "What's next?", RunID: &run.ID})
 	require.NoError(t, err)
 	require.NoError(t, json.Unmarshal(run.Output, &out))
 	require.Len(t, out.Messages, 4, "the conversation goes on")
+	require.Equal(t, "smug", out.Messages[1].Mood, "earlier turns keep their faces")
+	require.Empty(t, out.Messages[3].Mood, "an unknown mood is dropped, not the reply")
+	require.Empty(t, out.Messages[3].Attitude, "no attitude in the reply keeps hers")
 	mu.Lock()
 	require.Contains(t, sent, `"blocks":[{"day":"2026-09-15","start":"10:00","minutes":60,"pinned":true}]`)
+	require.Contains(t, sent, "on 2026-09-15")
+	require.Contains(t, sent, "you are being angry")
+	require.Contains(t, sent, "Third excuse about the essay.")
 	mu.Unlock()
+	again, err := d.c.AssistantSelf(d.ctx)
+	require.NoError(t, err)
+	require.Equal(t, self, again, "a reply that keeps her attitude changes nothing")
+
+	require.NoError(t, d.c.ResetAssistantSelf(d.ctx))
+	self, err = d.c.AssistantSelf(d.ctx)
+	require.NoError(t, err)
+	require.Equal(t, wire.AssistantSelf{}, *self, "reset forgets the attitude and the note")
 }

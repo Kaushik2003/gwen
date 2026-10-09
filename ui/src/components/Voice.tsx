@@ -34,16 +34,16 @@ export function useVoice() {
 }
 
 /** The model download as a person reads it: "42 of 99 MB". */
-export function DownloadProgress({ progress, size }: { progress: { done: number; total: number } | null; size: number }) {
+export function DownloadProgress({ progress, size, what = "the voice model" }: { progress: { done: number; total: number } | null; size: number; what?: string }) {
   const mb = (n: number) => Math.round(n / 2 ** 20);
   return (
     <div className="flex flex-col gap-2" role="status">
       <div className="flex items-center gap-2 text-[13px] text-ink-muted">
         <LoaderCircle size={14} className="animate-spin text-accent-hover" aria-hidden />
-        Downloading the voice model
+        Downloading {what}
         <span className="ml-auto text-xs text-ink-faint tabular-nums">{progress ? `${mb(progress.done)} of ${mb(progress.total)} MB` : `${size} MB`}</span>
       </div>
-      <Meter value={progress ? progress.done / progress.total : 0} label="Voice model download" height={4} />
+      <Meter value={progress ? progress.done / progress.total : 0} label={`Downloading ${what}`} height={4} />
     </div>
   );
 }
@@ -62,12 +62,13 @@ export interface DictationHandlers {
  * computer (internal/voice). The button goes beside a message box, the panel
  * above it, where it shows the live waveform, the one-time download, or what
  * went wrong. finish ends listening and resolves to everything said, or null
- * when that failed.
+ * when that failed; start and cancel are the mic's own, for hands-free talk,
+ * and known whether the mic's state is in, so start can be trusted.
  */
 export function useDictation(
   handlers: DictationHandlers,
   disabled?: boolean,
-): { button: ReactNode; panel: ReactNode; listening: boolean; finish: () => Promise<string | null> } {
+): { button: ReactNode; panel: ReactNode; listening: boolean; known: boolean; finish: () => Promise<string | null>; start: () => Promise<boolean>; cancel: () => void } {
   const { status, progress } = useVoice();
   const notify = useToast();
   const [phase, setPhase] = useState<"idle" | "listening" | "transcribing">("idle");
@@ -104,10 +105,11 @@ export function useDictation(
   // A recording does not outlive the screen it was started on.
   useEffect(() => () => void (phaseRef.current === "listening" && App.CancelListening()), []);
 
-  async function start() {
+  /** Opens the mic, resolving to whether it is listening. */
+  async function start(): Promise<boolean> {
     setError(null);
     setOffer(!status?.recorder || !status.installed);
-    if (!status?.recorder || !status.installed) return;
+    if (!status?.recorder || !status.installed) return false;
     try {
       await App.StartListening();
       on.current.onStart?.();
@@ -115,8 +117,10 @@ export function useDictation(
       setSince(Date.now());
       phaseRef.current = "listening";
       setPhase("listening");
+      return true;
     } catch (e) {
       setError(apiError(e).message);
+      return false;
     }
   }
 
@@ -155,7 +159,8 @@ export function useDictation(
   }
 
   const listening = phase === "listening";
-  if (isHub) return { button: null, panel: null, listening, finish: stop };
+  const known = !!status;
+  if (isHub) return { button: null, panel: null, listening, known, finish: stop, start, cancel };
 
   const button = (
     <IconButton
@@ -192,7 +197,7 @@ export function useDictation(
         Talk instead of typing. Voice input needs a one-time {status.download_mb} MB download, then works offline: your voice never leaves this computer.
       </Callout>
     );
-  return { button, panel, listening, finish: stop };
+  return { button, panel, listening, known, finish: stop, start, cancel };
 }
 
 /** The live waveform while the mic is open, with how long it has been. */

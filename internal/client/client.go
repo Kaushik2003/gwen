@@ -101,6 +101,8 @@ type API interface {
 	AcceptLLMRun(ctx context.Context, id string, req wire.AcceptRunRequest) (*wire.TaskList, error)
 	RejectLLMRun(ctx context.Context, id string) (*wire.LlmRun, error)
 	AssistantChat(ctx context.Context, req wire.AssistantChatRequest) (*wire.LlmRun, error)
+	AssistantSelf(ctx context.Context) (*wire.AssistantSelf, error)
+	ResetAssistantSelf(ctx context.Context) error
 
 	ScheduleTask(ctx context.Context, req wire.ScheduleRequest) (*wire.PlanItem, error)
 	UnscheduleTask(ctx context.Context, req wire.UnscheduleRequest) (*wire.Unscheduled, error)

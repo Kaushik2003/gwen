@@ -10,6 +10,10 @@ export function AssistantChat(arg1) {
   return window['go']['main']['App']['AssistantChat'](arg1);
 }
 
+export function AssistantSelf() {
+  return window['go']['main']['App']['AssistantSelf']();
+}
+
 export function Autostart() {
   return window['go']['main']['App']['Autostart']();
 }
@@ -170,12 +174,20 @@ export function Health() {
   return window['go']['main']['App']['Health']();
 }
 
+export function InstallSpeech(arg1) {
+  return window['go']['main']['App']['InstallSpeech'](arg1);
+}
+
 export function InstallVoice() {
   return window['go']['main']['App']['InstallVoice']();
 }
 
 export function IsNowCard() {
   return window['go']['main']['App']['IsNowCard']();
+}
+
+export function IsTalk() {
+  return window['go']['main']['App']['IsTalk']();
 }
 
 export function ListCommitments() {
@@ -266,6 +278,10 @@ export function RejectLLMRun(arg1) {
   return window['go']['main']['App']['RejectLLMRun'](arg1);
 }
 
+export function RemoveSpeech(arg1) {
+  return window['go']['main']['App']['RemoveSpeech'](arg1);
+}
+
 export function RemoveVoice() {
   return window['go']['main']['App']['RemoveVoice']();
 }
@@ -274,12 +290,20 @@ export function ReopenTask(arg1) {
   return window['go']['main']['App']['ReopenTask'](arg1);
 }
 
+export function ResetAssistantSelf() {
+  return window['go']['main']['App']['ResetAssistantSelf']();
+}
+
 export function Retro(arg1) {
   return window['go']['main']['App']['Retro'](arg1);
 }
 
 export function SaveReview(arg1, arg2) {
   return window['go']['main']['App']['SaveReview'](arg1, arg2);
+}
+
+export function Say(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['Say'](arg1, arg2, arg3, arg4);
 }
 
 export function ScheduleTask(arg1) {
@@ -300,6 +324,10 @@ export function SetDayHours(arg1) {
 
 export function Snooze() {
   return window['go']['main']['App']['Snooze']();
+}
+
+export function SpeechStatus() {
+  return window['go']['main']['App']['SpeechStatus']();
 }
 
 export function SplitSegment(arg1, arg2) {
@@ -328,6 +356,10 @@ export function Status() {
 
 export function StopListening() {
   return window['go']['main']['App']['StopListening']();
+}
+
+export function StopSaying() {
+  return window['go']['main']['App']['StopSaying']();
 }
 
 export function Switch(arg1) {

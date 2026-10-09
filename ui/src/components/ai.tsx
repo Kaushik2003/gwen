@@ -5,6 +5,7 @@ import { useDaemon, useTick } from "../daemon";
 import { addDays, formatDate, formatDuration, parseDuration } from "../format";
 import type { BreakdownOutput, RetroOutput, RunError } from "../llm";
 import { useNav } from "../nav";
+import Face from "./Face";
 import { useToast } from "./feedback";
 import Markdown from "./Markdown";
 import { Button, Callout, Checkbox, Field, Segmented, TextArea, priorityOf } from "./ui";
@@ -42,7 +43,7 @@ export function AiProgress({ since, doing }: { since: number; doing: string }) {
   return (
     <div className="rounded-lg border border-accent/30 bg-accent/[0.06] p-4" role="status">
       <div className="flex items-center gap-2 text-[13px] text-ink-muted">
-        <Sparkles size={15} className="animate-live text-accent-hover" aria-hidden />
+        <Face mood="thinking" className="-my-2.5 size-10" />
         <span>
           {doing} with {providerName(d.config?.llm)}
         </span>

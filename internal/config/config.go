@@ -30,17 +30,8 @@ const (
 	ProviderClaudeCode       = "claude_code"
 )
 
-// Assistant personalities (llm.personality); llm.PersonaPrompt words each.
-const (
-	PersonalityCoach    = "coach"
-	PersonalityFriend   = "friend"
-	PersonalityMentor   = "mentor"
-	PersonalitySergeant = "sergeant"
-	PersonalityZen      = "zen"
-)
-
 // MaxInstructions is the longest llm.instructions, in characters.
-const MaxInstructions = 2000
+const MaxInstructions = 10000
 
 // Config is the parsed configuration.
 type Config struct {
@@ -113,10 +104,9 @@ type LLM struct {
 	Endpoint string
 	Command  string // the Claude Code CLI, for ProviderClaudeCode
 	Timeout  time.Duration
-	// The assistant's name, personality preset, and the user's own
-	// instructions, added to every conversation.
+	// The assistant's name and the user's own instructions, added to every
+	// conversation.
 	AssistantName string
-	Personality   string
 	Instructions  string
 }
 
@@ -163,7 +153,7 @@ func Defaults() Config {
 		Planner:  Planner{DayStart: 9 * 60, DayEnd: 23 * 60, Buffer: 30 * time.Minute, EatTheFrog: true},
 		Calendar: Calendar{Enabled: false, Name: "Gwen", BusyCalendars: []string{"primary"}},
 		LLM: LLM{Provider: ProviderNone, Model: "claude-sonnet-5", Command: "claude", Timeout: 2 * time.Minute,
-			AssistantName: "Gwen", Personality: PersonalityCoach},
+			AssistantName: "Gwen"},
 		Sync: Sync{Interval: 5 * time.Minute},
 		Log:  Log{Level: slog.LevelInfo},
 	}
@@ -209,6 +199,10 @@ func parseTOML(data []byte) (Config, error) {
 			return Config{}, keyErr(name, "unknown key")
 		}
 		p[name] = table
+	}
+	// The assistant has one personality now; files from before still name a preset.
+	if llm, ok := p["llm"]; ok {
+		delete(llm, "personality")
 	}
 	return Patch(Defaults(), p)
 }
@@ -268,7 +262,6 @@ func (c Config) Wire() wire.Config {
 			Command:       c.LLM.Command,
 			Timeout:       FormatDuration(c.LLM.Timeout),
 			AssistantName: c.LLM.AssistantName,
-			Personality:   c.LLM.Personality,
 			Instructions:  c.LLM.Instructions,
 		},
 		Sync: wire.SyncConfig{
@@ -322,9 +315,7 @@ func FromWire(w wire.Config) (Config, error) {
 			Command:       p.command("llm.command", w.LLM.Command),
 			Timeout:       p.duration("llm.timeout", w.LLM.Timeout),
 			AssistantName: strings.TrimSpace(w.LLM.AssistantName),
-			Personality: p.enum("llm.personality", w.LLM.Personality, PersonalityCoach, PersonalityFriend,
-				PersonalityMentor, PersonalitySergeant, PersonalityZen),
-			Instructions: strings.TrimSpace(w.LLM.Instructions),
+			Instructions:  strings.TrimSpace(w.LLM.Instructions),
 		},
 		Sync: Sync{
 			HubURL:   p.url("sync.hub_url", w.Sync.HubURL, true),
@@ -413,7 +404,7 @@ func (c Config) LogValue() slog.Value {
 			"enabled", w.Calendar.Enabled, "name", w.Calendar.Name, "busy_calendars", w.Calendar.BusyCalendars),
 		slog.Group("llm",
 			"provider", w.LLM.Provider, "model", w.LLM.Model, "endpoint", w.LLM.Endpoint, "command", w.LLM.Command,
-			"timeout", w.LLM.Timeout, "assistant_name", w.LLM.AssistantName, "personality", w.LLM.Personality),
+			"timeout", w.LLM.Timeout, "assistant_name", w.LLM.AssistantName),
 		slog.Group("sync", "hub_url", w.Sync.HubURL, "interval", w.Sync.Interval),
 		slog.Group("log", "level", w.Log.Level),
 	)

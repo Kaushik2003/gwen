@@ -17,11 +17,15 @@ import (
 )
 
 // planner builds the LLM adapter, or unavailable when none is configured.
-func (s *Server) planner() (llm.Planner, error) {
+func (s *Server) planner(ctx context.Context) (llm.Planner, error) {
 	if s.LLM == nil {
 		return nil, Unavailable("the LLM adapter is not running in this daemon")
 	}
-	p, err := s.LLM(s.Tracker.Config().LLM)
+	self, err := s.assistantSelf(ctx)
+	if err != nil {
+		return nil, err
+	}
+	p, err := s.LLM(s.Tracker.Config().LLM, s.llmSelf(self))
 	if errors.Is(err, llm.ErrUnavailable) {
 		return nil, Unavailable("%s", err.Error())
 	}
@@ -51,7 +55,7 @@ func (s *Server) breakdown(w http.ResponseWriter, r *http.Request) error {
 	if err := decode(r, &req); err != nil {
 		return err
 	}
-	p, err := s.planner()
+	p, err := s.planner(r.Context())
 	if err != nil {
 		return err
 	}
@@ -119,7 +123,7 @@ func (s *Server) retro(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return badRequest("week_start", "week_start must be a date like 2026-09-14")
 	}
-	p, err := s.planner()
+	p, err := s.planner(r.Context())
 	if err != nil {
 		return err
 	}
@@ -190,7 +194,7 @@ func (s *Server) retroData(ctx context.Context, start civil.Day) (llm.RetroReque
 }
 
 func (s *Server) getRun(w http.ResponseWriter, r *http.Request) error {
-	if _, err := s.planner(); err != nil {
+	if _, err := s.planner(r.Context()); err != nil {
 		return err
 	}
 	run, err := s.Repos.LLMRuns.Get(r.Context(), r.PathValue("id"))
@@ -206,7 +210,7 @@ func (s *Server) acceptRun(w http.ResponseWriter, r *http.Request) error {
 	if err := decode(r, &req); err != nil {
 		return err
 	}
-	if _, err := s.planner(); err != nil {
+	if _, err := s.planner(r.Context()); err != nil {
 		return err
 	}
 	tasks, ch, err := s.Repos.LLMRuns.Accept(r.Context(), r.PathValue("id"), req.Indexes, s.today())
@@ -230,7 +234,7 @@ func (s *Server) rejectRun(w http.ResponseWriter, r *http.Request) error {
 	if err := decode(r, &body); err != nil {
 		return err
 	}
-	if _, err := s.planner(); err != nil {
+	if _, err := s.planner(r.Context()); err != nil {
 		return err
 	}
 	run, err := s.Repos.LLMRuns.Reject(r.Context(), r.PathValue("id"))

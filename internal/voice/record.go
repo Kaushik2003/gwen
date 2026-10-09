@@ -81,7 +81,7 @@ func (rec *Recording) read(r io.Reader, level func(float64)) {
 				rec.samples = append(rec.samples, samples[:min(room, len(samples))]...)
 			}
 			rec.mu.Unlock()
-			level(loudness(rms))
+			level(Loudness(rms))
 		}
 		if err != nil {
 			if !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
@@ -136,9 +136,9 @@ func decode(b []byte) ([]float32, float64) {
 	return out, math.Sqrt(sum / float64(len(out)))
 }
 
-// loudness maps an RMS onto 0–1 across -40 to -10 dBFS: a laptop mic's fan
+// Loudness maps an RMS onto 0–1 across -40 to -10 dBFS: a laptop mic's fan
 // and room noise sit near -35, speech near -20, so talking stands out.
-func loudness(rms float64) float64 {
+func Loudness(rms float64) float64 {
 	if rms <= 0 {
 		return 0
 	}

@@ -54,10 +54,36 @@ export interface ActionResult {
   goal_id?: string;
 }
 
+/** The faces the assistant makes with a reply (llm.Moods), each a sprite in assets/gwen. */
+export type Mood = "smiling" | "happy" | "love" | "winking" | "cool" | "smug" | "thinking" | "shocked" | "annoyed" | "grumpy" | "angry" | "crying";
+
+/** How the assistant chose, by itself, to treat the user for a while (llm.Attitudes). */
+export type Attitude = "playful" | "focused" | "soft" | "competitive" | "protective" | "excited" | "quiet" | "angry";
+
+/** Each attitude in words, with the face that goes with it. */
+export const attitudes: Record<Attitude, { label: string; means: string; face: Mood }> = {
+  playful: { label: "Playful", means: "Teasing and flirty: things are going fine.", face: "winking" },
+  focused: { label: "Focused", means: "Businesslike: less banter, more getting it done.", face: "cool" },
+  soft: { label: "Soft", means: "Gentle and supportive: she thinks you're having a hard time.", face: "love" },
+  competitive: { label: "Competitive", means: "Daring you to aim higher.", face: "smug" },
+  protective: { label: "Protective", means: "Slowing you down: rest, boundaries, no burnout.", face: "thinking" },
+  excited: { label: "Excited", means: "Thrilled about a win or a new idea.", face: "happy" },
+  quiet: { label: "Quiet", means: "Calm company: few words, no advice unless you ask.", face: "smiling" },
+  angry: { label: "Angry", means: "Fed up with excuses: blunt until you follow through.", face: "angry" },
+};
+
+/** The attitude of a name, or null for none this build knows. */
+export function attitudeOf(id: string | undefined | null) {
+  return id && id in attitudes ? attitudes[id as Attitude] : null;
+}
+
 export interface AssistantMessage {
   role: "user" | "assistant";
   text: string;
   at: number;
+  mood?: Mood;
+  /** The attitude she switched to with this turn. */
+  attitude?: Attitude;
   actions?: ActionResult[];
 }
 

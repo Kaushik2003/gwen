@@ -44,6 +44,10 @@
   --animate-live: live 2.4s ease-in-out infinite;
   --animate-indeterminate: indeterminate 1.6s ease-in-out infinite;
   --animate-pop: pop 160ms ease-out;
+  --animate-face: face 560ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  --animate-talk: talk 190ms ease-in-out infinite alternate;
+  --animate-breathe: breathe 4.2s ease-in-out infinite;
+  --animate-aura: aura 2.6s ease-in-out infinite;
 
   @keyframes live {
     0%,
@@ -70,6 +74,50 @@
     to {
       opacity: 1;
       transform: none;
+    }
+  }
+  @keyframes talk {
+    from {
+      transform: none;
+    }
+    to {
+      transform: translateY(-5%) scale(1.07) rotate(-2.5deg);
+    }
+  }
+  @keyframes face {
+    0% {
+      opacity: 0.3;
+      transform: scale(0.7) rotate(-9deg);
+    }
+    55% {
+      opacity: 1;
+      transform: scale(1.1) rotate(3deg);
+    }
+    100% {
+      transform: none;
+    }
+  }
+  @keyframes breathe {
+    0%,
+    100% {
+      transform: none;
+    }
+    30% {
+      transform: translateY(-2.5%) scale(1.025) rotate(-1.2deg);
+    }
+    65% {
+      transform: translateY(-1%) scale(1.012) rotate(1deg);
+    }
+  }
+  @keyframes aura {
+    0%,
+    100% {
+      opacity: 0.35;
+      transform: scale(0.92);
+    }
+    50% {
+      opacity: 0.7;
+      transform: scale(1.08);
     }
   }
 }

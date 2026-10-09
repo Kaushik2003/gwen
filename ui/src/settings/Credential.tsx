@@ -15,7 +15,7 @@ export function useHasCredential(name: string, version = 0): [boolean | null, (o
 }
 
 /** A secret written to the credentials directory, readable only by you (docs/07-integrations.md#credentials). */
-export function CredentialField({ name, label, hint }: { name: string; label: string; hint?: ReactNode }) {
+export function CredentialField({ name, label, hint, onSaved }: { name: string; label: string; hint?: ReactNode; onSaved?: () => void }) {
   const d = useDaemon();
   const notify = useToast();
   const [has, setHas] = useHasCredential(name);
@@ -25,6 +25,7 @@ export function CredentialField({ name, label, hint }: { name: string; label: st
       await App.SetCredential(name, value.trim());
       setValue("");
       setHas(true);
+      onSaved?.();
       notify(`Saved the ${label}`, "success");
     } catch (e) {
       d.fail(e);

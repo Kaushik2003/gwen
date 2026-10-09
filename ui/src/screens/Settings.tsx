@@ -13,6 +13,7 @@ import CalendarSettings from "../settings/Calendar";
 import { CredentialField } from "../settings/Credential";
 import MethodsSettings from "../settings/Methods";
 import PersonalitySettings from "../settings/Personality";
+import SpeechSettings from "../settings/Speech";
 import SyncSettings from "../settings/Sync";
 import VoiceSettings from "../settings/Voice";
 import { ClipboardSetText } from "../wailsjs/runtime/runtime";
@@ -130,6 +131,7 @@ export default function Settings() {
             <>
               <AISettings />
               <VoiceSettings />
+              <SpeechSettings />
               <PersonalitySettings />
             </>
           )}

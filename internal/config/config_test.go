@@ -59,7 +59,7 @@ func TestDefaultsMatchTheSpec(t *testing.T) {
 		Planner:  wire.PlannerConfig{DayStart: "09:00", DayEnd: "23:00", Buffer: "30m", EatTheFrog: true},
 		Calendar: wire.CalendarConfig{Enabled: false, Name: "Gwen", BusyCalendars: []string{"primary"}},
 		LLM: wire.LLMConfig{Provider: "none", Model: "claude-sonnet-5", Endpoint: "", Command: "claude", Timeout: "2m",
-			AssistantName: "Gwen", Personality: "coach"},
+			AssistantName: "Gwen"},
 		Sync: wire.SyncConfig{HubURL: "", Interval: "5m"},
 		Log:  wire.LogConfig{Level: "info"},
 	}, w)
@@ -83,6 +83,17 @@ busy_calendars = ["primary", "work@example.com"]
 	want.Tracking.HardIdle = 30 * time.Second
 	want.Calendar.BusyCalendars = []string{"primary", "work@example.com"}
 	require.Equal(t, want, c)
+}
+
+func TestLoadIgnoresRetiredPersonality(t *testing.T) {
+	t.Parallel()
+	c, err := config.Load(writeFile(t, "[llm]\nassistant_name = \"Rex\"\npersonality = \"sergeant\"\n"))
+	require.NoError(t, err)
+	require.Equal(t, "Rex", c.LLM.AssistantName)
+	_, err = config.Patch(c, wire.ConfigPatch{"llm": {"personality": "zen"}})
+	var ke *config.KeyError
+	require.ErrorAs(t, err, &ke)
+	require.Equal(t, "llm.personality", ke.Key)
 }
 
 func TestLoadRejects(t *testing.T) {

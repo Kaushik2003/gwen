@@ -30,6 +30,7 @@ func archive(t *testing.T, files map[string]string) []byte {
 	require.NoError(t, os.MkdirAll(filepath.Join(top, "test_wavs"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(top, "test_wavs", "0.wav"), []byte("unused"), 0o644))
 	for name, body := range files {
+		require.NoError(t, os.MkdirAll(filepath.Dir(filepath.Join(top, name)), 0o755))
 		require.NoError(t, os.WriteFile(filepath.Join(top, name), []byte(body), 0o644))
 	}
 	out := filepath.Join(t.TempDir(), "model.tar.bz2")
@@ -110,6 +111,58 @@ func TestInstallKeepsTheOldCopyWhenADownloadFails(t *testing.T) {
 	require.True(t, m.Installed(root))
 }
 
+func TestInstallKeepsTreesTheArchiveVouchesFor(t *testing.T) {
+	t.Parallel()
+	body := archive(t, map[string]string{"model.onnx": "m", "data/phontab": "p", "data/lang/gmw/en": "en", "other/x": "x"})
+	whole := sha256.Sum256(body)
+	m := Model{Name: "m", URL: serve(t, body), Files: map[string]string{"model.onnx": sum("m")}, Trees: []string{"data"},
+		Sum: hex.EncodeToString(whole[:])}
+	root := t.TempDir()
+	require.NoError(t, m.Install(context.Background(), http.DefaultClient, root, func(int64, int64) {}))
+	require.True(t, m.Installed(root))
+	got, err := os.ReadFile(filepath.Join(m.Dir(root), "data", "lang", "gmw", "en"))
+	require.NoError(t, err)
+	require.Equal(t, "en", string(got), "the tree keeps its paths")
+	_, err = os.Stat(filepath.Join(m.Dir(root), "other"))
+	require.ErrorIs(t, err, os.ErrNotExist, "only the listed trees are kept")
+
+	require.NoError(t, os.RemoveAll(filepath.Join(m.Dir(root), "data")))
+	require.False(t, m.Installed(root), "a missing tree is not installed")
+}
+
+func TestInstallRefusesAnArchiveThatDoesNotMatchItsSum(t *testing.T) {
+	t.Parallel()
+	body := archive(t, map[string]string{"model.onnx": "m", "data/phontab": "p"})
+	for name, m := range map[string]Model{
+		"damaged":   {Files: map[string]string{"model.onnx": sum("m")}, Trees: []string{"data"}, Sum: sum("another archive")},
+		"tree gone": {Files: map[string]string{"model.onnx": sum("m")}, Trees: []string{"data", "voices"}, Sum: sum(string(body))},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			m.Name, m.URL = "m", serve(t, body)
+			root := t.TempDir()
+			require.Error(t, m.Install(context.Background(), http.DefaultClient, root, func(int64, int64) {}))
+			require.False(t, m.Installed(root))
+			entries, err := os.ReadDir(root)
+			require.NoError(t, err)
+			require.Empty(t, entries, "nothing is left behind")
+		})
+	}
+}
+
+func TestReadable(t *testing.T) {
+	t.Parallel()
+	for in, want := range map[string]string{
+		"Done. Essay's at 10:00 am.":                      "Done. Essay's at 10:00 am.",
+		"Three things today:\n- **Essay**\n- DSA\n1. Gym": "Three things today: Essay. DSA. Gym.",
+		"See https://example.com/x for more":              "See the link for more.",
+		"The report — due Friday — comes first":           "The report, due Friday, comes first.",
+		"  Lots   of\n\n\n space  ":                       "Lots of. space.",
+	} {
+		require.Equal(t, want, Readable(in), in)
+	}
+}
+
 func pcm(samples ...int16) []byte {
 	var b bytes.Buffer
 	for _, s := range samples {
@@ -123,10 +176,10 @@ func TestDecodeAndLoudness(t *testing.T) {
 	out, rms := decode(pcm(16384, -16384, 0, 32767))
 	require.Equal(t, []float32{0.5, -0.5, 0, 32767.0 / 32768}, out)
 	require.InDelta(t, 0.6124, rms, 1e-3)
-	require.Zero(t, loudness(0))
-	require.Zero(t, loudness(0.001), "-60 dBFS is silence")
-	require.InDelta(t, 2.0/3, loudness(0.1), 1e-3, "-20 dBFS, speech, is two thirds")
-	require.Equal(t, 1.0, loudness(0.5))
+	require.Zero(t, Loudness(0))
+	require.Zero(t, Loudness(0.001), "-60 dBFS is silence")
+	require.InDelta(t, 2.0/3, Loudness(0.1), 1e-3, "-20 dBFS, speech, is two thirds")
+	require.Equal(t, 1.0, Loudness(0.5))
 }
 
 func TestRecordingCollectsUntilStopped(t *testing.T) {
@@ -153,7 +206,7 @@ func TestRecordingCollectsUntilStopped(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	require.Len(t, levels, 2)
-	require.InDelta(t, loudness(0.5), levels[0], 1e-6)
+	require.InDelta(t, Loudness(0.5), levels[0], 1e-6)
 }
 
 func TestRecordingThatHeardNothingReportsWhy(t *testing.T) {

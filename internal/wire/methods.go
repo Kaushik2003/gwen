@@ -93,12 +93,26 @@ type AssistantOutput struct {
 	Messages []AssistantMessage `json:"messages"`
 }
 
-// AssistantMessage is one turn of an assistant conversation.
+// AssistantMessage is one turn of an assistant conversation. Mood is the face
+// the assistant made with its turn, one of llm.Moods, or "" for none;
+// Attitude is the one it switched to with this turn, or "" when it kept its own.
 type AssistantMessage struct {
-	Role    string         `json:"role"`
-	Text    string         `json:"text"`
-	At      int64          `json:"at"`
-	Actions []ActionResult `json:"actions,omitempty"`
+	Role     string         `json:"role"`
+	Text     string         `json:"text"`
+	At       int64          `json:"at"`
+	Mood     string         `json:"mood,omitempty"`
+	Attitude string         `json:"attitude,omitempty"`
+	Actions  []ActionResult `json:"actions,omitempty"`
+}
+
+// AssistantSelf is GET /v1/assistant/self: how the assistant chose, by
+// itself, to treat the user. Attitude is one of llm.Attitudes, or "" before
+// it chose one; Note is its own note on why; Since is when it chose, nil
+// before then.
+type AssistantSelf struct {
+	Attitude string `json:"attitude"`
+	Note     string `json:"note"`
+	Since    *int64 `json:"since"`
 }
 
 // ActionResult is one change the assistant made, or tried to: Summary says

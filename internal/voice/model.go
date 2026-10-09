@@ -1,6 +1,9 @@
-// Package voice turns speech into text on this computer: it records the
+// Package voice turns speech into text and text into speech: it records the
 // microphone through PipeWire's pw-record and transcribes it with NVIDIA's
-// Parakeet TDT 110M (English) through sherpa-onnx. Nothing leaves the machine.
+// Parakeet TDT 110M (English) on this computer, and speaks through pw-play
+// with Kokoro 82M on this computer or with Fish Audio online. Parakeet and
+// Kokoro run through sherpa-onnx, and nothing they hear or say leaves the
+// machine; Fish sends the text it says to Fish's servers.
 package voice
 
 import (
@@ -11,6 +14,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"io/fs"
 	"net/http"
@@ -18,15 +22,21 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"strings"
 )
 
 // Model is a speech model downloaded once: an archive of which only Files
-// are kept, each checked against its SHA-256.
+// are kept, each checked against its SHA-256, and Trees.
 type Model struct {
 	Name  string            // its directory under the models directory
 	URL   string            // a .tar.bz2
 	Size  int64             // of the archive, for progress when the server sends no length
 	Files map[string]string // file name → SHA-256 of its contents
+	// Trees are directories of the archive kept whole, such as a voice's
+	// espeak-ng-data, under the same path. Their files have no sums of their
+	// own: Sum, the SHA-256 of the whole archive, vouches for them.
+	Trees []string
+	Sum   string
 }
 
 // The files of a Parakeet transducer.
@@ -55,11 +65,16 @@ var Parakeet = Model{
 // Dir is where the model lives under root.
 func (m Model) Dir(root string) string { return filepath.Join(root, m.Name) }
 
-// Installed reports whether every file is in place. Install checked their
-// contents, so this only looks for them.
+// Installed reports whether every file and tree is in place. Install
+// checked their contents, so this only looks for them.
 func (m Model) Installed(root string) bool {
 	for name := range m.Files {
 		if info, err := os.Stat(filepath.Join(m.Dir(root), name)); err != nil || !info.Mode().IsRegular() {
+			return false
+		}
+	}
+	for _, tree := range m.Trees {
+		if info, err := os.Stat(filepath.Join(m.Dir(root), tree)); err != nil || !info.IsDir() {
 			return false
 		}
 	}
@@ -72,9 +87,10 @@ func (m Model) Remove(root string) error { return os.RemoveAll(m.Dir(root)) }
 // progressStep is how many downloaded bytes pass between progress calls.
 const progressStep = 1 << 20
 
-// Install downloads the archive, keeps Files, checks each one, and only then
-// moves them into place, replacing any earlier copy. progress gets the bytes
-// downloaded so far and the total, every MiB or so, and once at the end.
+// Install downloads the archive, keeps Files and Trees, checks each file and
+// the archive, and only then moves them into place, replacing any earlier
+// copy. progress gets the bytes downloaded so far and the total, every MiB or
+// so, and once at the end.
 func (m Model) Install(ctx context.Context, hc *http.Client, root string, progress func(done, total int64)) error {
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return err
@@ -101,16 +117,31 @@ func (m Model) Install(ctx context.Context, hc *http.Client, root string, progre
 	}
 	defer os.RemoveAll(tmp)
 
-	body := &counter{r: resp.Body, step: func(n int64) { progress(min(n, total), total) }}
+	var raw io.Reader = resp.Body
+	var whole hash.Hash
+	if m.Sum != "" {
+		whole = sha256.New()
+		raw = io.TeeReader(resp.Body, whole)
+	}
+	body := &counter{r: raw, step: func(n int64) { progress(min(n, total), total) }}
 	tr := tar.NewReader(bzip2.NewReader(body))
 	var got []string
-	for len(got) < len(m.Files) {
+	trees := map[string]bool{}
+	// With Trees the whole archive is read, as they have no list of files.
+	for len(m.Trees) > 0 || len(got) < len(m.Files) {
 		h, err := tr.Next()
 		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
 			return fmt.Errorf("download the speech model: %w", err)
+		}
+		if tree, rel := m.inTree(h.Name); tree != "" {
+			if err := writeTreeFile(tmp, rel, h, tr); err != nil {
+				return err
+			}
+			trees[tree] = true
+			continue
 		}
 		name := path.Base(h.Name)
 		sum, ok := m.Files[name]
@@ -127,6 +158,20 @@ func (m Model) Install(ctx context.Context, hc *http.Client, root string, progre
 			return fmt.Errorf("the speech model download has no %s", name)
 		}
 	}
+	for _, tree := range m.Trees {
+		if !trees[tree] {
+			return fmt.Errorf("the speech model download has no %s", tree)
+		}
+	}
+	if whole != nil {
+		// Hash what the archive reader left unread, then the whole.
+		if _, err := io.Copy(io.Discard, body); err != nil {
+			return fmt.Errorf("download the speech model: %w", err)
+		}
+		if hex.EncodeToString(whole.Sum(nil)) != m.Sum {
+			return errors.New("the downloaded speech model is damaged; try again")
+		}
+	}
 	if err := os.Chmod(tmp, 0o755); err != nil {
 		return err
 	}
@@ -138,6 +183,48 @@ func (m Model) Install(ctx context.Context, hc *http.Client, root string, progre
 		return err
 	}
 	progress(total, total)
+	return nil
+}
+
+// inTree returns the tree an archive entry is in and its path from the
+// model's directory, or "" for neither. Entries sit under one top directory.
+func (m Model) inTree(name string) (tree, rel string) {
+	_, rel, ok := strings.Cut(path.Clean(name), "/")
+	if !ok {
+		return "", ""
+	}
+	for _, t := range m.Trees {
+		if rel == t || strings.HasPrefix(rel, t+"/") {
+			return t, rel
+		}
+	}
+	return "", ""
+}
+
+// writeTreeFile puts a directory or regular file of a tree under dir; other
+// kinds of entry are skipped. rel must stay inside dir.
+func writeTreeFile(dir, rel string, h *tar.Header, r io.Reader) error {
+	if !filepath.IsLocal(rel) {
+		return fmt.Errorf("the speech model download has a bad path: %s", h.Name)
+	}
+	dst := filepath.Join(dir, filepath.FromSlash(rel))
+	switch h.Typeflag {
+	case tar.TypeDir:
+		return os.MkdirAll(dst, 0o755)
+	case tar.TypeReg:
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return err
+		}
+		f, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+		if err != nil {
+			return err
+		}
+		if _, err := io.Copy(f, r); err != nil {
+			f.Close()
+			return fmt.Errorf("download the speech model: %w", err)
+		}
+		return f.Close()
+	}
 	return nil
 }
 

@@ -122,10 +122,20 @@ Rectangle {
         visible: card.down
         anchors.fill: parent
         anchors.margins: card.pad
-        implicitHeight: 150
+        implicitHeight: 220
         ColumnLayout {
             anchors.centerIn: parent
             spacing: 10
+            Image {
+                Layout.alignment: Qt.AlignHCenter
+                Layout.preferredWidth: 80
+                Layout.preferredHeight: 80
+                source: card.gwen.face(card.gwen.mood)
+                sourceSize: Qt.size(160, 160)
+                fillMode: Image.PreserveAspectFit
+                smooth: true
+                mipmap: true
+            }
             PlasmaComponents.Label {
                 font.family: card.family
                 Layout.alignment: Qt.AlignHCenter
@@ -166,6 +176,79 @@ Rectangle {
                 orientation: Gradient.Horizontal
                 GradientStop { position: 0; color: card.off ? "#0f1011" : Qt.tint("#0f1011", Qt.alpha(card.gwen.stateColor, 0.14)) }
                 GradientStop { position: 0.75; color: "#0f1011" }
+            }
+            // Gwen in the corner, her face following the state: she breathes,
+            // springs when her mood changes, and a click talks to her. The
+            // task and project stop short of her.
+            Item {
+                id: face
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                anchors.rightMargin: 6
+                anchors.bottomMargin: 4
+                width: 86
+                height: 86
+                scale: faceArea.containsMouse ? 1.08 : 1
+                transformOrigin: Item.Bottom
+                Behavior on scale { NumberAnimation { duration: 160; easing.type: Easing.OutBack } }
+                Image {
+                    id: faceImage
+                    anchors.fill: parent
+                    source: card.gwen.face(card.gwen.mood)
+                    sourceSize: Qt.size(width * 2, height * 2)
+                    fillMode: Image.PreserveAspectFit
+                    smooth: true
+                    mipmap: true
+                    transformOrigin: Item.Bottom
+                    onSourceChanged: spring.restart()
+                    SequentialAnimation on scale {
+                        loops: Animation.Infinite
+                        running: card.gwen.expanded
+                        NumberAnimation { to: 1.035; duration: 2100; easing.type: Easing.InOutSine }
+                        NumberAnimation { to: 1; duration: 2100; easing.type: Easing.InOutSine }
+                    }
+                    SequentialAnimation on rotation {
+                        loops: Animation.Infinite
+                        running: card.gwen.expanded
+                        NumberAnimation { to: -1.5; duration: 2600; easing.type: Easing.InOutSine }
+                        NumberAnimation { to: 1.2; duration: 2600; easing.type: Easing.InOutSine }
+                    }
+                }
+                SequentialAnimation {
+                    id: spring
+                    NumberAnimation { target: face; property: "rotation"; from: -10; to: 4; duration: 260; easing.type: Easing.OutQuad }
+                    NumberAnimation { target: face; property: "rotation"; to: 0; duration: 280; easing.type: Easing.OutBack }
+                }
+                // A mic on hover says what the click does.
+                Rectangle {
+                    anchors.left: parent.left
+                    anchors.bottom: parent.bottom
+                    anchors.bottomMargin: 6
+                    width: 24
+                    height: 24
+                    radius: 12
+                    color: card.accent
+                    border.color: "#010102"
+                    border.width: 2
+                    opacity: faceArea.containsMouse ? 1 : 0
+                    Behavior on opacity { NumberAnimation { duration: 120 } }
+                    Kirigami.Icon {
+                        anchors.centerIn: parent
+                        source: "audio-input-microphone"
+                        color: "#ffffff"
+                        isMask: true
+                        implicitWidth: 13
+                        implicitHeight: 13
+                    }
+                }
+                MouseArea {
+                    id: faceArea
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: card.gwen.talk()
+                }
+                PlasmaComponents.ToolTip { text: "Talk to Gwen"; visible: faceArea.containsMouse }
             }
             ColumnLayout {
                 anchors.fill: parent
@@ -231,6 +314,7 @@ Rectangle {
                 PlasmaComponents.Label {
                     font.family: card.family
                     Layout.fillWidth: true
+                    Layout.rightMargin: face.width + 4
                     text: card.line.task || (card.off ? "Nothing tracked right now" : "No task")
                     color: card.ink
                     font.pixelSize: 14
@@ -248,7 +332,7 @@ Rectangle {
                     }
                     PlasmaComponents.Label {
                         font.family: card.family
-                        Layout.maximumWidth: card.cell * 2 - 60
+                        Layout.maximumWidth: card.cell * 2 - 60 - face.width
                         text: card.off ? "Clock in on a project" : (card.line.project || "")
                         color: projectHover.hovered ? card.ink : card.subtle
                         font.pixelSize: 12
@@ -559,6 +643,13 @@ Rectangle {
                 iconName: "media-playback-stop"
                 iconColor: "#eb5757"
                 onClicked: card.gwen.run("gwen out")
+            }
+            CardButton {
+                Layout.fillWidth: true
+                text: "Talk"
+                iconName: "audio-input-microphone"
+                iconColor: "#828fff"
+                onClicked: card.gwen.talk()
             }
             CardButton {
                 Layout.fillWidth: true

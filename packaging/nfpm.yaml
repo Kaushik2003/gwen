@@ -80,6 +80,10 @@ contents:
   - src: packaging/plasma/dev.gwen.panel/contents/fonts/LICENSE-Inter.txt
     dst: /usr/share/plasma/plasmoids/dev.gwen.panel/contents/fonts/LICENSE-Inter.txt
     file_info: {mode: 0644}
+  # Gwen's faces, one per mood.
+  - src: packaging/plasma/dev.gwen.panel/contents/images/*.png
+    dst: /usr/share/plasma/plasmoids/dev.gwen.panel/contents/images/
+    file_info: {mode: 0644}
 
 scripts:
   postinstall: packaging/postinstall.sh

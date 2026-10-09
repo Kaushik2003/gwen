@@ -88,6 +88,8 @@ func (s *Server) Handler() http.Handler {
 	route("POST /v1/plan/chat", s.planChat)
 	route("POST /v1/retro", s.retro)
 	route("POST /v1/assistant/chat", s.assistantChat)
+	route("GET /v1/assistant/self", s.getAssistantSelf)
+	route("DELETE /v1/assistant/self", s.resetAssistantSelf)
 	route("GET /v1/llm/runs/{id}", s.getRun)
 	route("POST /v1/llm/runs/{id}/accept", s.acceptRun)
 	route("POST /v1/llm/runs/{id}/reject", s.rejectRun)

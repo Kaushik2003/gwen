@@ -119,7 +119,7 @@ func (h *host) installGoogleClient(ctx context.Context, b []byte) error {
 
 // credentials are the files SetCredential may write.
 var credentials = []string{config.CredNtfyToken, config.CredGoogleClient, config.CredGoogleToken,
-	config.CredLLMAPIKey, config.CredSyncToken}
+	config.CredLLMAPIKey, config.CredSyncToken, config.CredFishAudioKey}
 
 func (h *host) newTopic() string { return config.NewTopic() }
 

@@ -19,8 +19,10 @@ type App struct {
 	api     client.API
 	host    *host
 	voice   *dictation
+	speech  *speech
 	screen  string // the screen to open on, from --screen
 	nowCard bool   // the tray's now card, from --now
+	talk    bool   // the talk window, from --talk
 }
 
 // hostError carries an API failure to the frontend as JSON, so the UI can
@@ -187,6 +189,10 @@ func (a *App) StartScreen() string {
 // IsNowCard reports whether this window is the tray's now card rather than
 // the dashboard.
 func (a *App) IsNowCard() bool { return a.nowCard }
+
+// IsTalk reports whether this window is the talk window, a spoken
+// conversation with Gwen opened from the panel widget.
+func (a *App) IsTalk() bool { return a.talk }
 
 // OpenDashboard opens the dashboard on a screen, or "" for Today; a running
 // dashboard comes to the front instead.

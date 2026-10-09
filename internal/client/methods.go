@@ -13,6 +13,14 @@ func (c *Client) AssistantChat(ctx context.Context, req wire.AssistantChatReques
 	return call[wire.LlmRun](ctx, c, http.MethodPost, "/v1/assistant/chat", nil, req)
 }
 
+func (c *Client) AssistantSelf(ctx context.Context) (*wire.AssistantSelf, error) {
+	return call[wire.AssistantSelf](ctx, c, http.MethodGet, "/v1/assistant/self", nil, nil)
+}
+
+func (c *Client) ResetAssistantSelf(ctx context.Context) error {
+	return c.do(ctx, http.MethodDelete, "/v1/assistant/self", nil, nil, nil)
+}
+
 func (c *Client) ScheduleTask(ctx context.Context, req wire.ScheduleRequest) (*wire.PlanItem, error) {
 	return call[wire.PlanItem](ctx, c, http.MethodPost, "/v1/plan/schedule", nil, req)
 }

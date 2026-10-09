@@ -5,6 +5,7 @@ import { useDaemon } from "../daemon";
 import { formatClock, formatDuration, formatTime } from "../format";
 import type { ChatMessage, DayPlanOutput, ProposedBlock, RunError } from "../llm";
 import { AiFailed, AiProgress, AiUnavailable, providerName } from "./ai";
+import Face from "./Face";
 import { useToast } from "./feedback";
 import { ProjectTag } from "./tags";
 import { Badge, Button, Callout, Checkbox, IconButton, Panel, TextArea, cx } from "./ui";
@@ -303,11 +304,7 @@ function Bubble({ role, text, pending }: { role: "user" | "assistant"; text: str
   const user = role === "user";
   return (
     <div className={cx("flex items-end gap-2.5", user && "flex-row-reverse")}>
-      {!user && (
-        <span className="grid size-7 shrink-0 place-items-center rounded-full bg-accent/15">
-          <Sparkles size={14} className="text-accent-hover" aria-hidden />
-        </span>
-      )}
+      {!user && <Face mood="smiling" breathe={false} className="size-14" />}
       <div
         className={cx(
           "max-w-[85%] rounded-xl px-3.5 py-2.5 text-[13px] leading-relaxed whitespace-pre-line",

@@ -37,6 +37,7 @@ import Projects from "./screens/Projects";
 import Review from "./screens/Review";
 import Settings from "./screens/Settings";
 import Stats from "./screens/Stats";
+import Talk from "./screens/Talk";
 import Today from "./screens/Today";
 import { useTracking } from "./tracking";
 
@@ -212,15 +213,20 @@ function StatusDock() {
 }
 
 export default function App() {
-  // The tray's now card runs the same frontend in its own small window.
-  const [nowCard, setNowCard] = useState<boolean | null>(isHub ? false : null);
+  // The tray's now card and the widget's talk window run the same frontend
+  // in their own small windows.
+  const [kind, setKind] = useState<"dashboard" | "now" | "talk" | null>(isHub ? "dashboard" : null);
   useEffect(() => {
-    if (!isHub) Host.IsNowCard().then(setNowCard, () => setNowCard(false));
+    if (!isHub)
+      Promise.all([Host.IsNowCard(), Host.IsTalk()]).then(
+        ([now, talk]) => setKind(now ? "now" : talk ? "talk" : "dashboard"),
+        () => setKind("dashboard"),
+      );
   }, []);
-  if (nowCard === null) return null;
+  if (kind === null) return null;
   return (
     <FeedbackProvider>
-      <DaemonProvider>{nowCard ? <NowCard /> : <Shell />}</DaemonProvider>
+      <DaemonProvider>{kind === "now" ? <NowCard /> : kind === "talk" ? <Talk /> : <Shell />}</DaemonProvider>
     </FeedbackProvider>
   );
 }

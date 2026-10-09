@@ -503,3 +503,4 @@ make package VERSION=0.1.2                       # use a higher number each time
 sudo dnf install ./dist/gwen-0.1.2-1.x86_64.rpm  # upgrades the installed version to 0.1.2
 systemctl --user restart gwend                    # the running daemon keeps the old binary until restarted
 pkill -x gwen-tray; setsid gwen-tray >/dev/null 2>&1 &
+systemctl --user restart plasma-plasmashell 

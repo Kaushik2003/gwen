@@ -1,68 +1,97 @@
-import { Drama } from "lucide-react";
+import { Drama, RotateCcw } from "lucide-react";
 import { useEffect, useState } from "react";
-import { App } from "../api";
-import { useToast } from "../components/feedback";
-import { Button, Field, Input, Panel, TextArea, cx } from "../components/ui";
+import { App, isHub, wire } from "../api";
+import Face from "../components/Face";
+import { useConfirm, useToast } from "../components/feedback";
+import { Button, Field, Input, Panel, TextArea } from "../components/ui";
 import { useDaemon } from "../daemon";
+import { formatAgo } from "../format";
+import { attitudeOf } from "../llm";
 
-/** The personalities of llm.personality, with how each sounds. */
-const personas = [
-  { id: "coach", name: "Coach", line: "Nice work on the report! Next up: the hard one, while you're fresh." },
-  { id: "friend", name: "Friend", line: "Okay, three things today and then you're free. Coffee first?" },
-  { id: "mentor", name: "Mentor", line: "Start with the essay: it moves your exam goal forward the most." },
-  { id: "sergeant", name: "Drill sergeant", line: "Essay. Now. You can check your email after." },
-  { id: "zen", name: "Zen", line: "One task at a time. The essay, gently, until lunch." },
-];
-
-/** Settings → AI → Personality: who the assistant is when it talks to you. */
+/** Settings → AI → Personality: who she is, how she has chosen to treat you, and what you tell her about yourself. */
 export default function PersonalitySettings() {
   const d = useDaemon();
   const notify = useToast();
+  const confirm = useConfirm();
   const llm = d.config!.llm;
   const [name, setName] = useState(llm.assistant_name);
-  const [personality, setPersonality] = useState(llm.personality);
   const [instructions, setInstructions] = useState(llm.instructions);
   const [saving, setSaving] = useState(false);
+  const [self, setSelf] = useState<wire.AssistantSelf | null>(null);
   useEffect(() => {
     setName(llm.assistant_name);
-    setPersonality(llm.personality);
     setInstructions(llm.instructions);
-  }, [llm.assistant_name, llm.personality, llm.instructions]);
+  }, [llm.assistant_name, llm.instructions]);
+  useEffect(() => {
+    if (!isHub) App.AssistantSelf().then(setSelf, () => {});
+  }, []);
 
-  const changed = name.trim() !== llm.assistant_name || personality !== llm.personality || instructions.trim() !== llm.instructions;
+  const shown = llm.assistant_name || "Gwen";
+  const changed = name.trim() !== llm.assistant_name || instructions.trim() !== llm.instructions;
   async function save() {
     setSaving(true);
-    const ok = await d.act(() => App.PatchConfig({ llm: { assistant_name: name.trim(), personality, instructions: instructions.trim() } }));
+    const ok = await d.act(() => App.PatchConfig({ llm: { assistant_name: name.trim(), instructions: instructions.trim() } }));
     setSaving(false);
     if (ok) notify(`${name.trim()} is ready`, "success");
   }
 
+  async function reset() {
+    const ok = await confirm({
+      title: `Let ${shown} start fresh?`,
+      body: "She forgets the attitude she chose and her note about you, and makes up her mind again as you talk.",
+      confirm: "Start fresh",
+    });
+    if (!ok) return;
+    if (await d.act(() => App.ResetAssistantSelf())) {
+      setSelf(wire.AssistantSelf.createFrom({ attitude: "", note: "", since: null }));
+      notify(`${shown} is starting fresh`, "success");
+    }
+  }
+
+  const attitude = attitudeOf(self?.attitude);
+  const decided = !!attitude || !!self?.note;
   return (
     <Panel title="Personality" icon={Drama}>
-      <p className="-mt-1 mb-4 text-[13px] leading-relaxed text-ink-subtle">How your assistant talks to you, in the chat, the day plan, and the weekly retro.</p>
+      <p className="-mt-1 mb-4 text-[13px] leading-relaxed text-ink-subtle">
+        {shown} has one personality: a Gwen Stacy who's witty, affectionate, and honest with you. She decides for herself how to treat you, from how your days are going and what you tell her, and
+        keeps a note on why. It shapes the chat, the day plan, and the weekly retro.
+      </p>
       <div className="flex flex-col gap-5">
+        {self && (
+          <div className="flex items-start gap-4 rounded-lg border border-line bg-surface-2/40 p-4">
+            <Face mood={attitude?.face ?? "smiling"} react className="size-24" />
+            <div className="min-w-0 flex-1">
+              {decided ? (
+                <>
+                  <div className="text-sm font-medium text-ink">
+                    {attitude ? `${attitude.label} with you` : "Making up her mind"}
+                    {self.since != null && <span className="ml-2 text-xs font-normal text-ink-faint">since {formatAgo(self.since, Date.now())}</span>}
+                  </div>
+                  {attitude && <div className="mt-0.5 text-xs text-ink-subtle">{attitude.means}</div>}
+                  {self.note && (
+                    <blockquote className="mt-3 border-l-2 border-accent/50 pl-3 text-[13px] leading-relaxed text-ink-muted italic">
+                      “{self.note}”<span className="mt-1 block text-[11px] text-ink-faint not-italic">Her note to herself</span>
+                    </blockquote>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div className="text-sm font-medium text-ink">Just herself, for now</div>
+                  <div className="mt-0.5 text-xs leading-relaxed text-ink-subtle">Talk to {shown} in the assistant. If you slack off or have a rough day, she'll change how she treats you, and say so.</div>
+                </>
+              )}
+            </div>
+            {decided && (
+              <Button size="sm" tone="ghost" icon={RotateCcw} onClick={reset}>
+                Start fresh
+              </Button>
+            )}
+          </div>
+        )}
         <Field label="Name">
           <Input value={name} onChange={(e) => setName(e.target.value)} maxLength={40} className="w-60" placeholder="Gwen" />
         </Field>
-        <div role="radiogroup" aria-label="Personality" className="grid gap-2 @lg:grid-cols-2 @2xl:grid-cols-3">
-          {personas.map((p) => {
-            const on = p.id === personality;
-            return (
-              <button
-                key={p.id}
-                type="button"
-                role="radio"
-                aria-checked={on}
-                onClick={() => setPersonality(p.id)}
-                className={cx("flex flex-col gap-1.5 rounded-lg border p-3 text-left transition-colors", on ? "border-accent bg-accent/10" : "border-line-strong bg-surface-2 hover:border-line-3")}
-              >
-                <span className="text-sm font-medium text-ink">{p.name}</span>
-                <span className="text-xs leading-relaxed text-ink-subtle italic">“{p.line}”</span>
-              </button>
-            );
-          })}
-        </div>
-        <Field label="Your own instructions" hint={`Anything about you or how you like to be helped. ${2000 - instructions.length} characters left.`}>
+        <Field label="About you" hint={`Anything about you or how you like to be helped. ${2000 - instructions.length} characters left.`}>
           <TextArea
             rows={4}
             value={instructions}
@@ -73,7 +102,7 @@ export default function PersonalitySettings() {
         </Field>
         <div className="flex justify-end gap-2 border-t border-line pt-4">
           <Button tone="primary" disabled={!changed || !name.trim()} busy={saving} onClick={save}>
-            Save personality
+            Save
           </Button>
         </div>
       </div>

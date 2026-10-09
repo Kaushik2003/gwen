@@ -123,8 +123,8 @@ func run(ctx context.Context, o options) (err error) {
 
 	if o.llm {
 		credDir := config.CredentialsDir(o.dataDir)
-		srv.LLM = func(cfg config.LLM) (llm.Planner, error) {
-			return llm.New(cfg, llm.Options{CredDir: credDir, AnthropicURL: o.anthropicURL})
+		srv.LLM = func(cfg config.LLM, self llm.Self) (llm.Planner, error) {
+			return llm.New(cfg, llm.Options{CredDir: credDir, AnthropicURL: o.anthropicURL, Self: self})
 		}
 	}
 	var syncer *gsync.Client

@@ -21,6 +21,8 @@ func (a *App) RejectLLMRun(id string) (*wire.LlmRun, error) {
 func (a *App) AssistantChat(req wire.AssistantChatRequest) (*wire.LlmRun, error) {
 	return call(a.api.AssistantChat(a.ctx, req))
 }
+func (a *App) AssistantSelf() (*wire.AssistantSelf, error) { return call(a.api.AssistantSelf(a.ctx)) }
+func (a *App) ResetAssistantSelf() error                   { return wrap(a.api.ResetAssistantSelf(a.ctx)) }
 
 func (a *App) ScheduleTask(req wire.ScheduleRequest) (*wire.PlanItem, error) {
 	return call(a.api.ScheduleTask(a.ctx, req))

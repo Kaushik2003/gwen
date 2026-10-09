@@ -7,6 +7,8 @@ export function AcceptLLMRun(arg1:string,arg2:wire.AcceptRunRequest):Promise<wir
 
 export function AssistantChat(arg1:wire.AssistantChatRequest):Promise<wire.LlmRun>;
 
+export function AssistantSelf():Promise<wire.AssistantSelf>;
+
 export function Autostart():Promise<boolean>;
 
 export function BreakEnd():Promise<wire.Status>;
@@ -87,9 +89,13 @@ export function HasCredential(arg1:string):Promise<boolean>;
 
 export function Health():Promise<wire.Health>;
 
+export function InstallSpeech(arg1:string):Promise<void>;
+
 export function InstallVoice():Promise<void>;
 
 export function IsNowCard():Promise<boolean>;
+
+export function IsTalk():Promise<boolean>;
 
 export function ListCommitments():Promise<wire.CommitmentList>;
 
@@ -135,13 +141,19 @@ export function PreviewGoal(arg1:wire.GoalPreviewRequest):Promise<wire.GoalProgr
 
 export function RejectLLMRun(arg1:string):Promise<wire.LlmRun>;
 
+export function RemoveSpeech(arg1:string):Promise<void>;
+
 export function RemoveVoice():Promise<void>;
 
 export function ReopenTask(arg1:string):Promise<wire.Task>;
 
+export function ResetAssistantSelf():Promise<void>;
+
 export function Retro(arg1:wire.RetroRequest):Promise<wire.LlmRun>;
 
 export function SaveReview(arg1:string,arg2:wire.SaveReviewRequest):Promise<wire.WeeklyReview>;
+
+export function Say(arg1:string,arg2:string,arg3:string,arg4:number):Promise<number>;
 
 export function ScheduleTask(arg1:wire.ScheduleRequest):Promise<wire.PlanItem>;
 
@@ -152,6 +164,8 @@ export function SetCredential(arg1:string,arg2:string):Promise<void>;
 export function SetDayHours(arg1:wire.SetDayHoursRequest):Promise<wire.Plan>;
 
 export function Snooze():Promise<wire.Status>;
+
+export function SpeechStatus():Promise<main.SpeechStatus>;
 
 export function SplitSegment(arg1:string,arg2:wire.SplitSegmentRequest):Promise<wire.SegmentList>;
 
@@ -166,6 +180,8 @@ export function StatsSummary(arg1:string,arg2:string):Promise<wire.StatsSummary>
 export function Status():Promise<wire.Status>;
 
 export function StopListening():Promise<string>;
+
+export function StopSaying():Promise<void>;
 
 export function Switch(arg1:wire.SwitchRequest):Promise<wire.Status>;
 

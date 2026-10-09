@@ -17,6 +17,7 @@ const (
 	CredGoogleToken  = "google_token.json"
 	CredLLMAPIKey    = "llm_api_key"
 	CredSyncToken    = "sync_token"
+	CredFishAudioKey = "fish_audio_api_key" // Gwen's voice from Fish Audio
 )
 
 // CredentialsDir returns the credentials directory under a data directory.
