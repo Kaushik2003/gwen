@@ -23,6 +23,16 @@ func (a *App) AssistantChat(req wire.AssistantChatRequest) (*wire.LlmRun, error)
 }
 func (a *App) AssistantSelf() (*wire.AssistantSelf, error) { return call(a.api.AssistantSelf(a.ctx)) }
 func (a *App) ResetAssistantSelf() error                   { return wrap(a.api.ResetAssistantSelf(a.ctx)) }
+func (a *App) ListThreads(limit, offset int) (*wire.ChatThreadList, error) {
+	return call(a.api.ListThreads(a.ctx, limit, offset))
+}
+func (a *App) GetThread(id string) (*wire.ChatThreadDetail, error) {
+	return call(a.api.GetThread(a.ctx, id))
+}
+func (a *App) DeleteThread(id string) error { return wrap(a.api.DeleteThread(a.ctx, id)) }
+func (a *App) SearchThreads(q string, limit int) (*wire.ChatSearchResult, error) {
+	return call(a.api.SearchThreads(a.ctx, q, limit))
+}
 
 func (a *App) ScheduleTask(req wire.ScheduleRequest) (*wire.PlanItem, error) {
 	return call(a.api.ScheduleTask(a.ctx, req))

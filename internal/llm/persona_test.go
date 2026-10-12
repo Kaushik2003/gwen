@@ -13,20 +13,24 @@ import (
 func TestPersonaPrompt(t *testing.T) {
 	t.Parallel()
 	cfg := config.Defaults().LLM
-	fresh := llm.PersonaPrompt(cfg, llm.Self{})
+	fresh := llm.PersonaPrompt(cfg)
 	require.True(t, strings.HasPrefix(fresh, "# GWEN STACY"), "one personality, always")
 	require.Contains(t, fresh, "The user calls you Gwen.")
-	require.NotContains(t, fresh, "How you have chosen to treat them", "nothing chosen yet")
+	require.NotContains(t, fresh, "How you have chosen to treat them", "how she treats them is not in the cached part")
+	require.Empty(t, llm.SelfPrompt(llm.Self{}), "nothing chosen yet")
 
 	cfg.AssistantName, cfg.Instructions = "Rex", "Call me boss."
-	got := llm.PersonaPrompt(cfg, llm.Self{Attitude: "angry", Note: "Third excuse about the gym.", Since: "2026-09-14"})
+	got := llm.PersonaPrompt(cfg)
 	require.Contains(t, got, "The user calls you Rex.")
-	require.Contains(t, got, "on 2026-09-14")
-	require.Contains(t, got, "you are being angry (fed up with excuses")
-	require.Contains(t, got, "Third excuse about the gym.")
 	require.Contains(t, got, "Call me boss.")
 
-	noteOnly := llm.PersonaPrompt(cfg, llm.Self{Note: "He likes teasing."})
+	self := llm.SelfPrompt(llm.Self{Attitude: "angry", Note: "Third excuse about the gym.", Since: "2026-09-14"})
+	require.True(t, strings.HasPrefix(self, "## How you have chosen to treat them"))
+	require.Contains(t, self, "on 2026-09-14")
+	require.Contains(t, self, "you are being angry (fed up with excuses")
+	require.Contains(t, self, "Third excuse about the gym.")
+
+	noteOnly := llm.SelfPrompt(llm.Self{Note: "He likes teasing."})
 	require.Contains(t, noteOnly, "He likes teasing.")
 	require.NotContains(t, noteOnly, "you are being")
 }

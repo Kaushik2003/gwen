@@ -62,16 +62,19 @@ func scanLLMRun(s scanner) (model.LLMRun, error) {
 }
 
 func (r llmRunRepo) Create(ctx context.Context, kind, subjectID, status string, output any) (model.LLMRun, error) {
+	return insertLLMRun(ctx, r.db.sql, r.db.Now(), kind, subjectID, status, output)
+}
+
+func insertLLMRun(ctx context.Context, q Querier, now time.Time, kind, subjectID, status string, output any) (model.LLMRun, error) {
 	b, err := json.Marshal(output)
 	if err != nil {
 		return model.LLMRun{}, fmt.Errorf("create llm run: %w", err)
 	}
-	now := r.db.Now()
 	run := model.LLMRun{ID: model.NewID(), Kind: kind, SubjectID: subjectID, Status: status, Output: b,
 		CreatedAt: now, UpdatedAt: now}
 	const qInsertRun = `INSERT INTO llm_runs (id, kind, subject_id, status, output, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?)`
-	if _, err := r.db.sql.ExecContext(ctx, qInsertRun, run.ID, kind, subjectID, status, string(b),
+	if _, err := q.ExecContext(ctx, qInsertRun, run.ID, kind, subjectID, status, string(b),
 		now.UnixMilli(), now.UnixMilli()); err != nil {
 		return model.LLMRun{}, fmt.Errorf("create llm run: %w", classify(err))
 	}

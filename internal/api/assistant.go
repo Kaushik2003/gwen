@@ -30,6 +30,8 @@ const (
 
 // assistantChat is POST /v1/assistant/chat: one message to the assistant,
 // which answers and changes tasks, the plan, projects, and goals by itself.
+// The message and the reply are added to the chat, and the run records the
+// turn, in one transaction.
 func (s *Server) assistantChat(w http.ResponseWriter, r *http.Request) error {
 	var req wire.AssistantChatRequest
 	if err := decode(r, &req); err != nil {
@@ -44,24 +46,28 @@ func (s *Server) assistantChat(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	ctx := r.Context()
+	threadID, err := s.assistantThread(ctx, req)
+	if err != nil {
+		return err
+	}
 	var history []wire.AssistantMessage
-	if req.RunID != nil {
-		if history, err = s.assistantHistory(ctx, *req.RunID); err != nil {
+	if threadID != "" {
+		if history, err = s.chatMessages(ctx, threadID); err != nil {
 			return err
 		}
 	}
 	now := s.now()
-	history = append(history, wire.AssistantMessage{Role: llm.RoleUser, Text: msg, At: wire.Millis(now)})
+	user := wire.AssistantMessage{Role: llm.RoleUser, Text: msg, At: wire.Millis(now)}
+	history = append(history, user)
 	in, refs, err := s.assistantRequest(ctx, history)
 	if err != nil {
 		return err
 	}
 	out, err := p.Assistant(ctx, in)
-	today := s.today()
 	var run model.LLMRun
 	if err != nil {
 		slog.Warn("assistant failed", "provider", p.Name(), "err", err)
-		run, err = s.Repos.LLMRuns.Create(ctx, model.RunAssistant, today, model.RunFailed, wire.RunError{Error: err.Error()})
+		run, err = s.Repos.LLMRuns.Create(ctx, model.RunAssistant, threadID, model.RunFailed, wire.RunError{Error: err.Error()})
 	} else {
 		results := s.applyActions(ctx, out.Actions, refs)
 		// Her attitude only colours the reply; the reply and its changes stand without it.
@@ -69,10 +75,18 @@ func (s *Server) assistantChat(w http.ResponseWriter, r *http.Request) error {
 		if serr != nil {
 			slog.Warn("assistant attitude not saved", "err", serr)
 		}
-		history = append(history, wire.AssistantMessage{Role: llm.RoleAssistant, Text: out.Reply,
-			At: wire.Millis(s.now()), Mood: out.Mood, Attitude: switched, Actions: results})
-		run, err = s.Repos.LLMRuns.Create(ctx, model.RunAssistant, today, model.RunOK,
-			wire.AssistantOutput{Messages: history})
+		reply := wire.AssistantMessage{Role: llm.RoleAssistant, Text: out.Reply, At: wire.Millis(s.now()),
+			Mood: out.Mood, Attitude: switched, Actions: results}
+		turn := []model.ChatMessage{chatMessage(user), chatMessage(reply)}
+		output := func(id string, stored []model.ChatMessage) any {
+			return wire.AssistantOutput{ThreadID: id, Usage: usageWire(out.Usage),
+				Messages: []wire.AssistantMessage{messageWire(stored[0]), messageWire(stored[1])}}
+		}
+		_, run, err = s.Repos.Chats.AppendTurn(ctx, threadID, turn, output)
+		if errors.Is(err, store.ErrNotFound) && threadID != "" {
+			// The chat was deleted while she answered; what she said and changed starts a new one.
+			_, run, err = s.Repos.Chats.AppendTurn(ctx, "", turn, output)
+		}
 	}
 	if err != nil {
 		return err
@@ -163,23 +177,73 @@ func (s *Server) changeSelf(ctx context.Context, attitude, note *string) (string
 	return switched, nil
 }
 
-// assistantHistory is the conversation of an answered assistant run.
-func (s *Server) assistantHistory(ctx context.Context, runID string) ([]wire.AssistantMessage, error) {
-	run, err := s.Repos.LLMRuns.Get(ctx, runID)
-	if errors.Is(err, store.ErrNotFound) {
-		return nil, badRequest("run_id", "there is no run %s", runID)
+// assistantThread is the chat a message goes on: thread_id, or for a client
+// from before chats were threads, the chat of run_id. "" starts a new chat.
+func (s *Server) assistantThread(ctx context.Context, req wire.AssistantChatRequest) (string, error) {
+	if req.ThreadID != nil && *req.ThreadID != "" {
+		_, err := s.Repos.Chats.Get(ctx, *req.ThreadID)
+		if errors.Is(err, store.ErrNotFound) {
+			return "", badRequest("thread_id", "there is no chat %s", *req.ThreadID)
+		}
+		return *req.ThreadID, err
 	}
+	if req.RunID == nil || *req.RunID == "" {
+		return "", nil
+	}
+	// A chat kept in runs before is the thread with the id of its last run.
+	id := *req.RunID
+	if _, err := s.Repos.Chats.Get(ctx, id); !errors.Is(err, store.ErrNotFound) {
+		return id, err
+	}
+	run, err := s.Repos.LLMRuns.Get(ctx, id)
+	if errors.Is(err, store.ErrNotFound) {
+		return "", badRequest("run_id", "there is no run %s", id)
+	}
+	if err != nil {
+		return "", err
+	}
+	var out wire.AssistantOutput
+	if run.Kind != model.RunAssistant || run.Status != model.RunOK || json.Unmarshal(run.Output, &out) != nil ||
+		out.ThreadID == "" {
+		return "", badRequest("run_id", "run_id must be an assistant conversation that answered")
+	}
+	if _, err := s.Repos.Chats.Get(ctx, out.ThreadID); errors.Is(err, store.ErrNotFound) {
+		return "", badRequest("run_id", "the chat of run %s was deleted", id)
+	} else if err != nil {
+		return "", err
+	}
+	return out.ThreadID, nil
+}
+
+// chatMessages is every message of a chat, oldest first.
+func (s *Server) chatMessages(ctx context.Context, threadID string) ([]wire.AssistantMessage, error) {
+	msgs, err := s.Repos.Chats.Messages(ctx, threadID)
 	if err != nil {
 		return nil, err
 	}
-	if run.Kind != model.RunAssistant || run.Status != model.RunOK {
-		return nil, badRequest("run_id", "run_id must be an assistant conversation that answered")
+	out := make([]wire.AssistantMessage, len(msgs))
+	for i, m := range msgs {
+		out[i] = messageWire(m)
 	}
-	var out wire.AssistantOutput
-	if err := json.Unmarshal(run.Output, &out); err != nil {
-		return nil, fmt.Errorf("read run %s: %w", runID, err)
+	return out, nil
+}
+
+// recall is what the assistant remembers on hearing message: the messages
+// of earlier chats, and of this one before the messages in skip, that share
+// words with it, in the order they were said.
+func (s *Server) recall(ctx context.Context, message string, skip []string) ([]llm.Recalled, error) {
+	hits, err := s.Repos.Chats.Search(ctx, message, llm.MaxRecalled, skip)
+	if err != nil {
+		return nil, err
 	}
-	return out.Messages, nil
+	slices.SortFunc(hits, func(a, b model.ChatHit) int { return a.At.Compare(b.At) })
+	days := timeengine.ConfigFrom(s.Tracker.Config(), s.Loc)
+	out := []llm.Recalled{}
+	for _, h := range hits {
+		out = append(out, llm.Recalled{Day: days.DayOf(h.At), Chat: h.ThreadTitle, Role: h.Role,
+			Text: truncate(h.Text, llm.MaxRecalledText)})
+	}
+	return out, nil
 }
 
 // refKind is what a ref names.
@@ -219,7 +283,8 @@ func (s *Server) assistantRequest(ctx context.Context, history []wire.AssistantM
 	refs := assistantRefs{}
 	in := llm.AssistantRequest{Today: today.String(), Weekday: today.Weekday().String(), Now: s.dayClock(today, now),
 		Methods: s.methods(), Busy: []llm.BusyTime{}, Free: []llm.Span{}, Projects: []llm.AssistantProject{},
-		Goals: []llm.AssistantGoal{}, Tasks: []llm.AssistantTask{}, Messages: []llm.ChatMessage{}}
+		Goals: []llm.AssistantGoal{}, Tasks: []llm.AssistantTask{}, Recalled: []llm.Recalled{},
+		Messages: []llm.ChatMessage{}}
 
 	dc, ch, err := s.Repos.Plans.DayPlan(ctx, today.String(), env)
 	if err != nil {
@@ -343,8 +408,15 @@ func (s *Server) assistantRequest(ctx context.Context, history []wire.AssistantM
 			TargetMinutes: int(d.Target / time.Minute)})
 	}
 
+	var sent []string
 	for _, m := range history[max(0, len(history)-llm.MaxAssistantMessages):] {
 		in.Messages = append(in.Messages, llm.ChatMessage{Role: m.Role, Text: m.Text})
+		if m.ID != "" {
+			sent = append(sent, m.ID)
+		}
+	}
+	if in.Recalled, err = s.recall(ctx, history[len(history)-1].Text, sent); err != nil {
+		return in, nil, err
 	}
 	return in, refs, nil
 }

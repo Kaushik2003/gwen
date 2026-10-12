@@ -3,18 +3,30 @@ package llm
 // The prompts sent with every request. Each asks for a single JSON object and
 // includes its schema verbatim (docs/07-integrations.md#llm-adapter).
 
-// prompt is a job's system prompt and the JSON Schema of its reply.
-// persona opens the system prompt with the assistant's personality.
+// prompt is a job's system prompt and the JSON Schema of its reply. persona
+// opens the system prompt with the assistant's personality and closes it
+// with how the assistant chose to treat the user. system is the same from
+// one request to the next, so providers cache it; tail, which follows it,
+// is what changes.
 type prompt struct {
-	system, schema string
-	persona        bool
+	name, system, schema string
+	persona              bool
+	tail                 string
+}
+
+// full is the whole system prompt, for providers that take it as one text.
+func (p prompt) full() string {
+	if p.tail == "" {
+		return p.system
+	}
+	return p.system + "\n\n" + p.tail
 }
 
 var (
-	breakdownJob = prompt{breakdownPrompt, BreakdownSchema, false}
-	dayPlanJob   = prompt{dayPlanPrompt, DayPlanSchema, true}
-	retroJob     = prompt{retroPrompt, RetroSchema, true}
-	assistantJob = prompt{assistantPrompt, AssistantSchema, true}
+	breakdownJob = prompt{name: "breakdown", system: breakdownPrompt, schema: BreakdownSchema}
+	dayPlanJob   = prompt{name: "day_plan", system: dayPlanPrompt, schema: DayPlanSchema, persona: true}
+	retroJob     = prompt{name: "retro", system: retroPrompt, schema: RetroSchema, persona: true}
+	assistantJob = prompt{name: "assistant", system: assistantPrompt, schema: AssistantSchema, persona: true}
 )
 
 // BreakdownSchema is the JSON Schema of a breakdown reply.

@@ -122,7 +122,7 @@ func (a *adapter) Breakdown(ctx context.Context, req BreakdownRequest) (Breakdow
 	if req.ExistingTasks == nil {
 		req.ExistingTasks = []string{}
 	}
-	text, err := a.ask(ctx, breakdownJob, req)
+	text, _, err := a.ask(ctx, breakdownJob, req)
 	if err != nil {
 		return BreakdownOutput{}, err
 	}
@@ -216,7 +216,7 @@ func ValidateBreakdown(out BreakdownOutput, today, goalDue string) error {
 // rules summary on any failure, so it always succeeds; the error it returns
 // is the reason the model's reply was not used, for logging.
 func (a *adapter) Retro(ctx context.Context, req RetroRequest) (RetroOutput, error) {
-	text, err := a.ask(ctx, retroJob, req)
+	text, _, err := a.ask(ctx, retroJob, req)
 	if err == nil {
 		var out RetroOutput
 		switch err = strictDecode(text, &out); {

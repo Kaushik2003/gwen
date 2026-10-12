@@ -223,6 +223,17 @@ the day-planning chat from **Plan with AI** on the Plan or Today screen.
 Claude Code can take a minute or two to answer, so keep `llm.timeout` at the default `2m` or
 longer.
 
+With the Anthropic API, the part of each prompt that stays the same (Gwen's personality, your
+instructions, and the job's rules) is cached, so a request within a few minutes of the last one
+costs less and answers sooner. The daemon logs each request's tokens, read in full and from the
+cache, as `llm request`.
+
+Chats with Gwen are kept in `~/.local/share/gwen/gwen.db`, and earlier chats open from **Past
+chats** on the Assistant screen. Deleting a chat there erases its words from the database. Before
+each upgrade that changes the database, the daemon copies it to `gwen.db.bak-<version>` in the
+same folder and keeps the last two copies, so a chat deleted after an upgrade can remain in those
+copies until two later upgrades replace them. Delete the `.bak-` files to erase it at once.
+
 ## 7. Raspberry Pi (optional)
 
 A Pi 4 or 5 on 64-bit Raspberry Pi OS. It can host the push server, the sync hub, or both. In the

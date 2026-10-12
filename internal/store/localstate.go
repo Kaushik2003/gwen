@@ -25,12 +25,15 @@ const (
 	// KeyAssistantSelf is how the assistant chose to treat the user, as the
 	// JSON of wire.AssistantSelf.
 	KeyAssistantSelf = "assistant_self"
+	// KeyChatsImported is when the conversations kept in assistant runs
+	// became chat threads, as Unix milliseconds; set once.
+	KeyChatsImported = "chats_imported"
 )
 
 func knownKey(key string) bool {
 	switch key {
 	case KeyDeviceID, KeyHeartbeatAt, KeyShutdownAt, KeyGcalCalendarID, KeyGcalSyncToken,
-		KeySyncPushWatermark, KeySyncPullCursor, KeyPlannedDay, KeyAssistantSelf:
+		KeySyncPushWatermark, KeySyncPullCursor, KeyPlannedDay, KeyAssistantSelf, KeyChatsImported:
 		return true
 	}
 	return false

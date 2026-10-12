@@ -315,3 +315,41 @@ type LLMRun struct {
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
+
+// Chat message roles (chat_messages.role).
+const (
+	ChatUser      = "user"
+	ChatAssistant = "assistant"
+)
+
+// ChatThread is a row of chat_threads: one conversation with the assistant.
+// LastAt and Messages are read with it: when its newest message was said, and
+// how many it has.
+type ChatThread struct {
+	ID       string
+	Title    string
+	LastAt   time.Time
+	Messages int
+	Envelope
+}
+
+// ChatMessage is a row of chat_messages: one turn of a thread. Mood and
+// Attitude are "" for none; Actions is the JSON array of what an assistant
+// turn changed.
+type ChatMessage struct {
+	ID       string
+	ThreadID string
+	Role     string
+	Text     string
+	At       time.Time
+	Mood     string
+	Attitude string
+	Actions  []byte
+	Envelope
+}
+
+// ChatHit is a message that matched a search, with its thread's title.
+type ChatHit struct {
+	ChatMessage
+	ThreadTitle string
+}

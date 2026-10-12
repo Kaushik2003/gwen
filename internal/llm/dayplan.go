@@ -133,7 +133,7 @@ type HoursChange struct {
 // DayPlan asks the model for the day's plan and validates it strictly. Any
 // failure is an error; there is no rules fallback.
 func (a *adapter) DayPlan(ctx context.Context, req DayPlanRequest) (DayPlanOutput, error) {
-	text, err := a.ask(ctx, dayPlanJob, req)
+	text, _, err := a.ask(ctx, dayPlanJob, req)
 	if err != nil {
 		return DayPlanOutput{}, err
 	}

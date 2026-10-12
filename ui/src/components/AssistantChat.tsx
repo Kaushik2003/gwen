@@ -1,13 +1,14 @@
-import { AudioLines, CircleAlert, CircleCheck, CircleX, Download, Drama, LoaderCircle, MessageSquarePlus, PhoneOff, SendHorizontal, Settings as SettingsIcon, Square, Volume2, VolumeX } from "lucide-react";
+import { AudioLines, CircleAlert, CircleCheck, CircleX, Download, Drama, History, LoaderCircle, MessageSquarePlus, PhoneOff, SendHorizontal, Settings as SettingsIcon, Square, Trash2, Volume2, VolumeX } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { App, apiError, isHub, wire } from "../api";
 import { useDaemon } from "../daemon";
-import { formatTime } from "../format";
+import { formatAgo, formatTime } from "../format";
 import { useNav } from "../nav";
 import { attitudeOf, type AssistantMessage, type AssistantOutput, type Mood, type RunError } from "../llm";
 import { AiFailed, AiProgress, AiUnavailable, providerName } from "./ai";
 import Call, { type CallPhase } from "./Call";
 import Face from "./Face";
+import { useConfirm } from "./feedback";
 import { useAloud, useSpeech } from "./Speech";
 import { Badge, Button, Callout, IconButton, TextArea, cx } from "./ui";
 import { DownloadProgress, useDictation } from "./Voice";
@@ -25,12 +26,17 @@ const starters = [
   "Turn my goal into a SMART goal",
 ];
 
+const threadKey = "gwen.assistant.thread";
+/** How many past chats are listed at a time. */
+const pastPage = 50;
+/** Where builds before chats were threads kept the last run; that chat is now the thread with the run's id. */
 const runKey = "gwen.assistant.run";
 
 function remember(id: string | null) {
   try {
-    if (id) localStorage.setItem(runKey, id);
-    else localStorage.removeItem(runKey);
+    if (id) localStorage.setItem(threadKey, id);
+    else localStorage.removeItem(threadKey);
+    localStorage.removeItem(runKey);
   } catch {
     // storage is a convenience
   }
@@ -38,16 +44,23 @@ function remember(id: string | null) {
 
 function recall(): string | null {
   try {
-    return localStorage.getItem(runKey);
+    return localStorage.getItem(threadKey) ?? localStorage.getItem(runKey);
   } catch {
     return null;
   }
 }
 
+/** The chat on screen: its id, or null before the first reply, and its messages. */
+interface Thread {
+  id: string;
+  messages: AssistantMessage[];
+}
+
 /**
  * Assistant → Chat: talk in plain words, and the assistant creates, moves,
  * reschedules, and reassigns tasks, and sets goals, as it answers. Each
- * reply lists what it changed. Replies can be read aloud in Gwen's voice,
+ * reply lists what it changed. Chats are kept: Past chats opens or deletes
+ * an earlier one, and she recalls what was said in them. Replies can be read aloud in Gwen's voice,
  * and Talk makes it a spoken conversation, shown as a call (Call): the mic
  * listens, a pause sends what you said, she answers aloud, then listens
  * again. With call, it is only that call, started at once, as in the panel
@@ -65,7 +78,10 @@ export default function AssistantChat({
   onHangUp?: () => void;
 }) {
   const d = useDaemon();
-  const [run, setRun] = useState<wire.LlmRun | null>(null);
+  const [thread, setThread] = useState<Thread | null>(null);
+  // The earlier chats, while they are listed instead of this one, and
+  // whether there are older ones still to list.
+  const [past, setPast] = useState<{ threads: wire.ChatThread[]; more: boolean } | null>(null);
   const [text, setText] = useState("");
   const [asking, setAsking] = useState<{ message: string; since: number } | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
@@ -76,6 +92,7 @@ export default function AssistantChat({
   const name = d.config?.llm.assistant_name || "Gwen";
   const speech = useSpeech();
   const { go } = useNav();
+  const confirm = useConfirm();
   const [aloud, setAloud] = useAloud();
   const [talking, setTalking] = useState(false);
   const talkingRef = useRef(false);
@@ -121,10 +138,17 @@ export default function AssistantChat({
   useEffect(() => {
     let live = true;
     const id = recall();
-    if (id)
-      App.GetLLMRun(id).then(
-        (r) => live && r.kind === "assistant" && r.status === "ok" && setRun(r),
-        () => remember(null),
+    if (id && !isHub)
+      App.GetThread(id).then(
+        (t) => {
+          if (!live) return;
+          setThread({ id: t.thread.id, messages: t.messages as AssistantMessage[] });
+          remember(t.thread.id);
+        },
+        (e) => {
+          // A chat that is gone is forgotten; one the daemon could not read now is kept for next time.
+          if (live && apiError(e).code === "not_found") remember(null);
+        },
       );
     return () => {
       live = false;
@@ -139,17 +163,18 @@ export default function AssistantChat({
     }
   }, [initial]);
 
-  const messages: AssistantMessage[] = run ? ((run.output as AssistantOutput).messages ?? []) : [];
+  const messages: AssistantMessage[] = thread?.messages ?? [];
   const last = messages.filter((m) => m.role === "assistant").at(-1);
   // The header's face: what is happening now, else the last reply's.
   const mood: Mood = asking ? "thinking" : failure || unavailable ? "crying" : refused ? "annoyed" : last ? turnMood(last) : "smiling";
   const phase: CallPhase = !talking ? "idle" : voice.listening ? "listening" : saying ? (speech.sounding === saying.id ? "speaking" : "preparing") : "thinking";
   // What she is saying in the call, else her last answer.
   const spoken = (saying && messages.find((m) => m.at === saying.at)) || last || null;
+  // A chat opens at its newest message, the past chats at the most recent.
   useEffect(() => {
     const el = scroller.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [messages.length, asking]);
+    if (el) el.scrollTop = past ? 0 : el.scrollHeight;
+  }, [messages.length, asking, thread?.id, !!past]);
 
   /** Reads a reply aloud; in talk, the mic opens again once she is done. */
   async function read(m: AssistantMessage) {
@@ -209,20 +234,23 @@ export default function AssistantChat({
     const m = message.trim();
     if (!m || asking) return;
     setAsking({ message: m, since: Date.now() });
+    setPast(null); // what is sent goes to the chat on screen
     setText("");
     setFailure(null);
     setUnavailable(null);
     setRefused(null);
     try {
-      const r = await App.AssistantChat(wire.AssistantChatRequest.createFrom({ message: m, run_id: run?.id ?? null }));
+      const r = await App.AssistantChat(wire.AssistantChatRequest.createFrom({ message: m, thread_id: thread?.id ?? null }));
       if (r.status === "failed") {
         setFailure((r.output as RunError).error);
         setText(m);
         if (talkingRef.current) endTalk();
       } else {
-        setRun(r);
-        remember(r.id);
-        const reply = ((r.output as AssistantOutput).messages ?? []).at(-1);
+        const out = r.output as AssistantOutput;
+        const turn = out.messages ?? [];
+        setThread((t) => ({ id: out.thread_id, messages: [...(t?.id === out.thread_id ? t.messages : []), ...turn] }));
+        remember(out.thread_id);
+        const reply = turn.at(-1);
         if (reply?.attitude) setAttitude(reply.attitude);
         if (reply?.role === "assistant" && (aloud || talkingRef.current)) read(reply);
       }
@@ -251,10 +279,73 @@ export default function AssistantChat({
   function startOver() {
     endTalk();
     remember(null);
-    setRun(null);
+    setThread(null);
+    setPast(null);
     setFailure(null);
     setRefused(null);
     setText("");
+  }
+
+  /** Lists the earlier chats in place of this one, or goes back to it. */
+  async function browse() {
+    if (past) return setPast(null);
+    try {
+      const { threads } = await App.ListThreads(pastPage, 0);
+      setPast({ threads, more: threads.length === pastPage });
+    } catch (e) {
+      d.fail(e);
+    }
+  }
+
+  /** Lists the next page of older chats under those listed. */
+  async function older() {
+    if (!past) return;
+    try {
+      const { threads } = await App.ListThreads(pastPage, past.threads.length);
+      setPast((p) => {
+        if (!p) return p;
+        const seen = new Set(p.threads.map((t) => t.id));
+        return { threads: [...p.threads, ...threads.filter((t) => !seen.has(t.id))], more: threads.length === pastPage };
+      });
+    } catch (e) {
+      d.fail(e);
+    }
+  }
+
+  async function open(id: string) {
+    try {
+      const t = await App.GetThread(id);
+      endTalk();
+      setThread({ id: t.thread.id, messages: t.messages as AssistantMessage[] });
+      remember(t.thread.id);
+      setPast(null);
+      setFailure(null);
+      setRefused(null);
+    } catch (e) {
+      d.fail(e);
+    }
+  }
+
+  /** Deletes a chat: its words are erased, and she no longer recalls them. */
+  async function forget(t: wire.ChatThread) {
+    const ok = await confirm({
+      title: `Delete "${t.title || "Untitled chat"}"?`,
+      body: `Its messages are erased, and ${name} no longer remembers them. What she changed in your tasks stays, and so does her note to herself.`,
+      confirm: "Delete chat",
+      danger: true,
+    });
+    if (!ok) return;
+    const id = t.id;
+    try {
+      await App.DeleteThread(id);
+      setPast((p) => p && { ...p, threads: p.threads.filter((t) => t.id !== id) });
+      if (thread?.id === id) {
+        remember(null);
+        setThread(null);
+      }
+    } catch (e) {
+      d.fail(e);
+    }
   }
 
   // Why something stopped, or what her voice needs, wherever it is shown.
@@ -370,7 +461,10 @@ export default function AssistantChat({
             </Button>
           </>
         )}
-        {(run || failure) && (
+        {!isHub && (
+          <IconButton icon={History} label="Past chats" active={!!past} onClick={browse} disabled={!!asking || talking} />
+        )}
+        {(thread || failure) && (
           <Button size="sm" tone="ghost" icon={MessageSquarePlus} onClick={startOver} disabled={!!asking}>
             New chat
           </Button>
@@ -381,8 +475,10 @@ export default function AssistantChat({
         callView
       ) : (
         <>
-          <div ref={scroller} className="flex max-h-[min(34rem,58vh)] min-h-72 flex-col gap-4 overflow-y-auto px-5 py-5" aria-live="polite">
-            {messages.length === 0 && !asking ? (
+          <div ref={scroller} className="flex max-h-[min(34rem,58vh)] min-h-72 flex-col gap-4 overflow-y-auto px-5 py-5" aria-live={past ? "off" : "polite"}>
+            {past ? (
+              <PastChats threads={past.threads} current={thread?.id ?? null} name={name} onOpen={open} onForget={forget} onMore={past.more ? older : undefined} />
+            ) : messages.length === 0 && !asking ? (
               <div className="my-auto flex flex-col items-center gap-4 py-4 text-center">
                 <Face mood="winking" react className="size-40" />
                 <p className="max-w-md text-[13px] leading-relaxed text-ink-subtle">
@@ -404,7 +500,7 @@ export default function AssistantChat({
             ) : (
               messages.map((m, i) => (
                 <Turn
-                  key={i}
+                  key={m.id ?? i}
                   name={name}
                   message={m}
                   latest={m === last}
@@ -414,7 +510,7 @@ export default function AssistantChat({
                 />
               ))
             )}
-            {asking && <Turn message={{ role: "user", text: asking.message, at: asking.since }} pending />}
+            {asking && !past && <Turn message={{ role: "user", text: asking.message, at: asking.since }} pending />}
           </div>
 
           <div className="flex flex-col gap-3 border-t border-line bg-surface-2/40 px-5 py-4">
@@ -471,6 +567,52 @@ function turnMood(m: AssistantMessage): Mood {
   if (m.mood) return m.mood;
   const actions = m.actions ?? [];
   return actions.some((a) => !a.ok) ? "shocked" : actions.length ? "happy" : "smiling";
+}
+
+/** The earlier chats, the most recent first: open one, or delete it. onMore lists older ones. */
+function PastChats({
+  threads,
+  current,
+  name,
+  onOpen,
+  onForget,
+  onMore,
+}: {
+  threads: wire.ChatThread[];
+  current: string | null;
+  name: string;
+  onOpen: (id: string) => void;
+  onForget: (t: wire.ChatThread) => void;
+  onMore?: () => void;
+}) {
+  if (threads.length === 0)
+    return <p className="my-auto text-center text-[13px] text-ink-subtle">No chats yet. What you say to {name} is kept here, and she remembers it in later chats.</p>;
+  const now = Date.now();
+  return (
+    <div className="flex flex-col gap-1">
+      <p className="px-1 pb-2 text-xs text-ink-subtle">
+        {name} remembers what was said in these chats when it comes up again. Deleting one erases it.
+      </p>
+      <ul className="flex flex-col gap-1">
+        {threads.map((t) => (
+          <li key={t.id} className={cx("flex items-center gap-2 rounded-lg border px-3 py-2", t.id === current ? "border-accent/40 bg-accent/[0.06]" : "border-line bg-surface-2")}>
+            <button type="button" onClick={() => onOpen(t.id)} className="flex min-w-0 flex-1 flex-col items-start text-left">
+              <span className="w-full truncate text-[13px] text-ink">{t.title || "Untitled chat"}</span>
+              <span className="text-[11px] text-ink-faint tabular-nums">
+                {formatAgo(t.last_at, now)} · {t.messages} {t.messages === 1 ? "message" : "messages"}
+              </span>
+            </button>
+            <IconButton size="sm" icon={Trash2} label={`Delete "${t.title || "Untitled chat"}"`} onClick={() => onForget(t)} />
+          </li>
+        ))}
+      </ul>
+      {onMore && (
+        <Button size="sm" tone="ghost" className="self-center" onClick={onMore}>
+          Show older chats
+        </Button>
+      )}
+    </div>
+  );
 }
 
 /** She is speaking, or about to: with a way to stop her. */

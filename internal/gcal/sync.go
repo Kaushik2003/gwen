@@ -67,6 +67,8 @@ func (s *Service) client(ctx context.Context) (svc *calendar.Service, done func(
 
 // errScope is the error while the token lacks a scope Gwen asks for: it was
 // granted before Gwen read events, or a scope was unticked on Google's page.
+//
+//lint:ignore ST1005 the message starts with the product name, Google Calendar
 var errScope = errors.New("Google Calendar needs to be connected again so Gwen can read your calendars and their events; " +
 	"run gwen cal connect")
 

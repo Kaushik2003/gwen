@@ -71,14 +71,17 @@ type cliResult struct {
 	IsError          bool            `json:"is_error"`
 	Result           string          `json:"result"`
 	StructuredOutput json.RawMessage `json:"structured_output"`
+	Usage            Usage           `json:"usage"`
 }
 
-func (c claudeCode) complete(ctx context.Context, p prompt, user string) (string, error) {
+// complete passes the whole system prompt, its stable part first: the CLI
+// caches prompts by itself.
+func (c claudeCode) complete(ctx context.Context, p prompt, user string) (string, Usage, error) {
 	args := []string{"-p", "--output-format", "json"}
 	if c.model != "" {
 		args = append(args, "--model", c.model)
 	}
-	args = append(args, "--system-prompt", p.system, "--json-schema", p.schema, "--tools", "",
+	args = append(args, "--system-prompt", p.full(), "--json-schema", p.schema, "--tools", "",
 		"--strict-mcp-config", "--setting-sources", "", "--disable-slash-commands", "--no-session-persistence")
 	name := c.path
 	if c.scope != "" {
@@ -101,18 +104,18 @@ func (c claudeCode) complete(ctx context.Context, p prompt, user string) (string
 	cmd.WaitDelay = time.Second
 	runErr := cmd.Run()
 	if err := ctx.Err(); err != nil {
-		return "", err
+		return "", Usage{}, err
 	}
 
 	var res cliResult
 	if err := json.Unmarshal(bytes.TrimSpace(stdout.Bytes()), &res); err != nil || res.Type != "result" {
 		if line := lastLine(stderr.String()); line != "" {
-			return "", fmt.Errorf("claude_code: %s", line)
+			return "", Usage{}, fmt.Errorf("claude_code: %s", line)
 		}
 		if runErr == nil {
 			runErr = errors.New("the CLI's output is not its result JSON")
 		}
-		return "", fmt.Errorf("claude_code: %w", runErr)
+		return "", Usage{}, fmt.Errorf("claude_code: %w", runErr)
 	}
 	switch {
 	case res.IsError:
@@ -120,13 +123,13 @@ func (c claudeCode) complete(ctx context.Context, p prompt, user string) (string
 		if msg == "" {
 			msg = "the CLI reported an error"
 		}
-		return "", fmt.Errorf("claude_code: %s", msg)
+		return "", Usage{}, fmt.Errorf("claude_code: %s", msg)
 	case len(res.StructuredOutput) > 0 && string(res.StructuredOutput) != "null":
-		return string(res.StructuredOutput), nil
+		return string(res.StructuredOutput), res.Usage, nil
 	case strings.TrimSpace(res.Result) != "":
-		return res.Result, nil
+		return res.Result, res.Usage, nil
 	}
-	return "", errors.New("claude_code: the reply had no text")
+	return "", Usage{}, errors.New("claude_code: the reply had no text")
 }
 
 // lastLine is the last non-blank line of s, trimmed.

@@ -42,12 +42,12 @@ type fakeCalendar struct {
 	events    map[string]*calendar.Event // by id
 	changed   map[string]int             // event id → seq of its last change
 	seq       int
-	created   int  // calendars ever created
-	expire    bool // every sync token is 410 Gone
-	fail      bool // every call is a 500
+	created   int                          // calendars ever created
+	expire    bool                         // every sync token is 410 Gone
+	fail      bool                         // every call is a 500
 	others    map[string][]*calendar.Event // the busy calendars' events, by calendar id
 	list      []*calendar.CalendarListEntry
-	scopeless bool // reading other calendars is refused for want of a scope
+	scopeless bool     // reading other calendars is refused for want of a scope
 	lists     []string // the sync token of each list call
 	inserts   int
 	patches   int

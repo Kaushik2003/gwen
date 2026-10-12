@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -42,7 +43,7 @@ type Options struct {
 	HTTPClient *http.Client // nil means http.DefaultClient
 	// AnthropicURL overrides the Messages API endpoint, for tests.
 	AnthropicURL string
-	// Self is how the assistant has chosen to treat the user, which opens
+	// Self is how the assistant has chosen to treat the user, which closes
 	// the prompts that talk to them.
 	Self Self
 }
@@ -54,7 +55,7 @@ func New(cfg config.LLM, o Options) (Planner, error) {
 	if client == nil {
 		client = http.DefaultClient
 	}
-	a := &adapter{name: cfg.Provider, timeout: cfg.Timeout, persona: PersonaPrompt(cfg, o.Self)}
+	a := &adapter{name: cfg.Provider, timeout: cfg.Timeout, persona: PersonaPrompt(cfg), self: SelfPrompt(o.Self)}
 	switch cfg.Provider {
 	case config.ProviderAnthropic:
 		key, err := apiKey(o.CredDir)
@@ -99,37 +100,55 @@ func apiKey(credDir string) (string, error) {
 	return key, err
 }
 
+// Usage is what one request used, in tokens, as the provider reported it:
+// Input is the input read in full, CacheRead the input read from the prompt
+// cache, and CacheWrite the input written to it. What a provider does not
+// report is 0.
+type Usage struct {
+	Input      int `json:"input_tokens"`
+	CacheRead  int `json:"cache_read_input_tokens"`
+	CacheWrite int `json:"cache_creation_input_tokens"`
+	Output     int `json:"output_tokens"`
+}
+
 // adapter implements the jobs over one provider's completion call.
 type adapter struct {
 	name     string
 	timeout  time.Duration
 	persona  string // opens the prompts that talk to the user
-	complete func(ctx context.Context, p prompt, user string) (string, error)
+	self     string // closes them
+	complete func(ctx context.Context, p prompt, user string) (string, Usage, error)
 }
 
 func (a *adapter) Name() string { return a.name }
 
 // ask sends one request, bounded by llm.timeout, and returns the model's
-// reply with any Markdown code fence around the JSON removed.
-func (a *adapter) ask(ctx context.Context, p prompt, payload any) (string, error) {
+// reply with any Markdown code fence around the JSON removed, and what the
+// request used.
+func (a *adapter) ask(ctx context.Context, p prompt, payload any) (string, Usage, error) {
 	user, err := jsonString(payload)
 	if err != nil {
-		return "", err
+		return "", Usage{}, err
 	}
-	if p.persona && a.persona != "" {
-		p.system = a.persona + "\n\n" + p.system
+	if p.persona {
+		if a.persona != "" {
+			p.system = a.persona + "\n\n" + p.system
+		}
+		p.tail = a.self
 	}
 	if a.timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, a.timeout)
 		defer cancel()
 	}
-	text, err := a.complete(ctx, p, user)
+	text, use, err := a.complete(ctx, p, user)
 	if err != nil {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return "", fmt.Errorf("the %s request timed out after %s", a.name, a.timeout)
+			return "", Usage{}, fmt.Errorf("the %s request timed out after %s", a.name, a.timeout)
 		}
-		return "", err
+		return "", Usage{}, err
 	}
-	return unfence(text), nil
+	slog.Info("llm request", "provider", a.name, "job", p.name, "input_tokens", use.Input,
+		"cache_read_tokens", use.CacheRead, "cache_write_tokens", use.CacheWrite, "output_tokens", use.Output)
+	return unfence(text), use, nil
 }

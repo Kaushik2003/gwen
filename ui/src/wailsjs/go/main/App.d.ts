@@ -61,6 +61,8 @@ export function DeleteTask(arg1:string):Promise<void>;
 
 export function DeleteTasks(arg1:wire.DeleteTasksRequest):Promise<wire.DeletedTasks>;
 
+export function DeleteThread(arg1:string):Promise<void>;
+
 export function EnableService():Promise<void>;
 
 export function EnergyReport(arg1:number):Promise<wire.EnergyReport>;
@@ -82,6 +84,8 @@ export function GetProject(arg1:string):Promise<wire.Project>;
 export function GetReview(arg1:string):Promise<wire.WeeklyReview>;
 
 export function GetTask(arg1:string):Promise<wire.Task>;
+
+export function GetThread(arg1:string):Promise<wire.ChatThreadDetail>;
 
 export function GoalBreakdown(arg1:string,arg2:wire.BreakdownRequest):Promise<wire.LlmRun>;
 
@@ -106,6 +110,8 @@ export function ListGoals(arg1:string):Promise<wire.GoalList>;
 export function ListProjects(arg1:string):Promise<wire.ProjectList>;
 
 export function ListTasks(arg1:wire.TaskQuery):Promise<wire.TaskList>;
+
+export function ListThreads(arg1:number,arg2:number):Promise<wire.ChatThreadList>;
 
 export function LogEnergy(arg1:wire.LogEnergyRequest):Promise<wire.EnergyLog>;
 
@@ -156,6 +162,8 @@ export function SaveReview(arg1:string,arg2:wire.SaveReviewRequest):Promise<wire
 export function Say(arg1:string,arg2:string,arg3:string,arg4:number):Promise<number>;
 
 export function ScheduleTask(arg1:wire.ScheduleRequest):Promise<wire.PlanItem>;
+
+export function SearchThreads(arg1:string,arg2:number):Promise<wire.ChatSearchResult>;
 
 export function SetAutostart(arg1:boolean):Promise<void>;
 

@@ -78,6 +78,7 @@ export function attitudeOf(id: string | undefined | null) {
 }
 
 export interface AssistantMessage {
+  id?: string;
   role: "user" | "assistant";
   text: string;
   at: number;
@@ -87,7 +88,8 @@ export interface AssistantMessage {
   actions?: ActionResult[];
 }
 
-/** An ok assistant run's output: the whole conversation. */
+/** An ok assistant run's output: its chat, and the turn it added, your message and the reply. */
 export interface AssistantOutput {
+  thread_id: string;
   messages: AssistantMessage[];
 }

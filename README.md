@@ -46,6 +46,8 @@
   Claude Pro/Max subscription through Claude Code. Or none: everything else works without an LLM.
 - **A personality.** Gwen has a voice, 12 moods with animated sprites, and attitudes she picks for herself. Rename
   her and tell her about yourself under **Settings → AI → Personality**.
+- **She remembers.** Chats are kept on your machine. Open or delete an earlier one from **Past chats**; when something
+  comes up again, Gwen recalls what was said about it in earlier chats, and on which day.
 - **Talk out loud.** Dictate into any chat, or open the talk window from the panel and have a spoken conversation.
   Speech-to-text (NVIDIA Parakeet) and text-to-speech (Kokoro) run **on your machine**; Fish Audio is an optional
   online voice.
