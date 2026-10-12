@@ -59,9 +59,11 @@ func open(ctx context.Context, dataDir string, clk clock.Clock, migrations fs.FS
 		return nil, fmt.Errorf("create data directory: %w", err)
 	}
 	path := filepath.Join(dataDir, DatabaseFile)
+	// secure_delete overwrites what is deleted or replaced with zeros, so a
+	// deleted chat's words do not linger in the file's free space.
 	dsn := "file:" + path +
 		"?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)" +
-		"&_pragma=synchronous(NORMAL)&_txlock=immediate"
+		"&_pragma=synchronous(NORMAL)&_pragma=secure_delete(1)&_txlock=immediate"
 	sqlDB, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open database %s: %w", path, err)
@@ -94,6 +96,9 @@ func (db *DB) init(ctx context.Context, migrations fs.FS) error {
 		return err
 	}
 	db.deviceID = id
+	if version >= chatsVersion {
+		return importChats(ctx, db)
+	}
 	return nil
 }
 

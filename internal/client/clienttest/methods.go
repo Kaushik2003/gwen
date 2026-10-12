@@ -19,6 +19,23 @@ func (f *Fake) ResetAssistantSelf(_ context.Context) error {
 	return err
 }
 
+func (f *Fake) ListThreads(_ context.Context, limit, offset int) (*wire.ChatThreadList, error) {
+	return result[*wire.ChatThreadList](f, "ListThreads", limit, offset)
+}
+
+func (f *Fake) GetThread(_ context.Context, id string) (*wire.ChatThreadDetail, error) {
+	return result[*wire.ChatThreadDetail](f, "GetThread", id)
+}
+
+func (f *Fake) DeleteThread(_ context.Context, id string) error {
+	_, err := f.invoke("DeleteThread", id)
+	return err
+}
+
+func (f *Fake) SearchThreads(_ context.Context, q string, limit int) (*wire.ChatSearchResult, error) {
+	return result[*wire.ChatSearchResult](f, "SearchThreads", q, limit)
+}
+
 func (f *Fake) ScheduleTask(_ context.Context, req wire.ScheduleRequest) (*wire.PlanItem, error) {
 	return result[*wire.PlanItem](f, "ScheduleTask", req)
 }

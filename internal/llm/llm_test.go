@@ -52,13 +52,25 @@ func (p *provider) server(t *testing.T, anthropic bool) *httptest.Server {
 		}
 		text, _ := json.Marshal(reply(r))
 		if anthropic {
-			fmt.Fprintf(w, `{"type": "message", "role": "assistant", "content": [{"type": "thinking", "thinking": ""}, {"type": "text", "text": %s}], "stop_reason": "end_turn"}`, text)
+			fmt.Fprintf(w, `{"type": "message", "role": "assistant", "content": [{"type": "thinking", "thinking": ""}, {"type": "text", "text": %s}], "stop_reason": "end_turn", "usage": {"input_tokens": 50, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 3000, "output_tokens": 120}}`, text)
 		} else {
-			fmt.Fprintf(w, `{"choices": [{"message": {"role": "assistant", "content": %s}, "finish_reason": "stop"}]}`, text)
+			fmt.Fprintf(w, `{"choices": [{"message": {"role": "assistant", "content": %s}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 3050, "completion_tokens": 120, "prompt_tokens_details": {"cached_tokens": 3000}}}`, text)
 		}
 	}))
 	t.Cleanup(srv.Close)
 	return srv
+}
+
+// system is the text of each block of an Anthropic request's system prompt.
+func system(t *testing.T, body map[string]any) []string {
+	t.Helper()
+	blocks, ok := body["system"].([]any)
+	require.True(t, ok, "the system prompt is a list of blocks")
+	var out []string
+	for _, b := range blocks {
+		out = append(out, b.(map[string]any)["text"].(string))
+	}
+	return out
 }
 
 func (p *provider) last() (*http.Request, map[string]any) {
@@ -109,7 +121,9 @@ func TestAnthropicRequestShape(t *testing.T) {
 	require.Empty(t, r.Header.Get("Authorization"))
 	require.Equal(t, "claude-sonnet-5", body["model"])
 	require.Equal(t, float64(16000), body["max_tokens"])
-	require.Contains(t, body["system"], llm.BreakdownSchema, "the schema is sent verbatim")
+	require.Equal(t, []any{map[string]any{"type": "text", "text": system(t, body)[0],
+		"cache_control": map[string]any{"type": "ephemeral"}}}, body["system"], "one cached block")
+	require.Contains(t, system(t, body)[0], llm.BreakdownSchema, "the schema is sent verbatim")
 	msgs := body["messages"].([]any)
 	require.Len(t, msgs, 1)
 	var sent map[string]any
@@ -260,7 +274,7 @@ func TestRetro(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, llm.RetroOutput{Markdown: "A solid Monday.", GeneratedBy: "llm"}, out)
 	_, body := p.last()
-	require.Contains(t, body["system"], llm.RetroSchema)
+	require.Contains(t, system(t, body)[0], llm.RetroSchema)
 
 	for name, reply := range map[string]string{
 		"bad JSON":  "no",
@@ -298,4 +312,53 @@ Completed 1 task.
 ### Goals behind pace
 
 - 300 problems: 12 done, 288 left by 2026-12-15; needs 3.2 a day, doing 1.5.`, out.Markdown)
+}
+
+// The system prompt is the same from one request to the next, whatever the
+// assistant chose about the user, so it is cached; what she chose follows it.
+func TestPromptCaching(t *testing.T) {
+	t.Parallel()
+	reply := `{"reply": "Hi.", "mood": "smiling", "attitude": null, "self_note": null, "actions": []}`
+	p := &provider{reply: func(*http.Request) string { return reply }}
+	srv := p.server(t, true)
+	cfg := config.Defaults().LLM
+	cfg.Provider = config.ProviderAnthropic
+	creds := withKey(t, "k")
+	ask := func(self llm.Self) (llm.AssistantOutput, []string, map[string]any) {
+		a, err := llm.New(cfg, llm.Options{CredDir: creds, AnthropicURL: srv.URL, Self: self})
+		require.NoError(t, err)
+		out, err := a.Assistant(context.Background(), llm.AssistantRequest{Today: "2026-09-20"})
+		require.NoError(t, err)
+		_, body := p.last()
+		return out, system(t, body), body
+	}
+
+	out, fresh, body := ask(llm.Self{})
+	require.Len(t, fresh, 1, "nothing chosen yet, nothing follows")
+	require.Equal(t, map[string]any{"type": "ephemeral"}, body["system"].([]any)[0].(map[string]any)["cache_control"])
+	require.True(t, strings.HasPrefix(fresh[0], "# GWEN STACY"))
+	require.True(t, strings.HasSuffix(fresh[0], llm.AssistantSchema), "the job's prompt and schema are cached with the persona")
+	require.Equal(t, llm.Usage{Input: 50, CacheRead: 3000, Output: 120}, out.Usage)
+
+	_, angry, body := ask(llm.Self{Attitude: "angry", Note: "Third excuse.", Since: "2026-09-14"})
+	require.Equal(t, fresh[0], angry[0], "the cached prefix does not change with her attitude")
+	require.Len(t, angry, 2)
+	require.Nil(t, body["system"].([]any)[1].(map[string]any)["cache_control"])
+	require.True(t, strings.HasPrefix(angry[1], "\n\n## "), "the tail starts a section of its own: %q", angry[1][:20])
+	require.Contains(t, angry[1], "you are being angry")
+	require.Contains(t, angry[1], "Third excuse.")
+
+	o := &provider{reply: func(*http.Request) string { return reply }}
+	osrv := o.server(t, false)
+	ocfg := config.Defaults().LLM
+	ocfg.Provider, ocfg.Endpoint = config.ProviderOpenAICompatible, osrv.URL
+	a, err := llm.New(ocfg, llm.Options{CredDir: creds, Self: llm.Self{Attitude: "soft"}})
+	require.NoError(t, err)
+	out, err = a.Assistant(context.Background(), llm.AssistantRequest{})
+	require.NoError(t, err)
+	require.Equal(t, llm.Usage{Input: 50, CacheRead: 3000, Output: 120}, out.Usage)
+	_, obody := o.last()
+	sys := obody["messages"].([]any)[0].(map[string]any)["content"].(string)
+	require.True(t, strings.HasPrefix(sys, fresh[0]), "one system message, the stable part first")
+	require.True(t, strings.HasSuffix(sys, llm.SelfPrompt(llm.Self{Attitude: "soft"})))
 }

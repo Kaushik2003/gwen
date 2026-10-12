@@ -164,8 +164,33 @@ export namespace wire {
 	        this.indexes = source["indexes"];
 	    }
 	}
+	export class ActionResult {
+	    type: string;
+	    ok: boolean;
+	    summary: string;
+	    error?: string;
+	    task_id?: string;
+	    project_id?: string;
+	    goal_id?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ActionResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.type = source["type"];
+	        this.ok = source["ok"];
+	        this.summary = source["summary"];
+	        this.error = source["error"];
+	        this.task_id = source["task_id"];
+	        this.project_id = source["project_id"];
+	        this.goal_id = source["goal_id"];
+	    }
+	}
 	export class AssistantChatRequest {
 	    message: string;
+	    thread_id?: string;
 	    run_id?: string;
 	
 	    static createFrom(source: any = {}) {
@@ -175,8 +200,51 @@ export namespace wire {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.message = source["message"];
+	        this.thread_id = source["thread_id"];
 	        this.run_id = source["run_id"];
 	    }
+	}
+	export class AssistantMessage {
+	    id?: string;
+	    role: string;
+	    text: string;
+	    at: number;
+	    mood?: string;
+	    attitude?: string;
+	    actions?: ActionResult[];
+	
+	    static createFrom(source: any = {}) {
+	        return new AssistantMessage(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.role = source["role"];
+	        this.text = source["text"];
+	        this.at = source["at"];
+	        this.mood = source["mood"];
+	        this.attitude = source["attitude"];
+	        this.actions = this.convertValues(source["actions"], ActionResult);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class AssistantSelf {
 	    attitude: string;
@@ -595,6 +663,152 @@ export namespace wire {
 	        this.last_sync_at = source["last_sync_at"];
 	        this.last_error = source["last_error"];
 	    }
+	}
+	export class ChatHit {
+	    thread_id: string;
+	    thread_title: string;
+	    message: AssistantMessage;
+	
+	    static createFrom(source: any = {}) {
+	        return new ChatHit(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.thread_id = source["thread_id"];
+	        this.thread_title = source["thread_title"];
+	        this.message = this.convertValues(source["message"], AssistantMessage);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ChatSearchResult {
+	    hits: ChatHit[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ChatSearchResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.hits = this.convertValues(source["hits"], ChatHit);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ChatThread {
+	    id: string;
+	    title: string;
+	    messages: number;
+	    created_at: number;
+	    last_at: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ChatThread(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.title = source["title"];
+	        this.messages = source["messages"];
+	        this.created_at = source["created_at"];
+	        this.last_at = source["last_at"];
+	    }
+	}
+	export class ChatThreadDetail {
+	    thread: ChatThread;
+	    messages: AssistantMessage[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ChatThreadDetail(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.thread = this.convertValues(source["thread"], ChatThread);
+	        this.messages = this.convertValues(source["messages"], AssistantMessage);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ChatThreadList {
+	    threads: ChatThread[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ChatThreadList(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.threads = this.convertValues(source["threads"], ChatThread);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class ClockInRequest {
 	    project_id?: string;

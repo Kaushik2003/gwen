@@ -21,6 +21,27 @@ func (c *Client) ResetAssistantSelf(ctx context.Context) error {
 	return c.do(ctx, http.MethodDelete, "/v1/assistant/self", nil, nil, nil)
 }
 
+// ListThreads lists the assistant chats after the first offset; limit 0
+// means the daemon's default.
+func (c *Client) ListThreads(ctx context.Context, limit, offset int) (*wire.ChatThreadList, error) {
+	return call[wire.ChatThreadList](ctx, c, http.MethodGet, "/v1/assistant/threads",
+		query("limit", count(limit), "offset", count(offset)), nil)
+}
+
+func (c *Client) GetThread(ctx context.Context, id string) (*wire.ChatThreadDetail, error) {
+	return call[wire.ChatThreadDetail](ctx, c, http.MethodGet, "/v1/assistant/threads/"+url.PathEscape(id), nil, nil)
+}
+
+func (c *Client) DeleteThread(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodDelete, "/v1/assistant/threads/"+url.PathEscape(id), nil, nil, nil)
+}
+
+// SearchThreads finds the messages of every chat that share words with q;
+// limit 0 means the daemon's default.
+func (c *Client) SearchThreads(ctx context.Context, q string, limit int) (*wire.ChatSearchResult, error) {
+	return call[wire.ChatSearchResult](ctx, c, http.MethodGet, "/v1/assistant/search", query("q", q, "limit", count(limit)), nil)
+}
+
 func (c *Client) ScheduleTask(ctx context.Context, req wire.ScheduleRequest) (*wire.PlanItem, error) {
 	return call[wire.PlanItem](ctx, c, http.MethodPost, "/v1/plan/schedule", nil, req)
 }
@@ -40,11 +61,15 @@ func (c *Client) SaveReview(ctx context.Context, weekStart string, req wire.Save
 // EnergyReport reads the check-ins of the last days days; 0 means the
 // daemon's default.
 func (c *Client) EnergyReport(ctx context.Context, days int) (*wire.EnergyReport, error) {
-	n := ""
-	if days > 0 {
-		n = strconv.Itoa(days)
+	return call[wire.EnergyReport](ctx, c, http.MethodGet, "/v1/energy", query("days", count(days)), nil)
+}
+
+// count is n as a query value, or "" for 0, which leaves it out.
+func count(n int) string {
+	if n <= 0 {
+		return ""
 	}
-	return call[wire.EnergyReport](ctx, c, http.MethodGet, "/v1/energy", query("days", n), nil)
+	return strconv.Itoa(n)
 }
 
 func (c *Client) LogEnergy(ctx context.Context, req wire.LogEnergyRequest) (*wire.EnergyLog, error) {

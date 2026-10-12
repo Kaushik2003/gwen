@@ -121,9 +121,12 @@ func TestAssistantChat(t *testing.T) {
 	t.Parallel()
 	var mu sync.Mutex
 	reply, sent := "", ""
+	var during func() // runs once, while she answers
 	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
-			System   string `json:"system"`
+			System []struct {
+				Text string `json:"text"`
+			} `json:"system"`
 			Messages []struct {
 				Content string `json:"content"`
 			} `json:"messages"`
@@ -131,9 +134,18 @@ func TestAssistantChat(t *testing.T) {
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		mu.Lock()
 		defer mu.Unlock()
-		sent = body.System + "\n" + body.Messages[0].Content
+		if during != nil {
+			during()
+			during = nil
+		}
+		sent = ""
+		for _, b := range body.System {
+			sent += b.Text + "\n"
+		}
+		sent += body.Messages[0].Content
 		text, _ := json.Marshal(reply)
-		fmt.Fprintf(w, `{"content": [{"type": "text", "text": %s}], "stop_reason": "end_turn"}`, text)
+		fmt.Fprintf(w, `{"content": [{"type": "text", "text": %s}], "stop_reason": "end_turn", `+
+			`"usage": {"input_tokens": 900, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 4000, "output_tokens": 80}}`, text)
 	}))
 	t.Cleanup(fake.Close)
 	d := startDaemonWith(t, setup{llm: true}, func(o *options) { o.anthropicURL = fake.URL })
@@ -171,7 +183,11 @@ func TestAssistantChat(t *testing.T) {
 	require.Equal(t, wire.RunOK, run.Status)
 	var out wire.AssistantOutput
 	require.NoError(t, json.Unmarshal(run.Output, &out))
+	require.Len(t, out.ThreadID, 36, "the first message starts a chat")
+	require.Equal(t, out.ThreadID, run.SubjectID)
+	require.Equal(t, &wire.LlmUsage{Input: 900, CacheRead: 4000, Output: 80}, out.Usage)
 	require.Len(t, out.Messages, 2)
+	require.Equal(t, "Add my essay at ten", out.Messages[0].Text)
 	require.Equal(t, "Done, boss.", out.Messages[1].Text)
 	require.Equal(t, "smug", out.Messages[1].Mood)
 	require.Equal(t, "angry", out.Messages[1].Attitude, "the turn says she switched")
@@ -190,6 +206,7 @@ func TestAssistantChat(t *testing.T) {
 	require.NotContains(t, sent, "How you have chosen to treat them", "the first turn had no attitude yet")
 	require.Contains(t, sent, "Call me boss.")
 	require.Contains(t, sent, `"recent_days":[]`)
+	require.Contains(t, sent, `"recalled":[]`, "nothing to remember yet")
 	mu.Unlock()
 	self, err = d.c.AssistantSelf(d.ctx)
 	require.NoError(t, err)
@@ -212,22 +229,96 @@ func TestAssistantChat(t *testing.T) {
 	mu.Lock()
 	reply = `{"reply": "You have the essay at ten.", "mood": "dancing", "actions": []}`
 	mu.Unlock()
-	run, err = d.c.AssistantChat(d.ctx, wire.AssistantChatRequest{Message: "What's next?", RunID: &run.ID})
+	essay := out.ThreadID
+	run, err = d.c.AssistantChat(d.ctx, wire.AssistantChatRequest{Message: "What's next?", ThreadID: &essay})
 	require.NoError(t, err)
+	out = wire.AssistantOutput{}
 	require.NoError(t, json.Unmarshal(run.Output, &out))
-	require.Len(t, out.Messages, 4, "the conversation goes on")
-	require.Equal(t, "smug", out.Messages[1].Mood, "earlier turns keep their faces")
-	require.Empty(t, out.Messages[3].Mood, "an unknown mood is dropped, not the reply")
-	require.Empty(t, out.Messages[3].Attitude, "no attitude in the reply keeps hers")
+	require.Equal(t, essay, out.ThreadID, "the chat goes on")
+	require.Len(t, out.Messages, 2, "the run holds its own turn")
+	require.Empty(t, out.Messages[1].Mood, "an unknown mood is dropped, not the reply")
+	require.Empty(t, out.Messages[1].Attitude, "no attitude in the reply keeps hers")
 	mu.Lock()
 	require.Contains(t, sent, `"blocks":[{"day":"2026-09-15","start":"10:00","minutes":60,"pinned":true}]`)
 	require.Contains(t, sent, "on 2026-09-15")
 	require.Contains(t, sent, "you are being angry")
 	require.Contains(t, sent, "Third excuse about the essay.")
+	require.Contains(t, sent, `"messages":[{"role":"user","text":"Add my essay at ten"},{"role":"assistant","text":"Done, boss."},{"role":"user","text":"What's next?"}]`)
 	mu.Unlock()
+
+	chat, err := d.c.GetThread(d.ctx, essay)
+	require.NoError(t, err)
+	require.Equal(t, "Add my essay at ten", chat.Thread.Title)
+	require.Equal(t, 4, chat.Thread.Messages)
+	require.Len(t, chat.Messages, 4)
+	require.Equal(t, "smug", chat.Messages[1].Mood, "earlier turns keep their faces")
+	require.Len(t, chat.Messages[1].Actions, 4, "and what they changed")
+	require.Equal(t, `Added "Essay", in School`, chat.Messages[1].Actions[0].Summary)
+
+	// A new chat remembers the old one when the words match.
+	mu.Lock()
+	reply = `{"reply": "Ten, as before.", "mood": "smiling", "actions": []}`
+	mu.Unlock()
+	run, err = d.c.AssistantChat(d.ctx, wire.AssistantChatRequest{Message: "When is my essay?"})
+	require.NoError(t, err)
+	out = wire.AssistantOutput{}
+	require.NoError(t, json.Unmarshal(run.Output, &out))
+	require.NotEqual(t, essay, out.ThreadID)
+	mu.Lock()
+	require.Contains(t, sent, `"recalled":[{"day":"2026-09-15","chat":"Add my essay at ten","role":"user","text":"Add my essay at ten"},`+
+		`{"day":"2026-09-15","chat":"Add my essay at ten","role":"assistant","text":"You have the essay at ten."}]`)
+	mu.Unlock()
+	list, err := d.c.ListThreads(d.ctx, 0, 0)
+	require.NoError(t, err)
+	require.Len(t, list.Threads, 2)
+	require.Equal(t, out.ThreadID, list.Threads[0].ID, "the most recently active first")
+	list, err = d.c.ListThreads(d.ctx, 1, 1)
+	require.NoError(t, err)
+	require.Equal(t, essay, list.Threads[0].ID, "a page further on")
+	found, err := d.c.SearchThreads(d.ctx, "essays", 0)
+	require.NoError(t, err)
+	require.Len(t, found.Hits, 3)
+
+	// A client from before chats were threads continues by run.
+	run, err = d.c.AssistantChat(d.ctx, wire.AssistantChatRequest{Message: "And after?", RunID: &run.ID})
+	require.NoError(t, err)
+	var next wire.AssistantOutput
+	require.NoError(t, json.Unmarshal(run.Output, &next))
+	require.Equal(t, out.ThreadID, next.ThreadID)
+
+	require.NoError(t, d.c.DeleteThread(d.ctx, essay))
+	_, err = d.c.GetThread(d.ctx, essay)
+	apiErr(t, err, wire.CodeNotFound)
+	_, err = d.c.AssistantChat(d.ctx, wire.AssistantChatRequest{Message: "Hi", ThreadID: &essay})
+	apiErr(t, err, wire.CodeInvalidRequest)
+	found, err = d.c.SearchThreads(d.ctx, "essay", 0)
+	require.NoError(t, err)
+	require.Len(t, found.Hits, 1, "a deleted chat is forgotten")
+	require.Equal(t, "When is my essay?", found.Hits[0].Message.Text)
 	again, err := d.c.AssistantSelf(d.ctx)
 	require.NoError(t, err)
 	require.Equal(t, self, again, "a reply that keeps her attitude changes nothing")
+
+	var deleted error
+	mu.Lock()
+	reply = `{"reply": "Noted.", "mood": "smiling", "actions": []}`
+	during = func() { deleted = d.c.DeleteThread(d.ctx, next.ThreadID) }
+	mu.Unlock()
+	run, err = d.c.AssistantChat(d.ctx, wire.AssistantChatRequest{Message: "One more thing", ThreadID: &next.ThreadID})
+	require.NoError(t, err)
+	mu.Lock()
+	require.NoError(t, deleted)
+	mu.Unlock()
+	var late wire.AssistantOutput
+	require.NoError(t, json.Unmarshal(run.Output, &late))
+	require.NotEqual(t, next.ThreadID, late.ThreadID, "a chat deleted while she answered: the turn starts a new one")
+	require.Equal(t, late.ThreadID, run.SubjectID)
+	chat, err = d.c.GetThread(d.ctx, late.ThreadID)
+	require.NoError(t, err)
+	require.Equal(t, "One more thing", chat.Thread.Title)
+	require.Len(t, chat.Messages, 2)
+	_, err = d.c.GetThread(d.ctx, next.ThreadID)
+	apiErr(t, err, wire.CodeNotFound)
 
 	require.NoError(t, d.c.ResetAssistantSelf(d.ctx))
 	self, err = d.c.AssistantSelf(d.ctx)

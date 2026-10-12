@@ -118,6 +118,10 @@ export function DeleteTasks(arg1) {
   return window['go']['main']['App']['DeleteTasks'](arg1);
 }
 
+export function DeleteThread(arg1) {
+  return window['go']['main']['App']['DeleteThread'](arg1);
+}
+
 export function EnableService() {
   return window['go']['main']['App']['EnableService']();
 }
@@ -160,6 +164,10 @@ export function GetReview(arg1) {
 
 export function GetTask(arg1) {
   return window['go']['main']['App']['GetTask'](arg1);
+}
+
+export function GetThread(arg1) {
+  return window['go']['main']['App']['GetThread'](arg1);
 }
 
 export function GoalBreakdown(arg1, arg2) {
@@ -208,6 +216,10 @@ export function ListProjects(arg1) {
 
 export function ListTasks(arg1) {
   return window['go']['main']['App']['ListTasks'](arg1);
+}
+
+export function ListThreads(arg1, arg2) {
+  return window['go']['main']['App']['ListThreads'](arg1, arg2);
 }
 
 export function LogEnergy(arg1) {
@@ -308,6 +320,10 @@ export function Say(arg1, arg2, arg3, arg4) {
 
 export function ScheduleTask(arg1) {
   return window['go']['main']['App']['ScheduleTask'](arg1);
+}
+
+export function SearchThreads(arg1, arg2) {
+  return window['go']['main']['App']['SearchThreads'](arg1, arg2);
 }
 
 export function SetAutostart(arg1) {

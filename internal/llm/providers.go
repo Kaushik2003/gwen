@@ -25,8 +25,20 @@ type anthropic struct {
 type anthropicRequest struct {
 	Model     string             `json:"model"`
 	MaxTokens int                `json:"max_tokens"`
-	System    string             `json:"system"`
+	System    []anthropicBlock   `json:"system"`
 	Messages  []anthropicMessage `json:"messages"`
+}
+
+// anthropicBlock is a text block of the system prompt. A cache breakpoint
+// on a block caches the prompt up to and including it.
+type anthropicBlock struct {
+	Type         string          `json:"type"`
+	Text         string          `json:"text"`
+	CacheControl *anthropicCache `json:"cache_control,omitempty"`
+}
+
+type anthropicCache struct {
+	Type string `json:"type"`
 }
 
 type anthropicMessage struct {
@@ -40,6 +52,7 @@ type anthropicResponse struct {
 		Text string `json:"text"`
 	} `json:"content"`
 	StopReason string `json:"stop_reason"`
+	Usage      Usage  `json:"usage"`
 }
 
 // apiError is the error body both providers send.
@@ -50,19 +63,27 @@ type apiError struct {
 	} `json:"error"`
 }
 
-func (a anthropic) complete(ctx context.Context, p prompt, user string) (string, error) {
-	body := anthropicRequest{Model: a.model, MaxTokens: maxTokens, System: p.system,
+// complete caches the system prompt, which repeats from one request to the
+// next, and sends the prompt's tail after the breakpoint: a prompt shorter
+// than the model's minimum is simply not cached.
+func (a anthropic) complete(ctx context.Context, p prompt, user string) (string, Usage, error) {
+	system := []anthropicBlock{{Type: "text", Text: p.system, CacheControl: &anthropicCache{Type: "ephemeral"}}}
+	if p.tail != "" {
+		// The blocks are joined as they are, so the tail brings its own break.
+		system = append(system, anthropicBlock{Type: "text", Text: "\n\n" + p.tail})
+	}
+	body := anthropicRequest{Model: a.model, MaxTokens: maxTokens, System: system,
 		Messages: []anthropicMessage{{Role: "user", Content: user}}}
 	headers := map[string]string{"x-api-key": a.key, "anthropic-version": "2023-06-01"}
 	var res anthropicResponse
 	if err := post(ctx, a.client, a.url, headers, body, &res); err != nil {
-		return "", fmt.Errorf("anthropic: %w", err)
+		return "", Usage{}, fmt.Errorf("anthropic: %w", err)
 	}
 	switch res.StopReason {
 	case "max_tokens":
-		return "", errors.New("anthropic: the reply was cut off at the token limit")
+		return "", Usage{}, errors.New("anthropic: the reply was cut off at the token limit")
 	case "refusal":
-		return "", errors.New("anthropic: the model declined the request")
+		return "", Usage{}, errors.New("anthropic: the model declined the request")
 	}
 	// Only text blocks carry the answer; a thinking block may come first.
 	var text strings.Builder
@@ -72,9 +93,9 @@ func (a anthropic) complete(ctx context.Context, p prompt, user string) (string,
 		}
 	}
 	if text.Len() == 0 {
-		return "", errors.New("anthropic: the reply had no text")
+		return "", Usage{}, errors.New("anthropic: the reply had no text")
 	}
-	return text.String(), nil
+	return text.String(), res.Usage, nil
 }
 
 // openAI calls an OpenAI-compatible chat completions endpoint, such as Ollama.
@@ -103,11 +124,20 @@ type openAIResponse struct {
 		} `json:"message"`
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
+	Usage struct {
+		PromptTokens        int `json:"prompt_tokens"`
+		CompletionTokens    int `json:"completion_tokens"`
+		PromptTokensDetails struct {
+			CachedTokens int `json:"cached_tokens"`
+		} `json:"prompt_tokens_details"`
+	} `json:"usage"`
 }
 
-func (o openAI) complete(ctx context.Context, p prompt, user string) (string, error) {
+// complete sends the system prompt first, so servers that cache prompt
+// prefixes by themselves can reuse it.
+func (o openAI) complete(ctx context.Context, p prompt, user string) (string, Usage, error) {
 	body := openAIRequest{Model: o.model, ResponseFormat: map[string]string{"type": "json_object"},
-		Messages: []openAIMessage{{Role: "system", Content: p.system}, {Role: "user", Content: user}}}
+		Messages: []openAIMessage{{Role: "system", Content: p.full()}, {Role: "user", Content: user}}}
 	headers := map[string]string{}
 	if o.key != "" {
 		headers["Authorization"] = "Bearer " + o.key
@@ -115,15 +145,17 @@ func (o openAI) complete(ctx context.Context, p prompt, user string) (string, er
 	var res openAIResponse
 	url := strings.TrimRight(o.endpoint, "/") + "/chat/completions"
 	if err := post(ctx, o.client, url, headers, body, &res); err != nil {
-		return "", fmt.Errorf("openai_compatible: %w", err)
+		return "", Usage{}, fmt.Errorf("openai_compatible: %w", err)
 	}
 	if len(res.Choices) == 0 || res.Choices[0].Message.Content == "" {
-		return "", errors.New("openai_compatible: the reply had no content")
+		return "", Usage{}, errors.New("openai_compatible: the reply had no content")
 	}
 	if res.Choices[0].FinishReason == "length" {
-		return "", errors.New("openai_compatible: the reply was cut off at the token limit")
+		return "", Usage{}, errors.New("openai_compatible: the reply was cut off at the token limit")
 	}
-	return res.Choices[0].Message.Content, nil
+	cached := min(res.Usage.PromptTokensDetails.CachedTokens, res.Usage.PromptTokens)
+	return res.Choices[0].Message.Content, Usage{Input: res.Usage.PromptTokens - cached, CacheRead: cached,
+		Output: res.Usage.CompletionTokens}, nil
 }
 
 // post sends one JSON request and decodes a 2xx reply into out; any other

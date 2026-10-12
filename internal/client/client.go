@@ -103,6 +103,10 @@ type API interface {
 	AssistantChat(ctx context.Context, req wire.AssistantChatRequest) (*wire.LlmRun, error)
 	AssistantSelf(ctx context.Context) (*wire.AssistantSelf, error)
 	ResetAssistantSelf(ctx context.Context) error
+	ListThreads(ctx context.Context, limit, offset int) (*wire.ChatThreadList, error)
+	GetThread(ctx context.Context, id string) (*wire.ChatThreadDetail, error)
+	DeleteThread(ctx context.Context, id string) error
+	SearchThreads(ctx context.Context, q string, limit int) (*wire.ChatSearchResult, error)
 
 	ScheduleTask(ctx context.Context, req wire.ScheduleRequest) (*wire.PlanItem, error)
 	UnscheduleTask(ctx context.Context, req wire.UnscheduleRequest) (*wire.Unscheduled, error)

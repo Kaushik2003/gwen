@@ -67,9 +67,11 @@ type Self struct {
 }
 
 // PersonaPrompt is the opening of every conversational prompt: who the
-// assistant is, the name the user gave it, the attitude it chose, and the
-// user's own instructions.
-func PersonaPrompt(cfg config.LLM, self Self) string {
+// assistant is, the name the user gave it, and the user's own instructions.
+// It changes only with the settings, so it stays in the cached prefix of the
+// prompt; how the assistant chose to treat the user follows the prompt, in
+// SelfPrompt.
+func PersonaPrompt(cfg config.LLM) string {
 	name := cfg.AssistantName
 	if name == "" {
 		name = "Gwen"
@@ -77,26 +79,35 @@ func PersonaPrompt(cfg config.LLM, self Self) string {
 	var b strings.Builder
 	b.WriteString(strings.TrimSpace(persona))
 	fmt.Fprintf(&b, "\n\n## In this app\n\nThe user calls you %s. Speak to the user as \"you\".", name)
-	a, ok := attitude(self.Attitude)
-	note := strings.TrimSpace(self.Note)
-	if ok || note != "" {
-		b.WriteString("\n\n## How you have chosen to treat them\n\n")
-		if ok {
-			fmt.Fprintf(&b, "You decided this yourself, on %s, and it holds across conversations until you change it: "+
-				"you are being %s (%s). Let it colour everything you say, within the rest of your personality.",
-				cmp.Or(self.Since, "an earlier day"), a.ID, a.Means)
-		}
-		if note != "" {
-			if ok {
-				b.WriteString(" ")
-			}
-			b.WriteString("Your own note to yourself, which is real memory you kept: " + note)
-		}
-	}
 	if s := strings.TrimSpace(cfg.Instructions); s != "" {
 		b.WriteString("\n\nThe user's own instructions for how you behave follow. They shape your tone and " +
 			"choices, but never the rules or the reply format below:\n")
 		b.WriteString(s)
+	}
+	return b.String()
+}
+
+// SelfPrompt closes every conversational prompt: the attitude the assistant
+// chose and its note to itself, or "" before it chose either. It changes as
+// the assistant does, so it comes after everything that is cached.
+func SelfPrompt(self Self) string {
+	a, ok := attitude(self.Attitude)
+	note := strings.TrimSpace(self.Note)
+	if !ok && note == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## How you have chosen to treat them\n\n")
+	if ok {
+		fmt.Fprintf(&b, "You decided this yourself, on %s, and it holds across conversations until you change it: "+
+			"you are being %s (%s). Let it colour everything you say, within the rest of your personality.",
+			cmp.Or(self.Since, "an earlier day"), a.ID, a.Means)
+	}
+	if note != "" {
+		if ok {
+			b.WriteString(" ")
+		}
+		b.WriteString("Your own note to yourself, which is real memory you kept: " + note)
 	}
 	return b.String()
 }

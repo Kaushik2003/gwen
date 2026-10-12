@@ -80,29 +80,83 @@ type EnergyHour struct {
 	Count   int     `json:"count"`
 }
 
-// AssistantChatRequest is the POST /v1/assistant/chat body; RunID continues
-// a conversation, nil starts one.
+// AssistantChatRequest is the POST /v1/assistant/chat body. ThreadID
+// continues a chat, nil starts one; it is left out when nil, so a new chat
+// also starts on a daemon from before chats were threads. RunID, sent by
+// clients from before then, continues the chat of that run.
 type AssistantChatRequest struct {
-	Message string  `json:"message"`
-	RunID   *string `json:"run_id"`
+	Message  string  `json:"message"`
+	ThreadID *string `json:"thread_id,omitempty"`
+	RunID    *string `json:"run_id"`
 }
 
-// AssistantOutput is an assistant run's Output: the whole conversation, each
-// assistant turn with what it changed.
+// AssistantOutput is an assistant run's Output: the chat it belongs to, and
+// the turn it added to it, the user's message and the reply with what it
+// changed. A deleted chat's runs keep no messages. Usage is what the request
+// used, when the provider said.
 type AssistantOutput struct {
+	ThreadID string             `json:"thread_id"`
 	Messages []AssistantMessage `json:"messages"`
+	Usage    *LlmUsage          `json:"usage,omitempty"`
+}
+
+// LlmUsage is what one LLM request used, in tokens: Input read in full,
+// CacheRead read from the provider's prompt cache, and CacheWrite written to
+// it.
+type LlmUsage struct {
+	Input      int `json:"input_tokens"`
+	CacheRead  int `json:"cache_read_input_tokens"`
+	CacheWrite int `json:"cache_creation_input_tokens"`
+	Output     int `json:"output_tokens"`
 }
 
 // AssistantMessage is one turn of an assistant conversation. Mood is the face
 // the assistant made with its turn, one of llm.Moods, or "" for none;
 // Attitude is the one it switched to with this turn, or "" when it kept its own.
 type AssistantMessage struct {
+	ID       string         `json:"id,omitempty"`
 	Role     string         `json:"role"`
 	Text     string         `json:"text"`
 	At       int64          `json:"at"`
 	Mood     string         `json:"mood,omitempty"`
 	Attitude string         `json:"attitude,omitempty"`
 	Actions  []ActionResult `json:"actions,omitempty"`
+}
+
+// ChatThread is one chat with the assistant, titled by its first message.
+// LastAt is when its newest message was said; Messages counts them.
+type ChatThread struct {
+	ID        string `json:"id"`
+	Title     string `json:"title"`
+	Messages  int    `json:"messages"`
+	CreatedAt int64  `json:"created_at"`
+	LastAt    int64  `json:"last_at"`
+}
+
+// ChatThreadList is GET /v1/assistant/threads: a page of the chats, the
+// most recently active first.
+type ChatThreadList struct {
+	Threads []ChatThread `json:"threads"`
+}
+
+// ChatThreadDetail is GET /v1/assistant/threads/{id}: a chat and its
+// messages, oldest first.
+type ChatThreadDetail struct {
+	Thread   ChatThread         `json:"thread"`
+	Messages []AssistantMessage `json:"messages"`
+}
+
+// ChatSearchResult is GET /v1/assistant/search: the messages that share
+// words with the query, the best match first.
+type ChatSearchResult struct {
+	Hits []ChatHit `json:"hits"`
+}
+
+// ChatHit is a message that matched a search, and its chat.
+type ChatHit struct {
+	ThreadID    string           `json:"thread_id"`
+	ThreadTitle string           `json:"thread_title"`
+	Message     AssistantMessage `json:"message"`
 }
 
 // AssistantSelf is GET /v1/assistant/self: how the assistant chose, by

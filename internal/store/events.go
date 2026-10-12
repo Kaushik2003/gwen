@@ -90,6 +90,7 @@ type Repos struct {
 	Plans       PlanRepo
 	Calendar    CalendarRepo
 	LLMRuns     LLMRunRepo
+	Chats       ChatRepo
 	Sync        SyncRepo
 	Reviews     ReviewRepo
 	Energy      EnergyRepo
@@ -109,6 +110,7 @@ func NewRepos(db *DB) Repos {
 		Plans:       NewPlanRepo(db),
 		Calendar:    NewCalendarRepo(db),
 		LLMRuns:     NewLLMRunRepo(db),
+		Chats:       NewChatRepo(db),
 		Sync:        NewSyncRepo(db),
 		Reviews:     NewReviewRepo(db),
 		Energy:      NewEnergyRepo(db),
