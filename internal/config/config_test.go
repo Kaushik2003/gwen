@@ -2,6 +2,7 @@ package config_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"io/fs"
 	"log/slog"
@@ -60,6 +61,8 @@ func TestDefaultsMatchTheSpec(t *testing.T) {
 		Calendar: wire.CalendarConfig{Enabled: false, Name: "Gwen", BusyCalendars: []string{"primary"}},
 		LLM: wire.LLMConfig{Provider: "none", Model: "claude-sonnet-5", Endpoint: "", Command: "claude", Timeout: "2m",
 			AssistantName: "Gwen"},
+		Memory: wire.MemoryConfig{Enabled: true, Learn: "assistant", Verify: true, EmbedModel: "nomic-embed-text",
+			Privacy: "local"},
 		Sync: wire.SyncConfig{HubURL: "", Interval: "5m"},
 		Log:  wire.LogConfig{Level: "info"},
 	}, w)
@@ -119,6 +122,8 @@ func TestLoadRejects(t *testing.T) {
 		{name: "bad url", body: "[ntfy]\nfallback_server = \"ntfy.local\"\n", key: "ntfy.fallback_server"},
 		{name: "empty required url", body: "[ntfy]\nserver = \"\"\n", key: "ntfy.server"},
 		{name: "wrong toml type", body: "[nudge]\ndesktop = \"yes\"\n", key: "nudge.desktop"},
+		{name: "unknown learn", body: "[memory]\nlearn = \"always\"\n", key: "memory.learn"},
+		{name: "unknown privacy", body: "[memory]\nprivacy = \"public\"\n", key: "memory.privacy"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -227,6 +232,90 @@ func TestPatch(t *testing.T) {
 			require.NoError(t, err)
 			tc.check(t, got)
 		})
+	}
+}
+
+func TestMemoryValidation(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		patch   map[string]any
+		wantKey string
+	}{
+		{name: "defaults", patch: map[string]any{}},
+		{name: "learning off", patch: map[string]any{"learn": "off"}},
+		{name: "local model", patch: map[string]any{"learn": "local", "local_endpoint": "http://127.0.0.1:11434/v1",
+			"local_model": "qwen3:8b"}},
+		{name: "local without endpoint", patch: map[string]any{"learn": "local", "local_model": "qwen3:8b"},
+			wantKey: "memory.local_endpoint"},
+		{name: "local without model", patch: map[string]any{"learn": "local", "local_endpoint": "http://localhost:11434/v1"},
+			wantKey: "memory.local_model"},
+		{name: "endpoint not a url", patch: map[string]any{"local_endpoint": "localhost:11434"},
+			wantKey: "memory.local_endpoint"},
+		{name: "embed endpoint", patch: map[string]any{"embed_endpoint": "http://localhost:11434"}},
+		{name: "embed endpoint without host", patch: map[string]any{"embed_endpoint": "http://"},
+			wantKey: "memory.embed_endpoint"},
+		{name: "loopback mem0", patch: map[string]any{"mem0_url": "http://127.0.0.1:8888"}},
+		{name: "ipv6 loopback supermemory", patch: map[string]any{"supermemory_url": "http://[::1]:8080"}},
+		{name: "remote mem0 while local", patch: map[string]any{"mem0_url": "https://api.mem0.ai"},
+			wantKey: "memory.mem0_url"},
+		{name: "remote supermemory while local", patch: map[string]any{"supermemory_url": "https://api.supermemory.ai"},
+			wantKey: "memory.supermemory_url"},
+		{name: "remote lanes when cloud is ok", patch: map[string]any{"privacy": "cloud_ok",
+			"mem0_url": "https://api.mem0.ai", "supermemory_url": "https://api.supermemory.ai"}},
+		{name: "supermemory not a url", patch: map[string]any{"privacy": "cloud_ok", "supermemory_url": "ftp://x"},
+			wantKey: "memory.supermemory_url"},
+		{name: "absolute files dir", patch: map[string]any{"files_dir": "/home/u/Gwen memory"}},
+		{name: "home files dir", patch: map[string]any{"files_dir": "~/Documents/Gwen"}},
+		{name: "relative files dir", patch: map[string]any{"files_dir": "Documents/Gwen"}, wantKey: "memory.files_dir"},
+		{name: "wrong type", patch: map[string]any{"verify": "yes"}, wantKey: "memory.verify"},
+		{name: "unknown key", patch: map[string]any{"mem0": "x"}, wantKey: "memory.mem0"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := config.Patch(config.Defaults(), wire.ConfigPatch{"memory": tc.patch})
+			if tc.wantKey != "" {
+				requireKeyError(t, err, tc.wantKey)
+				return
+			}
+			require.NoError(t, err)
+			for k, v := range tc.patch {
+				var w map[string]map[string]any
+				b, _ := json.Marshal(got.Wire())
+				require.NoError(t, json.Unmarshal(b, &w))
+				require.Equal(t, v, w["memory"][k], k)
+			}
+		})
+	}
+}
+
+func TestMemoryRoundTrip(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "config.toml")
+	c := config.Defaults()
+	c.Memory = config.Memory{Enabled: false, Learn: config.LearnLocal, LocalEndpoint: "http://localhost:11434/v1",
+		LocalModel: "qwen3:8b", Verify: false, EmbedEndpoint: "http://localhost:11434", EmbedModel: "bge-m3",
+		FilesDir: "~/Gwen", Mem0URL: "https://api.mem0.ai", SupermemoryURL: "", Privacy: config.PrivacyCloudOK}
+	require.NoError(t, config.Save(path, c))
+	got, err := config.Load(path)
+	require.NoError(t, err)
+	require.Equal(t, c, got)
+
+	// A file from before memory gets the defaults.
+	old, err := config.Load(writeFile(t, "[llm]\nprovider = \"anthropic\"\n"))
+	require.NoError(t, err)
+	require.Equal(t, config.Defaults().Memory, old.Memory)
+}
+
+func TestIsLoopbackURL(t *testing.T) {
+	t.Parallel()
+	for u, want := range map[string]bool{
+		"http://localhost:8080": true, "http://LOCALHOST": true, "http://127.0.0.1": true, "http://127.8.9.1:1": true,
+		"http://[::1]:80": true, "http://10.0.0.2": false, "https://api.mem0.ai": false, "http://localhost.evil.com": false,
+		"": false,
+	} {
+		require.Equal(t, want, config.IsLoopbackURL(u), u)
 	}
 }
 

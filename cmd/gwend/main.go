@@ -85,6 +85,7 @@ func mainErr(args []string, stderr io.Writer) int {
 		llm:        true,
 		sync:       true,
 		keeper:     true,
+		memory:     true,
 	})
 	if err != nil {
 		slog.Error("gwend failed", "err", err)

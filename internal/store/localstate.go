@@ -23,17 +23,39 @@ const (
 	// day whose only items were placed by hand ahead of time still gets one.
 	KeyPlannedDay = "planned_day"
 	// KeyAssistantSelf is how the assistant chose to treat the user, as the
-	// JSON of wire.AssistantSelf.
+	// JSON of wire.AssistantSelf. Databases before 00010_memory.sql kept it
+	// here; it moves to self_versions once and nothing writes it any more.
 	KeyAssistantSelf = "assistant_self"
 	// KeyChatsImported is when the conversations kept in assistant runs
 	// became chat threads, as Unix milliseconds; set once.
 	KeyChatsImported = "chats_imported"
+	// KeySelfImported is when assistant_self moved to self_versions, as Unix
+	// milliseconds; set once.
+	KeySelfImported = "self_imported"
+	// KeyMemoryMsgCursor and KeyMemoryEpCursor are the rowids, in decimal,
+	// of the last chat message and episode the memory learned from.
+	KeyMemoryMsgCursor = "memory_msg_cursor"
+	KeyMemoryEpCursor  = "memory_ep_cursor"
+	// KeyMemoryLastLearned, KeyMemoryLastSlept, and KeyMemoryLastInsight are
+	// when the memory last learned, consolidated, and looked for insights, as
+	// Unix milliseconds.
+	KeyMemoryLastLearned = "memory_last_learned"
+	KeyMemoryLastSlept   = "memory_last_slept"
+	KeyMemoryLastInsight = "memory_last_insight"
+	// KeyMemoryFilesState is the memory folder's state, as JSON.
+	KeyMemoryFilesState = "memory_files_state"
+	// KeySyncPushSchema and KeySyncPullSchema are the schema versions, in
+	// decimal, this device last pushed to and pulled from the hub with.
+	KeySyncPushSchema = "sync_push_schema"
+	KeySyncPullSchema = "sync_pull_schema"
 )
 
 func knownKey(key string) bool {
 	switch key {
 	case KeyDeviceID, KeyHeartbeatAt, KeyShutdownAt, KeyGcalCalendarID, KeyGcalSyncToken,
-		KeySyncPushWatermark, KeySyncPullCursor, KeyPlannedDay, KeyAssistantSelf, KeyChatsImported:
+		KeySyncPushWatermark, KeySyncPullCursor, KeyPlannedDay, KeyAssistantSelf, KeyChatsImported,
+		KeySelfImported, KeyMemoryMsgCursor, KeyMemoryEpCursor, KeyMemoryLastLearned, KeyMemoryLastSlept,
+		KeyMemoryLastInsight, KeyMemoryFilesState, KeySyncPushSchema, KeySyncPullSchema:
 		return true
 	}
 	return false

@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	gosync "sync"
@@ -152,22 +153,102 @@ func (c *Client) Sync(ctx context.Context) (Status, error) {
 	return c.Status(ctx), nil
 }
 
-// push sends every row changed since the watermark, less the overlap, in
-// batches, and advances the watermark once all have gone.
+// push sends every row changed since the watermark, less the overlap, of
+// the tables the hub's schema has, in batches, and advances the watermark
+// once all have gone. When the hub's schema has risen since the last push,
+// every row of the tables it can now take goes too, once: their changes
+// were held back until then.
 func (c *Client) push(ctx context.Context, base, token string) error {
 	db := c.o.DB.SQL()
-	since := time.UnixMilli(0)
+	since, fromStart := time.UnixMilli(0), true
 	wm, err := store.GetLocalTime(ctx, db, store.KeySyncPushWatermark)
 	switch {
 	case err == nil:
-		since = wm.Add(-Overlap)
+		since, fromStart = wm.Add(-Overlap), false
 	case !errors.Is(err, store.ErrNotFound):
 		return err
 	}
-	changed, err := c.o.Repo.Changed(ctx, since)
+	changed, err := c.o.Repo.Changed(ctx, since, nil)
 	if err != nil {
 		return err
 	}
+	hubSchema, err := c.hubSchema(ctx, base, token)
+	if err != nil {
+		if len(changed) > 0 {
+			return fmt.Errorf("push: %w", err)
+		}
+		// Nothing to send needs no hub; a catch-up waits for one that answers.
+		c.pushDone()
+		return nil
+	}
+	takes := store.SyncTablesBetween(0, hubSchema)
+	changed = slices.DeleteFunc(changed, func(tr store.TableRow) bool {
+		return !slices.Contains(takes, tr.Table)
+	})
+	newest, err := c.send(ctx, base, token, changed)
+	if err != nil {
+		return err
+	}
+	now := c.o.Clock.Now()
+	if newest > 0 {
+		if err := store.SetLocalTime(ctx, db, store.KeySyncPushWatermark, time.UnixMilli(newest), now); err != nil {
+			return err
+		}
+	}
+	// The schema both ends have: every table up to it has gone in full.
+	shared := min(hubSchema, c.o.DB.SchemaVersion())
+	was, err := localSchema(ctx, db, store.KeySyncPushSchema)
+	if err != nil {
+		return err
+	}
+	// A push from the beginning has already sent every row.
+	if shared > was && !fromStart {
+		if tables := store.SyncTablesBetween(was, shared); len(tables) > 0 {
+			all, err := c.o.Repo.Changed(ctx, time.UnixMilli(0), tables)
+			if err != nil {
+				return err
+			}
+			slog.Info("pushing the tables the hub now takes", "tables", tables, "rows", len(all),
+				"schema_version", hubSchema)
+			if _, err := c.send(ctx, base, token, all); err != nil {
+				return err
+			}
+		}
+	}
+	// Remembering a lower schema, of a hub put back to an older gwend, sends
+	// those tables in full again once it rises.
+	if shared != was {
+		if err := store.SetLocal(ctx, db, store.KeySyncPushSchema, strconv.FormatInt(shared, 10), now); err != nil {
+			return err
+		}
+	}
+	c.pushDone()
+	return nil
+}
+
+// pushDone records a successful push.
+func (c *Client) pushDone() {
+	now := c.o.Clock.Now()
+	c.mu.Lock()
+	c.lastPush = &now
+	c.mu.Unlock()
+}
+
+// hubSchema asks the hub for its schema version, which decides the tables
+// it takes.
+func (c *Client) hubSchema(ctx context.Context, base, token string) (int64, error) {
+	var h Health
+	if err := c.call(ctx, http.MethodGet, base+"/sync/v1/health", token, nil, &h); err != nil {
+		return 0, fmt.Errorf("health: %w", err)
+	}
+	if h.SchemaVersion < 1 {
+		return 0, errors.New("the hub did not say its schema version")
+	}
+	return h.SchemaVersion, nil
+}
+
+// send pushes rows in batches and returns the newest updated_at among them.
+func (c *Client) send(ctx context.Context, base, token string, changed []store.TableRow) (int64, error) {
 	var newest int64
 	for start := 0; start < len(changed); start += PushBatch {
 		batch := store.Rows{}
@@ -177,39 +258,58 @@ func (c *Client) push(ctx context.Context, base, token string) error {
 		}
 		rows, err := json.Marshal(batch)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		var res PushResponse
 		body := PushRequest{DeviceID: c.o.DB.DeviceID(), Rows: rows}
 		if err := c.call(ctx, http.MethodPost, base+"/sync/v1/push", token, body, &res); err != nil {
-			return fmt.Errorf("push: %w", err)
+			return 0, fmt.Errorf("push: %w", err)
 		}
 		if res.Ignored > 0 {
 			slog.Warn("the hub ignored pushed rows", "ignored", res.Ignored)
 		}
 	}
-	now := c.o.Clock.Now()
-	if newest > 0 {
-		if err := store.SetLocalTime(ctx, db, store.KeySyncPushWatermark, time.UnixMilli(newest), now); err != nil {
-			return err
-		}
+	return newest, nil
+}
+
+// localSchema reads a schema version kept under key. An absent or unreadable
+// one is LegacySyncSchema, which at worst sends or pulls rows again.
+func localSchema(ctx context.Context, db store.Querier, key string) (int64, error) {
+	v, err := store.GetLocal(ctx, db, key)
+	if errors.Is(err, store.ErrNotFound) {
+		return store.LegacySyncSchema, nil
 	}
-	c.mu.Lock()
-	c.lastPush = &now
-	c.mu.Unlock()
-	return nil
+	if err != nil {
+		return 0, err
+	}
+	n, err := strconv.ParseInt(v, 10, 64)
+	if err != nil {
+		return store.LegacySyncSchema, nil
+	}
+	return n, nil
 }
 
 // pull applies pages from the hub until none remain, storing the cursor
-// after each.
+// after each. The hub sends only the tables this database's schema has; once
+// that schema has risen, the pull starts over from the beginning to get the
+// rows it was not sent before.
 func (c *Client) pull(ctx context.Context, base, token string) error {
 	db := c.o.DB.SQL()
 	cursor, err := store.GetLocal(ctx, db, store.KeySyncPullCursor)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return err
 	}
+	schema := c.o.DB.SchemaVersion()
+	pulled, err := localSchema(ctx, db, store.KeySyncPullSchema)
+	if err != nil {
+		return err
+	}
+	if schema > pulled {
+		cursor = ""
+	}
 	for {
-		q := url.Values{"device_id": {c.o.DB.DeviceID()}, "cursor": {cursor}, "limit": {strconv.Itoa(PullLimit)}}
+		q := url.Values{"device_id": {c.o.DB.DeviceID()}, "cursor": {cursor}, "limit": {strconv.Itoa(PullLimit)},
+			"schema_version": {strconv.FormatInt(schema, 10)}}
 		var raw struct {
 			Rows   json.RawMessage `json:"rows"`
 			Cursor string          `json:"cursor"`
@@ -241,6 +341,11 @@ func (c *Client) pull(ctx context.Context, base, token string) error {
 		}
 	}
 	now := c.o.Clock.Now()
+	if schema != pulled {
+		if err := store.SetLocal(ctx, db, store.KeySyncPullSchema, strconv.FormatInt(schema, 10), now); err != nil {
+			return err
+		}
+	}
 	c.mu.Lock()
 	c.lastPull = &now
 	c.mu.Unlock()

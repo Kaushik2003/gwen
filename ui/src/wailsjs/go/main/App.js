@@ -6,12 +6,20 @@ export function AcceptLLMRun(arg1, arg2) {
   return window['go']['main']['App']['AcceptLLMRun'](arg1, arg2);
 }
 
+export function AddResource(arg1) {
+  return window['go']['main']['App']['AddResource'](arg1);
+}
+
 export function AssistantChat(arg1) {
   return window['go']['main']['App']['AssistantChat'](arg1);
 }
 
 export function AssistantSelf() {
   return window['go']['main']['App']['AssistantSelf']();
+}
+
+export function AssistantSelfHistory(arg1) {
+  return window['go']['main']['App']['AssistantSelfHistory'](arg1);
 }
 
 export function Autostart() {
@@ -70,6 +78,10 @@ export function CompleteTask(arg1, arg2) {
   return window['go']['main']['App']['CompleteTask'](arg1, arg2);
 }
 
+export function ConfirmClaim(arg1) {
+  return window['go']['main']['App']['ConfirmClaim'](arg1);
+}
+
 export function CreateCommitment(arg1) {
   return window['go']['main']['App']['CreateCommitment'](arg1);
 }
@@ -122,6 +134,10 @@ export function DeleteThread(arg1) {
   return window['go']['main']['App']['DeleteThread'](arg1);
 }
 
+export function EditClaim(arg1, arg2) {
+  return window['go']['main']['App']['EditClaim'](arg1, arg2);
+}
+
 export function EnableService() {
   return window['go']['main']['App']['EnableService']();
 }
@@ -130,8 +146,28 @@ export function EnergyReport(arg1) {
   return window['go']['main']['App']['EnergyReport'](arg1);
 }
 
+export function ExplainMemory(arg1) {
+  return window['go']['main']['App']['ExplainMemory'](arg1);
+}
+
+export function ExportMemory() {
+  return window['go']['main']['App']['ExportMemory']();
+}
+
+export function ForgetAllMemory(arg1) {
+  return window['go']['main']['App']['ForgetAllMemory'](arg1);
+}
+
+export function ForgetClaim(arg1) {
+  return window['go']['main']['App']['ForgetClaim'](arg1);
+}
+
 export function GeneratePlan(arg1) {
   return window['go']['main']['App']['GeneratePlan'](arg1);
+}
+
+export function GetClaim(arg1) {
+  return window['go']['main']['App']['GetClaim'](arg1);
 }
 
 export function GetConfig() {
@@ -182,6 +218,10 @@ export function Health() {
   return window['go']['main']['App']['Health']();
 }
 
+export function HideClaim(arg1, arg2) {
+  return window['go']['main']['App']['HideClaim'](arg1, arg2);
+}
+
 export function InstallSpeech(arg1) {
   return window['go']['main']['App']['InstallSpeech'](arg1);
 }
@@ -198,12 +238,24 @@ export function IsTalk() {
   return window['go']['main']['App']['IsTalk']();
 }
 
+export function ListClaims(arg1) {
+  return window['go']['main']['App']['ListClaims'](arg1);
+}
+
 export function ListCommitments() {
   return window['go']['main']['App']['ListCommitments']();
 }
 
+export function ListConflicts(arg1) {
+  return window['go']['main']['App']['ListConflicts'](arg1);
+}
+
 export function ListDays(arg1, arg2) {
   return window['go']['main']['App']['ListDays'](arg1, arg2);
+}
+
+export function ListEntities() {
+  return window['go']['main']['App']['ListEntities']();
 }
 
 export function ListGoals(arg1) {
@@ -212,6 +264,10 @@ export function ListGoals(arg1) {
 
 export function ListProjects(arg1) {
   return window['go']['main']['App']['ListProjects'](arg1);
+}
+
+export function ListResources() {
+  return window['go']['main']['App']['ListResources']();
 }
 
 export function ListTasks(arg1) {
@@ -224,6 +280,14 @@ export function ListThreads(arg1, arg2) {
 
 export function LogEnergy(arg1) {
   return window['go']['main']['App']['LogEnergy'](arg1);
+}
+
+export function MemoryProfile() {
+  return window['go']['main']['App']['MemoryProfile']();
+}
+
+export function MemoryStatus() {
+  return window['go']['main']['App']['MemoryStatus']();
 }
 
 export function MovePlanTask(arg1) {
@@ -240,6 +304,10 @@ export function NotifyTest() {
 
 export function OpenDashboard(arg1) {
   return window['go']['main']['App']['OpenDashboard'](arg1);
+}
+
+export function OpenMemoryFolder() {
+  return window['go']['main']['App']['OpenMemoryFolder']();
 }
 
 export function OpenURL(arg1) {
@@ -278,6 +346,14 @@ export function PatchTask(arg1, arg2) {
   return window['go']['main']['App']['PatchTask'](arg1, arg2);
 }
 
+export function PickDocument() {
+  return window['go']['main']['App']['PickDocument']();
+}
+
+export function PickFolder() {
+  return window['go']['main']['App']['PickFolder']();
+}
+
 export function PlanChat(arg1) {
   return window['go']['main']['App']['PlanChat'](arg1);
 }
@@ -286,8 +362,28 @@ export function PreviewGoal(arg1) {
   return window['go']['main']['App']['PreviewGoal'](arg1);
 }
 
+export function RebuildMemory(arg1) {
+  return window['go']['main']['App']['RebuildMemory'](arg1);
+}
+
+export function RecallMemory(arg1) {
+  return window['go']['main']['App']['RecallMemory'](arg1);
+}
+
+export function RejectClaim(arg1) {
+  return window['go']['main']['App']['RejectClaim'](arg1);
+}
+
 export function RejectLLMRun(arg1) {
   return window['go']['main']['App']['RejectLLMRun'](arg1);
+}
+
+export function Remember(arg1, arg2) {
+  return window['go']['main']['App']['Remember'](arg1, arg2);
+}
+
+export function RemoveResource(arg1) {
+  return window['go']['main']['App']['RemoveResource'](arg1);
 }
 
 export function RemoveSpeech(arg1) {
@@ -306,8 +402,16 @@ export function ResetAssistantSelf() {
   return window['go']['main']['App']['ResetAssistantSelf']();
 }
 
+export function ResolveConflict(arg1, arg2) {
+  return window['go']['main']['App']['ResolveConflict'](arg1, arg2);
+}
+
 export function Retro(arg1) {
   return window['go']['main']['App']['Retro'](arg1);
+}
+
+export function SaveMemoryExport() {
+  return window['go']['main']['App']['SaveMemoryExport']();
 }
 
 export function SaveReview(arg1, arg2) {
@@ -336,6 +440,10 @@ export function SetCredential(arg1, arg2) {
 
 export function SetDayHours(arg1) {
   return window['go']['main']['App']['SetDayHours'](arg1);
+}
+
+export function SleepMemory() {
+  return window['go']['main']['App']['SleepMemory']();
 }
 
 export function Snooze() {

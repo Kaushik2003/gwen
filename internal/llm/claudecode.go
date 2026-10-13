@@ -75,13 +75,21 @@ type cliResult struct {
 }
 
 // complete passes the whole system prompt, its stable part first: the CLI
-// caches prompts by itself.
-func (c claudeCode) complete(ctx context.Context, p prompt, user string) (string, Usage, error) {
+// caches prompts by itself. The prompt goes in a file, which takes a prompt
+// of any length (an argument is limited to 128 KiB on Linux), readable only
+// by the user and removed after the run. The conversation goes on stdin as
+// one message, the earlier turns first (transcript).
+func (c claudeCode) complete(ctx context.Context, p prompt, conv conversation) (string, Usage, error) {
+	promptFile, err := writePromptFile(c.dir, p.full(conv.context))
+	if err != nil {
+		return "", Usage{}, fmt.Errorf("claude_code: %w", err)
+	}
+	defer os.Remove(promptFile)
 	args := []string{"-p", "--output-format", "json"}
 	if c.model != "" {
 		args = append(args, "--model", c.model)
 	}
-	args = append(args, "--system-prompt", p.full(), "--json-schema", p.schema, "--tools", "",
+	args = append(args, "--system-prompt-file", promptFile, "--json-schema", p.schema, "--tools", "",
 		"--strict-mcp-config", "--setting-sources", "", "--disable-slash-commands", "--no-session-persistence")
 	name := c.path
 	if c.scope != "" {
@@ -95,7 +103,7 @@ func (c claudeCode) complete(ctx context.Context, p prompt, user string) (string
 		key, _, _ := strings.Cut(kv, "=")
 		return slices.Contains(apiKeyEnv, key)
 	})
-	cmd.Stdin = strings.NewReader(user)
+	cmd.Stdin = strings.NewReader(transcript(conv))
 	stdout, stderr := &capped{max: maxOutput}, &capped{max: maxOutput}
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	// The CLI and anything it starts share a process group, killed together.
@@ -130,6 +138,45 @@ func (c claudeCode) complete(ctx context.Context, p prompt, user string) (string
 		return res.Result, res.Usage, nil
 	}
 	return "", Usage{}, errors.New("claude_code: the reply had no text")
+}
+
+// writePromptFile writes the system prompt to a new file in dir, which
+// os.CreateTemp makes readable and writable by the user alone (0600), and
+// returns its path.
+func writePromptFile(dir, text string) (string, error) {
+	f, err := os.CreateTemp(dir, "gwen-prompt-*.txt")
+	if err != nil {
+		return "", fmt.Errorf("write the system prompt: %w", err)
+	}
+	_, err = f.WriteString(text)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		os.Remove(f.Name())
+		return "", fmt.Errorf("write the system prompt: %w", err)
+	}
+	return f.Name(), nil
+}
+
+// transcript is the one message the CLI reads: the newest turn alone, or,
+// after earlier turns, those turns oldest first, each in tags of its role,
+// and then the newest turn.
+func transcript(c conversation) string {
+	if len(c.history) == 0 {
+		return c.user
+	}
+	var b strings.Builder
+	b.WriteString("The conversation so far, oldest first:\n\n")
+	for i, t := range c.history {
+		if i > 0 {
+			b.WriteString("\n\n")
+		}
+		fmt.Fprintf(&b, "<%s>\n%s\n</%s>", t.Role, t.Text, t.Role)
+	}
+	b.WriteString("\n\nTheir newest turn:\n")
+	b.WriteString(c.user)
+	return b.String()
 }
 
 // lastLine is the last non-blank line of s, trimmed.

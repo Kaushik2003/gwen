@@ -16,7 +16,8 @@ import (
 )
 
 // fakeCLI is a stand-in for the Claude Code CLI: a shell script that records
-// how it was run into dir and replies with what the test put there.
+// how it was run into dir, with the system prompt file's text and mode, and
+// replies with what the test put there.
 type fakeCLI struct {
 	t    *testing.T
 	dir  string
@@ -30,6 +31,11 @@ func newFakeCLI(t *testing.T) *fakeCLI {
 	script := fmt.Sprintf(`#!/bin/sh
 d=%q
 printf '%%s\0' "$@" > "$d/args"
+prev=
+for a in "$@"; do
+	if [ "$prev" = --system-prompt-file ]; then cat "$a" > "$d/system"; stat -c %%a "$a" > "$d/system-mode"; fi
+	prev=$a
+done
 cat > "$d/stdin"
 pwd -P > "$d/cwd"
 printf '%%s' "${ANTHROPIC_API_KEY-unset} ${ANTHROPIC_AUTH_TOKEN-unset} ${GWEN_TEST_KEPT-unset} $PWD" > "$d/env"
@@ -104,8 +110,14 @@ func TestClaudeCodeInvocation(t *testing.T) {
 
 	args := f.args()
 	require.Len(t, args, 16)
-	require.Equal(t, []string{"-p", "--output-format", "json", "--model", "claude-sonnet-5", "--system-prompt"}, args[:6])
-	require.Contains(t, args[6], llm.BreakdownSchema, "the prompt carries the schema verbatim")
+	require.Equal(t, []string{"-p", "--output-format", "json", "--model", "claude-sonnet-5", "--system-prompt-file"},
+		args[:6])
+	require.Equal(t, os.TempDir(), filepath.Dir(args[6]), "the prompt file is written where the CLI runs")
+	require.True(t, strings.HasPrefix(f.read("system"), "You help a student"), "no persona for a breakdown")
+	require.True(t, strings.HasSuffix(f.read("system"), llm.BreakdownSchema), "the prompt carries the schema verbatim")
+	require.Equal(t, "600\n", f.read("system-mode"), "only the user can read the prompt")
+	_, err = os.Stat(args[6])
+	require.ErrorIs(t, err, os.ErrNotExist, "the prompt file is removed after the run")
 	require.Equal(t, []string{"--json-schema", llm.BreakdownSchema, "--tools", "", "--strict-mcp-config",
 		"--setting-sources", "", "--disable-slash-commands", "--no-session-persistence"}, args[7:])
 
@@ -200,6 +212,8 @@ func TestClaudeCodeFailures(t *testing.T) {
 			a := f.adapter(tc.timeout)
 			_, err := a.Breakdown(context.Background(), goalReq())
 			require.EqualError(t, err, tc.want)
+			_, err = os.Stat(f.args()[6])
+			require.ErrorIs(t, err, os.ErrNotExist, "the prompt file is removed whatever happened")
 
 			retro, err := a.Retro(context.Background(), llm.RetroRequest{WeekStart: "2026-09-14"})
 			require.Error(t, err, "the reason is still reported")

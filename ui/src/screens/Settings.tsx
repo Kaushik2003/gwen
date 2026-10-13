@@ -1,5 +1,5 @@
 import QRCode from "qrcode";
-import { BellRing, Brain, CalendarClock, CalendarDays, CircleCheck, Cloud, Copy, Info, RefreshCw, Send, Smartphone, Sparkles, Timer, Wrench, type LucideIcon } from "lucide-react";
+import { BellRing, BookMarked, Brain, CalendarClock, CalendarDays, CircleCheck, Cloud, Copy, Info, RefreshCw, Send, Smartphone, Sparkles, Timer, Wrench, type LucideIcon } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { App, apiError, wire } from "../api";
 import DurationInput from "../components/DurationInput";
@@ -11,6 +11,7 @@ import { useNav } from "../nav";
 import AISettings from "../settings/AI";
 import CalendarSettings from "../settings/Calendar";
 import { CredentialField } from "../settings/Credential";
+import MemorySettings from "../settings/Memory";
 import MethodsSettings from "../settings/Methods";
 import PersonalitySettings from "../settings/Personality";
 import SpeechSettings from "../settings/Speech";
@@ -80,6 +81,7 @@ const sections: { id: string; label: string; icon: LucideIcon }[] = [
   { id: "methods", label: "Methods", icon: Brain },
   { id: "calendar", label: "Google Calendar", icon: CalendarDays },
   { id: "ai", label: "AI", icon: Sparkles },
+  { id: "memory", label: "Memory", icon: BookMarked },
   { id: "sync", label: "Sync", icon: Cloud },
   { id: "advanced", label: "Advanced", icon: Wrench },
   { id: "about", label: "About", icon: Info },
@@ -135,6 +137,7 @@ export default function Settings() {
               <PersonalitySettings />
             </>
           )}
+          {section === "memory" && <MemorySettings />}
           {section === "sync" && <SyncSettings />}
           {section === "advanced" && <ConfigForm title="Advanced" name="log" fields={log} values={c.log} />}
           {section === "about" && <About />}

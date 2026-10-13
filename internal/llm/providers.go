@@ -29,21 +29,26 @@ type anthropicRequest struct {
 	Messages  []anthropicMessage `json:"messages"`
 }
 
-// anthropicBlock is a text block of the system prompt. A cache breakpoint
-// on a block caches the prompt up to and including it.
+// anthropicBlock is a text block of the system prompt or of a message. A
+// cache breakpoint on a block caches the prompt up to and including it.
 type anthropicBlock struct {
 	Type         string          `json:"type"`
 	Text         string          `json:"text"`
 	CacheControl *anthropicCache `json:"cache_control,omitempty"`
 }
 
+// anthropicCache is a cache breakpoint: TTL "" keeps the default five
+// minutes, "1h" an hour.
 type anthropicCache struct {
 	Type string `json:"type"`
+	TTL  string `json:"ttl,omitempty"`
 }
 
+// anthropicMessage is a turn; Content is its text, or a list of blocks when
+// it carries a cache breakpoint.
 type anthropicMessage struct {
 	Role    string `json:"role"`
-	Content string `json:"content"`
+	Content any    `json:"content"`
 }
 
 type anthropicResponse struct {
@@ -63,17 +68,35 @@ type apiError struct {
 	} `json:"error"`
 }
 
-// complete caches the system prompt, which repeats from one request to the
-// next, and sends the prompt's tail after the breakpoint: a prompt shorter
-// than the model's minimum is simply not cached.
-func (a anthropic) complete(ctx context.Context, p prompt, user string) (string, Usage, error) {
-	system := []anthropicBlock{{Type: "text", Text: p.system, CacheControl: &anthropicCache{Type: "ephemeral"}}}
+// complete caches the prompt at up to three breakpoints, from the part that
+// changes least: the system prompt for an hour, since it is the same in
+// every request of a job; then the conversation's context; then the history
+// up to its last turn, so the next turn of the conversation reads it back.
+// The tail goes after the cached system prompt and context, and the newest
+// user turn after everything. A part shorter than the model's minimum is
+// simply not cached.
+func (a anthropic) complete(ctx context.Context, p prompt, c conversation) (string, Usage, error) {
+	system := []anthropicBlock{{Type: "text", Text: p.system,
+		CacheControl: &anthropicCache{Type: "ephemeral", TTL: "1h"}}}
+	// The blocks are joined as they are, so each one after the first brings
+	// its own break.
+	if c.context != "" {
+		system = append(system, anthropicBlock{Type: "text", Text: "\n\n" + c.context,
+			CacheControl: &anthropicCache{Type: "ephemeral"}})
+	}
 	if p.tail != "" {
-		// The blocks are joined as they are, so the tail brings its own break.
 		system = append(system, anthropicBlock{Type: "text", Text: "\n\n" + p.tail})
 	}
-	body := anthropicRequest{Model: a.model, MaxTokens: maxTokens, System: system,
-		Messages: []anthropicMessage{{Role: "user", Content: user}}}
+	messages := make([]anthropicMessage, 0, len(c.history)+1)
+	for i, t := range c.history {
+		var content any = t.Text
+		if i == len(c.history)-1 {
+			content = []anthropicBlock{{Type: "text", Text: t.Text, CacheControl: &anthropicCache{Type: "ephemeral"}}}
+		}
+		messages = append(messages, anthropicMessage{Role: t.Role, Content: content})
+	}
+	messages = append(messages, anthropicMessage{Role: RoleUser, Content: c.user})
+	body := anthropicRequest{Model: a.model, MaxTokens: maxTokens, System: system, Messages: messages}
 	headers := map[string]string{"x-api-key": a.key, "anthropic-version": "2023-06-01"}
 	var res anthropicResponse
 	if err := post(ctx, a.client, a.url, headers, body, &res); err != nil {
@@ -133,11 +156,18 @@ type openAIResponse struct {
 	} `json:"usage"`
 }
 
-// complete sends the system prompt first, so servers that cache prompt
-// prefixes by themselves can reuse it.
-func (o openAI) complete(ctx context.Context, p prompt, user string) (string, Usage, error) {
+// complete sends the system prompt with the context first, then the history
+// and the newest user turn, so servers that cache prompt prefixes by
+// themselves can reuse them.
+func (o openAI) complete(ctx context.Context, p prompt, c conversation) (string, Usage, error) {
+	messages := make([]openAIMessage, 0, len(c.history)+2)
+	messages = append(messages, openAIMessage{Role: "system", Content: p.full(c.context)})
+	for _, t := range c.history {
+		messages = append(messages, openAIMessage{Role: t.Role, Content: t.Text})
+	}
+	messages = append(messages, openAIMessage{Role: RoleUser, Content: c.user})
 	body := openAIRequest{Model: o.model, ResponseFormat: map[string]string{"type": "json_object"},
-		Messages: []openAIMessage{{Role: "system", Content: p.full()}, {Role: "user", Content: user}}}
+		Messages: messages}
 	headers := map[string]string{}
 	if o.key != "" {
 		headers["Authorization"] = "Bearer " + o.key

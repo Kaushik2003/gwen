@@ -94,6 +94,9 @@ type Repos struct {
 	Sync        SyncRepo
 	Reviews     ReviewRepo
 	Energy      EnergyRepo
+	Memory      MemoryRepo
+	MemoryState MemoryStateRepo
+	Self        SelfRepo
 }
 
 // NewRepos returns the SQLite repositories over db.
@@ -114,5 +117,8 @@ func NewRepos(db *DB) Repos {
 		Sync:        NewSyncRepo(db),
 		Reviews:     NewReviewRepo(db),
 		Energy:      NewEnergyRepo(db),
+		Memory:      NewMemoryRepo(db),
+		MemoryState: NewMemoryStateRepo(db),
+		Self:        NewSelfRepo(db),
 	}
 }

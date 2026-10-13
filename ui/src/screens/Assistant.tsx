@@ -1,5 +1,5 @@
 import { CalendarClock, CircleAlert, CircleCheck, KeyRound, LoaderCircle, ScrollText, Settings as SettingsIcon, Sparkles, Target } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { App, wire } from "../api";
 import { BreakdownFlow, RetroFlow, planName } from "../components/ai";
 import AssistantChat from "../components/AssistantChat";
@@ -7,6 +7,7 @@ import { GoalMeter, goalAmount } from "../components/goal";
 import { Button, Empty, PageHeader, Panel, cx } from "../components/ui";
 import { useDaemon } from "../daemon";
 import { formatDate } from "../format";
+import { threadOf } from "../memory";
 import { useNav } from "../nav";
 import type { main } from "../wailsjs/go/models";
 
@@ -16,8 +17,17 @@ export default function Assistant() {
   const { go, param } = useNav();
   const [goals, setGoals] = useState<wire.Goal[] | null>(null);
   const [goalId, setGoalId] = useState<string | null>(null);
-  // Another screen can open the chat with a message ready to send.
-  const [initial, setInitial] = useState<string | null>(param);
+  // Another screen can open the chat with a message ready to send, or open one of the chats.
+  const [initial, setInitial] = useState<string | null>(threadOf(param) ? null : param);
+  const [thread, setThread] = useState<string | null>(threadOf(param));
+  const handled = useRef(param);
+  useEffect(() => {
+    if (param === handled.current) return;
+    handled.current = param;
+    const t = threadOf(param);
+    if (t) setThread(t);
+    else if (param) setInitial(param);
+  }, [param]);
 
   useEffect(() => {
     App.ListGoals("active").then((l) => setGoals(l.goals), d.fail);
@@ -28,7 +38,7 @@ export default function Assistant() {
     <div className="flex flex-col gap-5">
       <PageHeader title="Assistant" subtitle="Talk to your assistant in plain words: it adds, moves, reschedules, and reassigns your tasks, plans your day, and sets SMART goals with you." />
       <ProviderStatus />
-      {d.config?.llm.provider !== "none" && <AssistantChat initial={initial} onInitialUsed={() => setInitial(null)} />}
+      {d.config?.llm.provider !== "none" && <AssistantChat initial={initial} onInitialUsed={() => setInitial(null)} openThread={thread} />}
 
       <Panel title="Plan your day" icon={CalendarClock}>
         <div className="flex flex-wrap items-center gap-x-6 gap-y-3">

@@ -223,11 +223,22 @@ func (h *Hub) pull(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = min(n, PullLimit)
 	}
-	rows, next, more, err := h.Repo.Pull(r.Context(), device, cursor, limit)
+	rows, next, more, err := h.Repo.Pull(r.Context(), device, cursor, limit, clientSchema(q.Get("schema_version")))
 	if err != nil {
 		slog.Error("pull failed", "device_id", device, "err", err)
 		writeError(w, http.StatusInternalServerError, "internal", "internal error")
 		return
 	}
 	writeJSON(w, http.StatusOK, PullResponse{Rows: rows, Cursor: strconv.FormatInt(next, 10), More: more})
+}
+
+// clientSchema reads the schema version a pulling client sent. A client that
+// sends none, or one that cannot be read, is taken to be at
+// store.LegacySyncSchema, which cannot take the tables synced since.
+func clientSchema(v string) int64 {
+	n, err := strconv.ParseInt(v, 10, 64)
+	if err != nil || n < 1 {
+		return store.LegacySyncSchema
+	}
+	return n
 }

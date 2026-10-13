@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/kzark/gwen/internal/llm"
+	"github.com/kzark/gwen/internal/memory"
 	"github.com/kzark/gwen/internal/model"
 	"github.com/kzark/gwen/internal/planner/civil"
 	"github.com/kzark/gwen/internal/store"
@@ -31,7 +32,8 @@ const (
 // assistantChat is POST /v1/assistant/chat: one message to the assistant,
 // which answers and changes tasks, the plan, projects, and goals by itself.
 // The message and the reply are added to the chat, and the run records the
-// turn, in one transaction.
+// turn, in one transaction. The memory note sent with the message is stored
+// after, and the memory hears of the turn.
 func (s *Server) assistantChat(w http.ResponseWriter, r *http.Request) error {
 	var req wire.AssistantChatRequest
 	if err := decode(r, &req); err != nil {
@@ -50,49 +52,97 @@ func (s *Server) assistantChat(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	var history []wire.AssistantMessage
-	if threadID != "" {
-		if history, err = s.chatMessages(ctx, threadID); err != nil {
-			return err
-		}
-	}
-	now := s.now()
-	user := wire.AssistantMessage{Role: llm.RoleUser, Text: msg, At: wire.Millis(now)}
-	history = append(history, user)
-	in, refs, err := s.assistantRequest(ctx, history)
+	tr, err := s.transcript(ctx, threadID)
 	if err != nil {
 		return err
 	}
+	now := s.now()
+	user := wire.AssistantMessage{Role: llm.RoleUser, Text: msg, At: wire.Millis(now)}
+	in, refs, err := s.assistantRequest(ctx, msg, tr)
+	if err != nil {
+		return err
+	}
+	card := s.profileCard(ctx)
+	note := s.memoryNote(ctx, msg, threadID, tr)
+	in.Memory, in.Message, in.Context, in.History = note.Text, msg, memoryContext(card.Text, tr.log), tr.turns
 	out, err := p.Assistant(ctx, in)
 	var run model.LLMRun
 	if err != nil {
 		slog.Warn("assistant failed", "provider", p.Name(), "err", err)
 		run, err = s.Repos.LLMRuns.Create(ctx, model.RunAssistant, threadID, model.RunFailed, wire.RunError{Error: err.Error()})
-	} else {
-		results := s.applyActions(ctx, out.Actions, refs)
-		// Her attitude only colours the reply; the reply and its changes stand without it.
-		switched, serr := s.changeSelf(ctx, out.Attitude, out.SelfNote)
-		if serr != nil {
-			slog.Warn("assistant attitude not saved", "err", serr)
+		if err != nil {
+			return err
 		}
-		reply := wire.AssistantMessage{Role: llm.RoleAssistant, Text: out.Reply, At: wire.Millis(s.now()),
-			Mood: out.Mood, Attitude: switched, Actions: results}
-		turn := []model.ChatMessage{chatMessage(user), chatMessage(reply)}
-		output := func(id string, stored []model.ChatMessage) any {
-			return wire.AssistantOutput{ThreadID: id, Usage: usageWire(out.Usage),
-				Messages: []wire.AssistantMessage{messageWire(stored[0]), messageWire(stored[1])}}
-		}
-		_, run, err = s.Repos.Chats.AppendTurn(ctx, threadID, turn, output)
-		if errors.Is(err, store.ErrNotFound) && threadID != "" {
-			// The chat was deleted while she answered; what she said and changed starts a new one.
-			_, run, err = s.Repos.Chats.AppendTurn(ctx, "", turn, output)
-		}
+		writeJSON(w, http.StatusOK, runWire(run))
+		return nil
+	}
+	results := s.applyActions(ctx, out.Actions, refs)
+	// Her attitude only colours the reply; the reply and its changes stand without it.
+	self, switched, changed, serr := s.nextSelf(ctx, out.Attitude, out.SelfNote)
+	if serr != nil {
+		slog.Warn("assistant attitude not saved", "err", serr)
+	}
+	table := refTable(tr.notes, note, card)
+	cites, forget := citedRefs(out.Cites, table), forgetClaims(out.Forget, table)
+	forgetRefs := make([]string, len(forget))
+	for i, id := range forget {
+		forgetRefs[i] = memory.Ref(memory.RefClaim, id)
+	}
+	res, seen := s.resolver(), map[string]wire.MemoryRef{}
+	shownCites, shownForget := s.resolveRefs(ctx, res, cites, seen), s.resolveRefs(ctx, res, forgetRefs, seen)
+
+	reply := wire.AssistantMessage{Role: llm.RoleAssistant, Text: out.Reply, At: wire.Millis(s.now()),
+		Mood: out.Mood, Attitude: switched, Actions: results}
+	turn := []model.ChatMessage{chatMessage(user), chatMessage(reply)}
+	turn[1].Cites, turn[1].Forget = cites, forgetRefs
+	var (
+		stored   []model.ChatMessage
+		storedIn string
+	)
+	output := func(id string, msgs []model.ChatMessage) any {
+		stored, storedIn = msgs, id
+		shown := []wire.AssistantMessage{messageWire(msgs[0]), messageWire(msgs[1])}
+		shown[1].Cites, shown[1].Forget = shownCites, shownForget
+		return wire.AssistantOutput{ThreadID: id, Usage: usageWire(out.Usage), Messages: shown}
+	}
+	_, run, err = s.Repos.Chats.AppendTurn(ctx, threadID, turn, output)
+	if errors.Is(err, store.ErrNotFound) && threadID != "" {
+		// The chat was deleted while she answered; what she said and changed starts a new one.
+		_, run, err = s.Repos.Chats.AppendTurn(ctx, "", turn, output)
 	}
 	if err != nil {
 		return err
 	}
+	s.afterTurn(ctx, storedIn, stored, note, forget)
+	if changed {
+		self.ThreadID = &storedIn
+		if _, err := s.Repos.Self.Add(ctx, self); err != nil {
+			slog.Warn("assistant attitude not saved", "err", err)
+		} else {
+			slog.Info("assistant changed how it treats the user", "attitude", self.Attitude, "switched", switched != "")
+		}
+	}
 	writeJSON(w, http.StatusOK, runWire(run))
 	return nil
+}
+
+// afterTurn keeps the memory note sent with the user's message and tells the
+// memory of the turn. Neither fails the turn: it is stored already.
+func (s *Server) afterTurn(ctx context.Context, threadID string, stored []model.ChatMessage, note memory.Note,
+	forget []string) {
+	if len(stored) != 2 {
+		return
+	}
+	if note.Text != "" {
+		err := s.Repos.MemoryState.AddNote(ctx, model.ChatNote{MessageID: stored[0].ID, ThreadID: threadID,
+			Note: note.Text, Refs: note.Refs, CreatedAt: s.now()})
+		if err != nil {
+			slog.Warn("memory note not kept", "thread", threadID, "err", err)
+		}
+	}
+	if s.Memory != nil {
+		s.Memory.ChatTurn(ctx, memory.ChatTurn{ThreadID: threadID, User: stored[0], Reply: stored[1], Forget: forget})
+	}
 }
 
 // getAssistantSelf is GET /v1/assistant/self.
@@ -106,9 +156,10 @@ func (s *Server) getAssistantSelf(w http.ResponseWriter, r *http.Request) error 
 }
 
 // resetAssistantSelf is DELETE /v1/assistant/self: the assistant forgets the
-// attitude it chose and its note, and starts fresh.
+// attitude it chose and its note, and starts fresh. The history keeps what
+// she chose before.
 func (s *Server) resetAssistantSelf(w http.ResponseWriter, r *http.Request) error {
-	if err := store.DeleteLocal(r.Context(), s.DB.SQL(), store.KeyAssistantSelf); err != nil {
+	if _, err := s.Repos.Self.Add(r.Context(), model.SelfVersion{Reason: model.SelfReset}); err != nil {
 		return err
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -116,21 +167,16 @@ func (s *Server) resetAssistantSelf(w http.ResponseWriter, r *http.Request) erro
 }
 
 // assistantSelf is how the assistant chose to treat the user, empty before
-// it chose. A value that no longer reads is dropped, as if it never chose.
+// it chose.
 func (s *Server) assistantSelf(ctx context.Context) (wire.AssistantSelf, error) {
-	var self wire.AssistantSelf
-	v, err := store.GetLocal(ctx, s.DB.SQL(), store.KeyAssistantSelf)
+	v, err := s.Repos.Self.Current(ctx)
 	if errors.Is(err, store.ErrNotFound) {
-		return self, nil
-	}
-	if err != nil {
-		return self, err
-	}
-	if err := json.Unmarshal([]byte(v), &self); err != nil {
-		slog.Warn("assistant self unreadable, starting fresh", "err", err)
 		return wire.AssistantSelf{}, nil
 	}
-	return self, nil
+	if err != nil {
+		return wire.AssistantSelf{}, err
+	}
+	return wire.AssistantSelf{Attitude: v.Attitude, Note: v.Note, Since: wire.MillisPtr(v.Since)}, nil
 }
 
 // llmSelf is self as the prompts word it, with the day it was chosen.
@@ -142,39 +188,31 @@ func (s *Server) llmSelf(self wire.AssistantSelf) llm.Self {
 	return out
 }
 
-// changeSelf applies what a reply changed of how the assistant treats the
-// user: a nil attitude or note keeps the one it had. It returns the attitude
-// switched to, or "" when it kept its own.
-func (s *Server) changeSelf(ctx context.Context, attitude, note *string) (string, error) {
+// nextSelf is what a reply changes of how the assistant treats the user: a
+// nil attitude or note keeps the one it had. It returns the version to add
+// (reason chat), the attitude switched to ("" when it kept its own), and
+// whether anything changed.
+func (s *Server) nextSelf(ctx context.Context, attitude, note *string) (model.SelfVersion, string, bool, error) {
 	if attitude == nil && note == nil {
-		return "", nil
+		return model.SelfVersion{}, "", false, nil
 	}
-	self, err := s.assistantSelf(ctx)
-	if err != nil {
-		return "", err
+	cur, err := s.Repos.Self.Current(ctx)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return model.SelfVersion{}, "", false, err
 	}
-	was := self
+	next := model.SelfVersion{Attitude: cur.Attitude, Note: cur.Note, Since: cur.Since, Reason: model.SelfChat}
 	switched := ""
-	if attitude != nil && *attitude != self.Attitude {
-		switched, self.Attitude = *attitude, *attitude
-		now := wire.Millis(s.now())
-		self.Since = &now
+	if attitude != nil && *attitude != cur.Attitude {
+		now := s.now()
+		switched, next.Attitude, next.Since = *attitude, *attitude, &now
 	}
 	if note != nil {
-		self.Note = *note
+		next.Note = *note
 	}
-	if self.Attitude == was.Attitude && self.Note == was.Note {
-		return "", nil
+	if next.Attitude == cur.Attitude && next.Note == cur.Note {
+		return model.SelfVersion{}, "", false, nil
 	}
-	b, err := json.Marshal(self)
-	if err != nil {
-		return "", err
-	}
-	if err := store.SetLocal(ctx, s.DB.SQL(), store.KeyAssistantSelf, string(b), s.now()); err != nil {
-		return "", err
-	}
-	slog.Info("assistant changed how it treats the user", "attitude", self.Attitude, "switched", switched != "")
-	return switched, nil
+	return next, switched, true, nil
 }
 
 // assistantThread is the chat a message goes on: thread_id, or for a client
@@ -215,35 +253,44 @@ func (s *Server) assistantThread(ctx context.Context, req wire.AssistantChatRequ
 	return out.ThreadID, nil
 }
 
-// chatMessages is every message of a chat, oldest first.
+// chatMessages is every message of a chat, oldest first, with its memory
+// refs resolved for showing.
 func (s *Server) chatMessages(ctx context.Context, threadID string) ([]wire.AssistantMessage, error) {
 	msgs, err := s.Repos.Chats.Messages(ctx, threadID)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]wire.AssistantMessage, len(msgs))
-	for i, m := range msgs {
-		out[i] = messageWire(m)
-	}
-	return out, nil
+	return s.messagesWire(ctx, msgs), nil
 }
 
-// recall is what the assistant remembers on hearing message: the messages
-// of earlier chats, and of this one before the messages in skip, that share
-// words with it, in the order they were said.
-func (s *Server) recall(ctx context.Context, message string, skip []string) ([]llm.Recalled, error) {
-	hits, err := s.Repos.Chats.Search(ctx, message, llm.MaxRecalled, skip)
+// messagesWire is messages as the API shows them: a reply's cites and what
+// it was asked to forget, and what was learned from a user message, resolved
+// for showing. What fails to resolve is logged and shown bare.
+func (s *Server) messagesWire(ctx context.Context, msgs []model.ChatMessage) []wire.AssistantMessage {
+	res, seen := s.resolver(), map[string]wire.MemoryRef{}
+	out := make([]wire.AssistantMessage, len(msgs))
+	var users []string
+	for i, m := range msgs {
+		out[i] = messageWire(m)
+		out[i].Cites, out[i].Forget = s.resolveRefs(ctx, res, m.Cites, seen), s.resolveRefs(ctx, res, m.Forget, seen)
+		if m.Role == llm.RoleUser && m.ID != "" {
+			users = append(users, m.ID)
+		}
+	}
+	if len(users) == 0 {
+		return out
+	}
+	learned, err := res.Learned(ctx, users)
 	if err != nil {
-		return nil, err
+		slog.Warn("what was learned from chat messages is unreadable", "err", err)
+		return out
 	}
-	slices.SortFunc(hits, func(a, b model.ChatHit) int { return a.At.Compare(b.At) })
-	days := timeengine.ConfigFrom(s.Tracker.Config(), s.Loc)
-	out := []llm.Recalled{}
-	for _, h := range hits {
-		out = append(out, llm.Recalled{Day: days.DayOf(h.At), Chat: h.ThreadTitle, Role: h.Role,
-			Text: truncate(h.Text, llm.MaxRecalledText)})
+	for i, m := range msgs {
+		if l := learned[m.ID]; len(l) > 0 && m.Role == llm.RoleUser {
+			out[i].Learned = l
+		}
 	}
-	return out, nil
+	return out
 }
 
 // refKind is what a ref names.
@@ -275,16 +322,16 @@ func (m assistantRefs) get(r *string, kind refKind) (ref, error) {
 	return got, nil
 }
 
-// assistantRequest builds what an assistant turn sends.
-func (s *Server) assistantRequest(ctx context.Context, history []wire.AssistantMessage) (llm.AssistantRequest, assistantRefs, error) {
+// assistantRequest builds the day's data an assistant turn sends with msg;
+// the caller adds the memory note, the context, and the conversation.
+func (s *Server) assistantRequest(ctx context.Context, msg string, tr transcript) (llm.AssistantRequest, assistantRefs, error) {
 	env := s.planEnv()
 	today := civil.MustParse(env.Today())
 	now := s.now()
 	refs := assistantRefs{}
 	in := llm.AssistantRequest{Today: today.String(), Weekday: today.Weekday().String(), Now: s.dayClock(today, now),
 		Methods: s.methods(), Busy: []llm.BusyTime{}, Free: []llm.Span{}, Projects: []llm.AssistantProject{},
-		Goals: []llm.AssistantGoal{}, Tasks: []llm.AssistantTask{}, Recalled: []llm.Recalled{},
-		Messages: []llm.ChatMessage{}}
+		Goals: []llm.AssistantGoal{}, Tasks: []llm.AssistantTask{}}
 
 	dc, ch, err := s.Repos.Plans.DayPlan(ctx, today.String(), env)
 	if err != nil {
@@ -351,7 +398,7 @@ func (s *Server) assistantRequest(ctx context.Context, history []wire.AssistantM
 		return in, nil, err
 	}
 	tasks = slices.DeleteFunc(tasks, func(t model.Task) bool { return t.IsStep() })
-	tasks = tasks[:min(len(tasks), llm.MaxAssistantTasks)]
+	open := len(tasks)
 	blocks := map[string][]llm.AssistantBlock{}
 	for i := range assistantDays {
 		d := today.AddDays(i)
@@ -372,6 +419,8 @@ func (s *Server) assistantRequest(ctx context.Context, history []wire.AssistantM
 				Minutes: int(e.Item.Planned / time.Minute), Pinned: e.Item.Pinned})
 		}
 	}
+	tasks = chooseTasks(tasks, blocks, today, append(lastUserTexts(tr.all, 2), msg), namedTasks(tr.sent))
+	in.MoreTasks = open - len(tasks)
 	for i, t := range tasks {
 		key := fmt.Sprintf("t%d", i+1)
 		refs[key] = ref{refTask, t.ID, t.Title}
@@ -406,17 +455,6 @@ func (s *Server) assistantRequest(ctx context.Context, history []wire.AssistantM
 	for _, d := range days {
 		in.Recent = append(in.Recent, llm.AssistantDay{Day: d.Day, WorkedMinutes: int(d.Worked / time.Minute),
 			TargetMinutes: int(d.Target / time.Minute)})
-	}
-
-	var sent []string
-	for _, m := range history[max(0, len(history)-llm.MaxAssistantMessages):] {
-		in.Messages = append(in.Messages, llm.ChatMessage{Role: m.Role, Text: m.Text})
-		if m.ID != "" {
-			sent = append(sent, m.ID)
-		}
-	}
-	if in.Recalled, err = s.recall(ctx, history[len(history)-1].Text, sent); err != nil {
-		return in, nil, err
 	}
 	return in, refs, nil
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/kzark/gwen/internal/config"
 	"github.com/kzark/gwen/internal/gcal"
 	"github.com/kzark/gwen/internal/llm"
+	"github.com/kzark/gwen/internal/memory/service"
 	"github.com/kzark/gwen/internal/notify"
 	"github.com/kzark/gwen/internal/store"
 	gsync "github.com/kzark/gwen/internal/sync"
@@ -50,6 +51,9 @@ type options struct {
 	sync bool
 	// keeper keeps today's plan up to date as time moves on (keepPlan).
 	keeper bool
+	// memory runs Gwen's memory (gwen-harness/harness.md section 4); with it
+	// off the assistant recalls chats by their words alone.
+	memory bool
 	// calendarEndpoint overrides the Calendar API URL; tests point it at a fake.
 	calendarEndpoint string
 	// wrapRepos lets tests make the store fail inside a decision.
@@ -59,6 +63,12 @@ type options struct {
 	ready chan<- error
 	// onLoop, if set, sees the engine loop before it starts; tests use it.
 	onLoop func(*loop)
+	// onMemory, if set, sees the memory service before it starts; tests use
+	// it to step its worker.
+	onMemory func(*service.Service)
+	// recallScale stretches the memory's read deadlines; tests under the race
+	// detector set it.
+	recallScale float64
 }
 
 func defaultNotifier(cfg config.Config, credDir string) (notifier, []string) {
@@ -127,6 +137,17 @@ func run(ctx context.Context, o options) (err error) {
 			return llm.New(cfg, llm.Options{CredDir: credDir, AnthropicURL: o.anthropicURL, Self: self})
 		}
 	}
+	var mem *service.Service
+	if o.memory {
+		if mem, err = newMemory(db, repos, o, l, hub); err != nil {
+			return fmt.Errorf("memory: %w", err)
+		}
+		defer mem.Close()
+		srv.Memory = mem
+		if o.onMemory != nil {
+			o.onMemory(mem)
+		}
+	}
 	var syncer *gsync.Client
 	if o.sync {
 		syncer = newSyncClient(db, repos, o, l, srv, hub)
@@ -153,6 +174,15 @@ func run(ctx context.Context, o options) (err error) {
 	if o.keeper {
 		go keepPlan(loopCtx, o.clk, srv)
 	}
+	memDone := make(chan struct{})
+	if mem != nil {
+		go func() {
+			defer close(memDone)
+			mem.Run(loopCtx)
+		}()
+	} else {
+		close(memDone)
+	}
 	httpSrv := &http.Server{Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- httpSrv.Serve(ln) }()
@@ -173,10 +203,29 @@ func run(ctx context.Context, o options) (err error) {
 		slog.Warn("shutdown", "err", err)
 	}
 	stopLoop()
-	<-l.done // the loop writes shutdown_at on its way out
+	<-l.done  // the loop writes shutdown_at on its way out
+	<-memDone // the memory's worker stops before the database closes
 	os.Remove(o.socketPath)
 	slog.Info("stopped")
 	return nil
+}
+
+// newMemory builds Gwen's memory over the store. It reads the configuration
+// the loop holds at every use, learns with the model of llm.NewMemory, tells
+// the dashboard through the hub, and consolidates while the user is not
+// working.
+func newMemory(db *store.DB, repos store.Repos, o options, l *loop, hub *api.Hub) (*service.Service, error) {
+	credDir := config.CredentialsDir(o.dataDir)
+	return service.New(service.Options{
+		DB: db, Repos: repos, Clock: o.clk, Loc: o.loc, DataDir: o.dataDir, CredDir: credDir, Config: l.Config,
+		LLM: func(cfg config.LLM) (llm.Memory, error) {
+			return llm.NewMemory(cfg, llm.Options{CredDir: credDir, AnthropicURL: o.anthropicURL})
+		},
+		Publish:     hub.Publish,
+		Day:         func(t time.Time) string { return timeengine.ConfigFrom(l.Config(), o.loc).DayOf(t) },
+		Idle:        func(context.Context) bool { return l.snapshot().State != timeengine.Working },
+		RecallScale: o.recallScale,
+	})
 }
 
 // recoverEngine loads the stored state, builds the engine, and commits its

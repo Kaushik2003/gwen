@@ -188,6 +188,20 @@ export namespace wire {
 	        this.goal_id = source["goal_id"];
 	    }
 	}
+	export class AddResourceRequest {
+	    path: string;
+	    title: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AddResourceRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.title = source["title"];
+	    }
+	}
 	export class AssistantChatRequest {
 	    message: string;
 	    thread_id?: string;
@@ -204,6 +218,30 @@ export namespace wire {
 	        this.run_id = source["run_id"];
 	    }
 	}
+	export class MemoryRef {
+	    ref: string;
+	    kind: string;
+	    text: string;
+	    source: string;
+	    thread_id: string;
+	    gone: boolean;
+	    status?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new MemoryRef(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ref = source["ref"];
+	        this.kind = source["kind"];
+	        this.text = source["text"];
+	        this.source = source["source"];
+	        this.thread_id = source["thread_id"];
+	        this.gone = source["gone"];
+	        this.status = source["status"];
+	    }
+	}
 	export class AssistantMessage {
 	    id?: string;
 	    role: string;
@@ -212,6 +250,9 @@ export namespace wire {
 	    mood?: string;
 	    attitude?: string;
 	    actions?: ActionResult[];
+	    cites?: MemoryRef[];
+	    forget?: MemoryRef[];
+	    learned?: MemoryRef[];
 	
 	    static createFrom(source: any = {}) {
 	        return new AssistantMessage(source);
@@ -226,6 +267,9 @@ export namespace wire {
 	        this.mood = source["mood"];
 	        this.attitude = source["attitude"];
 	        this.actions = this.convertValues(source["actions"], ActionResult);
+	        this.cites = this.convertValues(source["cites"], MemoryRef);
+	        this.forget = this.convertValues(source["forget"], MemoryRef);
+	        this.learned = this.convertValues(source["learned"], MemoryRef);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -926,6 +970,38 @@ export namespace wire {
 	        this.interval = source["interval"];
 	    }
 	}
+	export class MemoryConfig {
+	    enabled: boolean;
+	    learn: string;
+	    local_endpoint: string;
+	    local_model: string;
+	    verify: boolean;
+	    embed_endpoint: string;
+	    embed_model: string;
+	    files_dir: string;
+	    mem0_url: string;
+	    supermemory_url: string;
+	    privacy: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new MemoryConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.learn = source["learn"];
+	        this.local_endpoint = source["local_endpoint"];
+	        this.local_model = source["local_model"];
+	        this.verify = source["verify"];
+	        this.embed_endpoint = source["embed_endpoint"];
+	        this.embed_model = source["embed_model"];
+	        this.files_dir = source["files_dir"];
+	        this.mem0_url = source["mem0_url"];
+	        this.supermemory_url = source["supermemory_url"];
+	        this.privacy = source["privacy"];
+	    }
+	}
 	export class LLMConfig {
 	    provider: string;
 	    model: string;
@@ -1033,6 +1109,7 @@ export namespace wire {
 	    planner: PlannerConfig;
 	    calendar: CalendarConfig;
 	    llm: LLMConfig;
+	    memory: MemoryConfig;
 	    sync: SyncConfig;
 	    log: LogConfig;
 	
@@ -1048,6 +1125,7 @@ export namespace wire {
 	        this.planner = this.convertValues(source["planner"], PlannerConfig);
 	        this.calendar = this.convertValues(source["calendar"], CalendarConfig);
 	        this.llm = this.convertValues(source["llm"], LLMConfig);
+	        this.memory = this.convertValues(source["memory"], MemoryConfig);
 	        this.sync = this.convertValues(source["sync"], SyncConfig);
 	        this.log = this.convertValues(source["log"], LogConfig);
 	    }
@@ -1469,6 +1547,24 @@ export namespace wire {
 	        this.task_ids = source["task_ids"];
 	    }
 	}
+	export class EditClaimRequest {
+	    text: string;
+	    value?: string;
+	    valid_from?: string;
+	    valid_to?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new EditClaimRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.text = source["text"];
+	        this.value = source["value"];
+	        this.valid_from = source["valid_from"];
+	        this.valid_to = source["valid_to"];
+	    }
+	}
 	export class EnergyHour {
 	    hour: number;
 	    average: number;
@@ -1519,6 +1615,56 @@ export namespace wire {
 	        this.hours = this.convertValues(source["hours"], EnergyHour);
 	        this.suggested_start = source["suggested_start"];
 	        this.suggested_end = source["suggested_end"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class LaneReceipt {
+	    lane: string;
+	    ok: boolean;
+	    note: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new LaneReceipt(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.lane = source["lane"];
+	        this.ok = source["ok"];
+	        this.note = source["note"];
+	    }
+	}
+	export class ForgetReceipt {
+	    claims: number;
+	    episodes: number;
+	    lanes: LaneReceipt[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ForgetReceipt(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.claims = source["claims"];
+	        this.episodes = source["episodes"];
+	        this.lanes = this.convertValues(source["lanes"], LaneReceipt);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1672,6 +1818,19 @@ export namespace wire {
 		}
 	}
 	
+	export class HideClaimRequest {
+	    hidden: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new HideClaimRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.hidden = source["hidden"];
+	    }
+	}
+	
 	
 	export class LlmRun {
 	    id: string;
@@ -1711,6 +1870,572 @@ export namespace wire {
 	        this.level = source["level"];
 	        this.at = source["at"];
 	    }
+	}
+	export class MemoryClaim {
+	    id: string;
+	    key: string;
+	    label: string;
+	    subject: string;
+	    subject_id?: string;
+	    text: string;
+	    value: any;
+	    status: string;
+	    trust: string;
+	    sensitivity: string;
+	    confidence: number;
+	    valid_from?: number;
+	    valid_to?: number;
+	    mentioned_at: number;
+	    recorded_at: number;
+	    superseded_by?: string;
+	    hidden: boolean;
+	    source: string;
+	    source_ref: string;
+	    thread_id: string;
+	    quote: string;
+	    disputed: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new MemoryClaim(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.key = source["key"];
+	        this.label = source["label"];
+	        this.subject = source["subject"];
+	        this.subject_id = source["subject_id"];
+	        this.text = source["text"];
+	        this.value = source["value"];
+	        this.status = source["status"];
+	        this.trust = source["trust"];
+	        this.sensitivity = source["sensitivity"];
+	        this.confidence = source["confidence"];
+	        this.valid_from = source["valid_from"];
+	        this.valid_to = source["valid_to"];
+	        this.mentioned_at = source["mentioned_at"];
+	        this.recorded_at = source["recorded_at"];
+	        this.superseded_by = source["superseded_by"];
+	        this.hidden = source["hidden"];
+	        this.source = source["source"];
+	        this.source_ref = source["source_ref"];
+	        this.thread_id = source["thread_id"];
+	        this.quote = source["quote"];
+	        this.disputed = source["disputed"];
+	    }
+	}
+	export class MemoryClaimList {
+	    claims: MemoryClaim[];
+	
+	    static createFrom(source: any = {}) {
+	        return new MemoryClaimList(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.claims = this.convertValues(source["claims"], MemoryClaim);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class MemoryClaimQuery {
+	    status: string;
+	    key: string;
+	    subject: string;
+	    q: string;
+	    hidden: boolean;
+	    limit: number;
+	    offset: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new MemoryClaimQuery(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.status = source["status"];
+	        this.key = source["key"];
+	        this.subject = source["subject"];
+	        this.q = source["q"];
+	        this.hidden = source["hidden"];
+	        this.limit = source["limit"];
+	        this.offset = source["offset"];
+	    }
+	}
+	export class MemoryClaimsResult {
+	    claims: MemoryClaim[];
+	
+	    static createFrom(source: any = {}) {
+	        return new MemoryClaimsResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.claims = this.convertValues(source["claims"], MemoryClaim);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	export class MemoryConflict {
+	    id: string;
+	    reason: string;
+	    status: string;
+	    resolution?: string;
+	    a: MemoryClaim;
+	    b: MemoryClaim;
+	    created_at: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new MemoryConflict(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.reason = source["reason"];
+	        this.status = source["status"];
+	        this.resolution = source["resolution"];
+	        this.a = this.convertValues(source["a"], MemoryClaim);
+	        this.b = this.convertValues(source["b"], MemoryClaim);
+	        this.created_at = source["created_at"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class MemoryConflictList {
+	    conflicts: MemoryConflict[];
+	
+	    static createFrom(source: any = {}) {
+	        return new MemoryConflictList(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.conflicts = this.convertValues(source["conflicts"], MemoryConflict);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class MemoryEntity {
+	    id: string;
+	    kind: string;
+	    name: string;
+	    aliases: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new MemoryEntity(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.kind = source["kind"];
+	        this.name = source["name"];
+	        this.aliases = source["aliases"];
+	    }
+	}
+	export class MemoryEntityList {
+	    entities: MemoryEntity[];
+	
+	    static createFrom(source: any = {}) {
+	        return new MemoryEntityList(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.entities = this.convertValues(source["entities"], MemoryEntity);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class MemoryEpisode {
+	    id: string;
+	    kind: string;
+	    channel: string;
+	    speaker: string;
+	    title: string;
+	    body: string;
+	    source: string;
+	    at: number;
+	    sensitivity: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new MemoryEpisode(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.kind = source["kind"];
+	        this.channel = source["channel"];
+	        this.speaker = source["speaker"];
+	        this.title = source["title"];
+	        this.body = source["body"];
+	        this.source = source["source"];
+	        this.at = source["at"];
+	        this.sensitivity = source["sensitivity"];
+	    }
+	}
+	export class MemoryLink {
+	    to_kind: string;
+	    to_id: string;
+	    relation: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new MemoryLink(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.to_kind = source["to_kind"];
+	        this.to_id = source["to_id"];
+	        this.relation = source["relation"];
+	    }
+	}
+	export class MemoryExplanation {
+	    ref: string;
+	    claim?: MemoryClaim;
+	    quote: string;
+	    context: AssistantMessage[];
+	    episode?: MemoryEpisode;
+	    history: MemoryClaim[];
+	    links: MemoryLink[];
+	
+	    static createFrom(source: any = {}) {
+	        return new MemoryExplanation(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ref = source["ref"];
+	        this.claim = this.convertValues(source["claim"], MemoryClaim);
+	        this.quote = source["quote"];
+	        this.context = this.convertValues(source["context"], AssistantMessage);
+	        this.episode = this.convertValues(source["episode"], MemoryEpisode);
+	        this.history = this.convertValues(source["history"], MemoryClaim);
+	        this.links = this.convertValues(source["links"], MemoryLink);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class MemoryResource {
+	    id: string;
+	    title: string;
+	    path: string;
+	    mime: string;
+	    size: number;
+	    added_at: number;
+	    document_at?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new MemoryResource(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.title = source["title"];
+	        this.path = source["path"];
+	        this.mime = source["mime"];
+	        this.size = source["size"];
+	        this.added_at = source["added_at"];
+	        this.document_at = source["document_at"];
+	    }
+	}
+	export class MemoryExport {
+	    exported_at: number;
+	    claims: MemoryClaim[];
+	    entities: MemoryEntity[];
+	    episodes: MemoryEpisode[];
+	    conflicts: MemoryConflict[];
+	    resources: MemoryResource[];
+	
+	    static createFrom(source: any = {}) {
+	        return new MemoryExport(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.exported_at = source["exported_at"];
+	        this.claims = this.convertValues(source["claims"], MemoryClaim);
+	        this.entities = this.convertValues(source["entities"], MemoryEntity);
+	        this.episodes = this.convertValues(source["episodes"], MemoryEpisode);
+	        this.conflicts = this.convertValues(source["conflicts"], MemoryConflict);
+	        this.resources = this.convertValues(source["resources"], MemoryResource);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class MemoryHit {
+	    ref: string;
+	    kind: string;
+	    key: string;
+	    subject: string;
+	    text: string;
+	    source: string;
+	    at: number;
+	    valid_from?: number;
+	    valid_to?: number;
+	    trust: string;
+	    sensitivity: string;
+	    disputed: boolean;
+	    score: number;
+	    lanes: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new MemoryHit(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ref = source["ref"];
+	        this.kind = source["kind"];
+	        this.key = source["key"];
+	        this.subject = source["subject"];
+	        this.text = source["text"];
+	        this.source = source["source"];
+	        this.at = source["at"];
+	        this.valid_from = source["valid_from"];
+	        this.valid_to = source["valid_to"];
+	        this.trust = source["trust"];
+	        this.sensitivity = source["sensitivity"];
+	        this.disputed = source["disputed"];
+	        this.score = source["score"];
+	        this.lanes = source["lanes"];
+	    }
+	}
+	export class MemoryLane {
+	    lane: string;
+	    enabled: boolean;
+	    ok: boolean;
+	    items: number;
+	    detail: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new MemoryLane(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.lane = source["lane"];
+	        this.enabled = source["enabled"];
+	        this.ok = source["ok"];
+	        this.items = source["items"];
+	        this.detail = source["detail"];
+	    }
+	}
+	
+	
+	
+	export class MemoryResourceList {
+	    resources: MemoryResource[];
+	
+	    static createFrom(source: any = {}) {
+	        return new MemoryResourceList(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.resources = this.convertValues(source["resources"], MemoryResource);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ProfileCard {
+	    day: string;
+	    text: string;
+	    created_at: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ProfileCard(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.day = source["day"];
+	        this.text = source["text"];
+	        this.created_at = source["created_at"];
+	    }
+	}
+	export class MemoryStatus {
+	    enabled: boolean;
+	    learning: boolean;
+	    claims: Record<string, number>;
+	    conflicts: number;
+	    jobs: Record<string, number>;
+	    lanes: MemoryLane[];
+	    last_learned_at?: number;
+	    last_slept_at?: number;
+	    profile?: ProfileCard;
+	    ledger_rows: number;
+	    ledger_ok: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new MemoryStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.learning = source["learning"];
+	        this.claims = source["claims"];
+	        this.conflicts = source["conflicts"];
+	        this.jobs = source["jobs"];
+	        this.lanes = this.convertValues(source["lanes"], MemoryLane);
+	        this.last_learned_at = source["last_learned_at"];
+	        this.last_slept_at = source["last_slept_at"];
+	        this.profile = this.convertValues(source["profile"], ProfileCard);
+	        this.ledger_rows = source["ledger_rows"];
+	        this.ledger_ok = source["ledger_ok"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class MovePlanTaskRequest {
 	    day: string;
@@ -2055,6 +2780,7 @@ export namespace wire {
 	
 	
 	
+	
 	export class Project {
 	    id: string;
 	    name: string;
@@ -2110,7 +2836,97 @@ export namespace wire {
 		}
 	}
 	
+	export class RebuildRequest {
+	    lane: string;
 	
+	    static createFrom(source: any = {}) {
+	        return new RebuildRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.lane = source["lane"];
+	    }
+	}
+	export class RecallRequest {
+	    query: string;
+	    as_of: string;
+	    lanes: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new RecallRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.query = source["query"];
+	        this.as_of = source["as_of"];
+	        this.lanes = source["lanes"];
+	    }
+	}
+	export class RecallResult {
+	    intent: string;
+	    hits: MemoryHit[];
+	    tokens: number;
+	    abstain: boolean;
+	    degraded: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new RecallResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.intent = source["intent"];
+	        this.hits = this.convertValues(source["hits"], MemoryHit);
+	        this.tokens = source["tokens"];
+	        this.abstain = source["abstain"];
+	        this.degraded = source["degraded"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class RememberRequest {
+	    text: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new RememberRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.text = source["text"];
+	    }
+	}
+	
+	export class ResolveConflictRequest {
+	    resolution: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ResolveConflictRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.resolution = source["resolution"];
+	    }
+	}
 	export class RetroRequest {
 	    week_start: string;
 	
@@ -2194,6 +3010,61 @@ export namespace wire {
 		    return a;
 		}
 	}
+	export class SelfVersion {
+	    id: string;
+	    attitude: string;
+	    note: string;
+	    since?: number;
+	    reason: string;
+	    thread_id?: string;
+	    at: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new SelfVersion(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.attitude = source["attitude"];
+	        this.note = source["note"];
+	        this.since = source["since"];
+	        this.reason = source["reason"];
+	        this.thread_id = source["thread_id"];
+	        this.at = source["at"];
+	    }
+	}
+	export class SelfHistory {
+	    versions: SelfVersion[];
+	
+	    static createFrom(source: any = {}) {
+	        return new SelfHistory(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.versions = this.convertValues(source["versions"], SelfVersion);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
 	export class SetDayHoursRequest {
 	    day: string;
 	    start_minute?: number;
@@ -2208,6 +3079,30 @@ export namespace wire {
 	        this.day = source["day"];
 	        this.start_minute = source["start_minute"];
 	        this.work_minutes = source["work_minutes"];
+	    }
+	}
+	export class SleepReport {
+	    learned: number;
+	    merged: number;
+	    conflicts: number;
+	    insights: number;
+	    observed: number;
+	    reconciled: number;
+	    profile: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new SleepReport(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.learned = source["learned"];
+	        this.merged = source["merged"];
+	        this.conflicts = source["conflicts"];
+	        this.insights = source["insights"];
+	        this.observed = source["observed"];
+	        this.reconciled = source["reconciled"];
+	        this.profile = source["profile"];
 	    }
 	}
 	export class SplitSegmentRequest {

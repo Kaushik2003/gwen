@@ -211,6 +211,7 @@ type Config struct {
 	Planner  PlannerConfig  `json:"planner" toml:"planner"`
 	Calendar CalendarConfig `json:"calendar" toml:"calendar"`
 	LLM      LLMConfig      `json:"llm" toml:"llm"`
+	Memory   MemoryConfig   `json:"memory" toml:"memory"`
 	Sync     SyncConfig     `json:"sync" toml:"sync"`
 	Log      LogConfig      `json:"log" toml:"log"`
 }
@@ -266,6 +267,27 @@ type LLMConfig struct {
 	// The assistant's name and the user's own words added to its prompt.
 	AssistantName string `json:"assistant_name" toml:"assistant_name"`
 	Instructions  string `json:"instructions" toml:"instructions"`
+}
+
+// MemoryConfig is the [memory] section. Learn is how Gwen learns from chats:
+// "assistant" with the [llm] provider, "local" with the OpenAI-compatible
+// LocalEndpoint and LocalModel, or "off". Verify has a model check each fact
+// against the words it came from. EmbedEndpoint is an Ollama or
+// OpenAI-compatible server for embeddings, "" for none. FilesDir is the
+// readable memory folder, "" for none. Mem0URL and SupermemoryURL are the
+// optional lanes, "" for none. Privacy is "local" or "cloud_ok".
+type MemoryConfig struct {
+	Enabled        bool   `json:"enabled" toml:"enabled"`
+	Learn          string `json:"learn" toml:"learn"`
+	LocalEndpoint  string `json:"local_endpoint" toml:"local_endpoint"`
+	LocalModel     string `json:"local_model" toml:"local_model"`
+	Verify         bool   `json:"verify" toml:"verify"`
+	EmbedEndpoint  string `json:"embed_endpoint" toml:"embed_endpoint"`
+	EmbedModel     string `json:"embed_model" toml:"embed_model"`
+	FilesDir       string `json:"files_dir" toml:"files_dir"`
+	Mem0URL        string `json:"mem0_url" toml:"mem0_url"`
+	SupermemoryURL string `json:"supermemory_url" toml:"supermemory_url"`
+	Privacy        string `json:"privacy" toml:"privacy"`
 }
 
 // SyncConfig is the [sync] section.

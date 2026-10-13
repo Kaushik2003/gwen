@@ -234,6 +234,26 @@ each upgrade that changes the database, the daemon copies it to `gwen.db.bak-<ve
 same folder and keeps the last two copies, so a chat deleted after an upgrade can remain in those
 copies until two later upgrades replace them. Delete the `.bak-` files to erase it at once.
 
+
+### Memory
+
+Gwen remembers what you tell her: facts about you and the people in your life, each kept with the
+words it came from. It is on by default and learns in the background with the model above (no extra
+setup). See and edit what she knows on the **Memory** screen, or with `gwen memory`; change how it
+works in **Settings, Memory** (the `[memory]` section of the config):
+
+- **Learn from chats**: with the assistant's model, with a local OpenAI-compatible model
+  (`local_endpoint`, `local_model`), or off.
+- **Semantic search** (optional): install [Ollama](https://ollama.com), run
+  `ollama pull nomic-embed-text`, and switch it on (`embed_endpoint = "http://localhost:11434"`).
+- **Readable memory folder** (optional): a copy in `~/Gwen/memory` you can read and edit; with `git`
+  installed, your edits flow back.
+- **Mem0 and Supermemory** (optional, off): give the URL of a server you run yourself on this machine
+  (`mem0_url`, `supermemory_url`); API keys go in the credentials folder as `mem0_api_key` and
+  `supermemory_api_key`. Start them with telemetry off (`MEM0_TELEMETRY=false`,
+  `SUPERMEMORY_DISABLE_TELEMETRY=1`) and bound to `127.0.0.1`.
+- Reading PDFs you add as documents needs `pdftotext` (`sudo dnf install poppler-utils`).
+
 ## 7. Raspberry Pi (optional)
 
 A Pi 4 or 5 on 64-bit Raspberry Pi OS. It can host the push server, the sync hub, or both. In the
@@ -355,10 +375,10 @@ signed in for 30 days. Add it to the home screen (Chrome: **⋮ → Add to Home 
 **Share → Add to Home Screen**) to open it like an app. It is read-only: it shows the plan, tasks,
 goals, days, and stats, and every change still happens on the laptop.
 
-The hub and every laptop must run the same version. When an update changes the database (`gwen
+Keep the hub on the same version as the laptops. When an update changes the database (`gwen
 health` prints the schema), rebuild the hub with `make build-hub` and copy it over as above, then
-`sudo systemctl restart gwen-hub`. Until then the hub rejects the laptop's pushes, and
-`gwen sync status` shows the error.
+`sudo systemctl restart gwen-hub`. Until then sync keeps working for what the hub knows: the laptop
+holds back the newer tables (such as chats and memory) and sends them once the hub is updated.
 
 ```sh
 make build-hub

@@ -1,4 +1,5 @@
 import {
+  BookMarked,
   CalendarClock,
   ChartColumn,
   ClipboardCheck,
@@ -31,6 +32,7 @@ import Goals from "./screens/Goals";
 import History from "./screens/History";
 import Inbox from "./screens/Inbox";
 import Login from "./screens/Login";
+import Memory from "./screens/Memory";
 import NowCard from "./screens/NowCard";
 import Plan from "./screens/Plan";
 import Projects from "./screens/Projects";
@@ -51,6 +53,7 @@ interface Screen {
 const allScreens: Screen[] = [
   { id: "today", label: "Today", icon: Sun, view: Today },
   { id: "assistant", label: "Assistant", icon: Sparkles, view: Assistant },
+  { id: "memory", label: "Memory", icon: BookMarked, view: Memory },
   { id: "inbox", label: "Inbox", icon: InboxIcon, view: Inbox },
   { id: "board", label: "Board", icon: Columns3, view: Board },
   { id: "plan", label: "Plan", icon: CalendarClock, view: Plan },

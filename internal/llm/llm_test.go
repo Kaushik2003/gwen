@@ -122,7 +122,8 @@ func TestAnthropicRequestShape(t *testing.T) {
 	require.Equal(t, "claude-sonnet-5", body["model"])
 	require.Equal(t, float64(16000), body["max_tokens"])
 	require.Equal(t, []any{map[string]any{"type": "text", "text": system(t, body)[0],
-		"cache_control": map[string]any{"type": "ephemeral"}}}, body["system"], "one cached block")
+		"cache_control": map[string]any{"type": "ephemeral", "ttl": "1h"}}}, body["system"],
+		"one block, cached for an hour")
 	require.Contains(t, system(t, body)[0], llm.BreakdownSchema, "the schema is sent verbatim")
 	msgs := body["messages"].([]any)
 	require.Len(t, msgs, 1)
@@ -232,18 +233,18 @@ func TestFailures(t *testing.T) {
 	p := &provider{status: http.StatusServiceUnavailable}
 	srv := p.server(t, true)
 	cfg := config.Defaults().LLM
-	cfg.Provider, cfg.Timeout = config.ProviderAnthropic, 50*time.Millisecond
+	cfg.Provider, cfg.Timeout = config.ProviderAnthropic, 500*time.Millisecond
 	a, err := llm.New(cfg, llm.Options{CredDir: withKey(t, "k"), AnthropicURL: srv.URL})
 	require.NoError(t, err)
 	_, err = a.Breakdown(context.Background(), goalReq())
 	require.ErrorContains(t, err, "HTTP 503: Overloaded")
 
 	p.mu.Lock()
-	p.status, p.delay = 0, time.Second
+	p.status, p.delay = 0, 2*time.Second
 	p.reply = func(*http.Request) string { return goodBreakdown }
 	p.mu.Unlock()
 	_, err = a.Breakdown(context.Background(), goalReq())
-	require.ErrorContains(t, err, "timed out after 50ms")
+	require.ErrorContains(t, err, "timed out after 500ms")
 }
 
 func retroReq() llm.RetroRequest {
@@ -335,7 +336,10 @@ func TestPromptCaching(t *testing.T) {
 
 	out, fresh, body := ask(llm.Self{})
 	require.Len(t, fresh, 1, "nothing chosen yet, nothing follows")
-	require.Equal(t, map[string]any{"type": "ephemeral"}, body["system"].([]any)[0].(map[string]any)["cache_control"])
+	require.Equal(t, map[string]any{"type": "ephemeral", "ttl": "1h"},
+		body["system"].([]any)[0].(map[string]any)["cache_control"])
+	require.Len(t, body["messages"], 1, "no history, only the newest turn")
+	require.IsType(t, "", body["messages"].([]any)[0].(map[string]any)["content"], "as plain text")
 	require.True(t, strings.HasPrefix(fresh[0], "# GWEN STACY"))
 	require.True(t, strings.HasSuffix(fresh[0], llm.AssistantSchema), "the job's prompt and schema are cached with the persona")
 	require.Equal(t, llm.Usage{Input: 50, CacheRead: 3000, Output: 120}, out.Usage)

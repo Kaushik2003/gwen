@@ -103,6 +103,7 @@ type API interface {
 	AssistantChat(ctx context.Context, req wire.AssistantChatRequest) (*wire.LlmRun, error)
 	AssistantSelf(ctx context.Context) (*wire.AssistantSelf, error)
 	ResetAssistantSelf(ctx context.Context) error
+	AssistantSelfHistory(ctx context.Context, limit int) (*wire.SelfHistory, error)
 	ListThreads(ctx context.Context, limit, offset int) (*wire.ChatThreadList, error)
 	GetThread(ctx context.Context, id string) (*wire.ChatThreadDetail, error)
 	DeleteThread(ctx context.Context, id string) error
@@ -118,6 +119,30 @@ type API interface {
 
 	SyncStatus(ctx context.Context) (*wire.SyncStatus, error)
 	SyncNow(ctx context.Context) (*wire.SyncStatus, error)
+
+	// Memory (memory.go): each answers unavailable while memory is off.
+	MemoryStatus(ctx context.Context) (*wire.MemoryStatus, error)
+	ListClaims(ctx context.Context, q wire.MemoryClaimQuery) (*wire.MemoryClaimList, error)
+	GetClaim(ctx context.Context, id string) (*wire.MemoryClaim, error)
+	EditClaim(ctx context.Context, id string, req wire.EditClaimRequest) (*wire.MemoryClaimsResult, error)
+	ConfirmClaim(ctx context.Context, id string) (*wire.MemoryClaim, error)
+	RejectClaim(ctx context.Context, id string) (*wire.MemoryClaim, error)
+	HideClaim(ctx context.Context, id string, req wire.HideClaimRequest) (*wire.MemoryClaim, error)
+	ForgetClaim(ctx context.Context, id string) (*wire.ForgetReceipt, error)
+	ExplainMemory(ctx context.Context, ref string) (*wire.MemoryExplanation, error)
+	Remember(ctx context.Context, req wire.RememberRequest, channel string) (*wire.MemoryClaimsResult, error)
+	RecallMemory(ctx context.Context, req wire.RecallRequest) (*wire.RecallResult, error)
+	ListConflicts(ctx context.Context, status string) (*wire.MemoryConflictList, error)
+	ResolveConflict(ctx context.Context, id string, req wire.ResolveConflictRequest) (*wire.MemoryConflict, error)
+	ListEntities(ctx context.Context) (*wire.MemoryEntityList, error)
+	MemoryProfile(ctx context.Context) (*wire.ProfileCard, error)
+	ListResources(ctx context.Context) (*wire.MemoryResourceList, error)
+	AddResource(ctx context.Context, req wire.AddResourceRequest) (*wire.MemoryResource, error)
+	RemoveResource(ctx context.Context, id string) (*wire.ForgetReceipt, error)
+	RebuildMemory(ctx context.Context, req wire.RebuildRequest) error
+	SleepMemory(ctx context.Context) (*wire.SleepReport, error)
+	ExportMemory(ctx context.Context) (*wire.MemoryExport, error)
+	ForgetAllMemory(ctx context.Context, confirm string) (*wire.ForgetReceipt, error)
 
 	// Events opens GET /v1/events. The stream does not reconnect; see Follower.
 	Events(ctx context.Context) (EventStream, error)

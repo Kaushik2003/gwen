@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -33,6 +34,21 @@ const (
 // MaxInstructions is the longest llm.instructions, in characters.
 const MaxInstructions = 10000
 
+// How memory learns from chats (memory.learn): with the [llm] provider, with
+// the local model of memory.local_endpoint, or not at all.
+const (
+	LearnAssistant = "assistant"
+	LearnLocal     = "local"
+	LearnOff       = "off"
+)
+
+// What memory may send off the device (memory.privacy): nothing but what the
+// [llm] provider already reads, or also the optional lanes on other hosts.
+const (
+	PrivacyLocal   = "local"
+	PrivacyCloudOK = "cloud_ok"
+)
+
 // Config is the parsed configuration.
 type Config struct {
 	Tracking Tracking
@@ -41,6 +57,7 @@ type Config struct {
 	Planner  Planner
 	Calendar Calendar
 	LLM      LLM
+	Memory   Memory
 	Sync     Sync
 	Log      Log
 }
@@ -110,6 +127,31 @@ type LLM struct {
 	Instructions  string
 }
 
+// Memory is the [memory] section: what Gwen learns from chats and how she
+// recalls it (gwen-harness/harness.md section 4).
+type Memory struct {
+	Enabled bool
+	// Learn is LearnAssistant, LearnLocal, or LearnOff; LearnLocal reads
+	// chats with LocalModel at LocalEndpoint, an OpenAI-compatible server.
+	Learn         string
+	LocalEndpoint string
+	LocalModel    string
+	// Verify has a model check each fact against the words it came from.
+	Verify bool
+	// EmbedEndpoint is an Ollama or OpenAI-compatible server for
+	// embeddings, "" for none.
+	EmbedEndpoint string
+	EmbedModel    string
+	// FilesDir is the readable memory folder: "", an absolute path, or one
+	// under "~/".
+	FilesDir string
+	// Mem0URL and SupermemoryURL are the optional lanes, "" for none.
+	Mem0URL        string
+	SupermemoryURL string
+	// Privacy is PrivacyLocal or PrivacyCloudOK.
+	Privacy string
+}
+
 // Sync is the [sync] section.
 type Sync struct {
 	HubURL   string
@@ -154,6 +196,8 @@ func Defaults() Config {
 		Calendar: Calendar{Enabled: false, Name: "Gwen", BusyCalendars: []string{"primary"}},
 		LLM: LLM{Provider: ProviderNone, Model: "claude-sonnet-5", Command: "claude", Timeout: 2 * time.Minute,
 			AssistantName: "Gwen"},
+		Memory: Memory{Enabled: true, Learn: LearnAssistant, Verify: true, EmbedModel: "nomic-embed-text",
+			Privacy: PrivacyLocal},
 		Sync: Sync{Interval: 5 * time.Minute},
 		Log:  Log{Level: slog.LevelInfo},
 	}
@@ -264,6 +308,19 @@ func (c Config) Wire() wire.Config {
 			AssistantName: c.LLM.AssistantName,
 			Instructions:  c.LLM.Instructions,
 		},
+		Memory: wire.MemoryConfig{
+			Enabled:        c.Memory.Enabled,
+			Learn:          c.Memory.Learn,
+			LocalEndpoint:  c.Memory.LocalEndpoint,
+			LocalModel:     c.Memory.LocalModel,
+			Verify:         c.Memory.Verify,
+			EmbedEndpoint:  c.Memory.EmbedEndpoint,
+			EmbedModel:     c.Memory.EmbedModel,
+			FilesDir:       c.Memory.FilesDir,
+			Mem0URL:        c.Memory.Mem0URL,
+			SupermemoryURL: c.Memory.SupermemoryURL,
+			Privacy:        c.Memory.Privacy,
+		},
 		Sync: wire.SyncConfig{
 			HubURL:   c.Sync.HubURL,
 			Interval: FormatDuration(c.Sync.Interval),
@@ -316,6 +373,19 @@ func FromWire(w wire.Config) (Config, error) {
 			Timeout:       p.duration("llm.timeout", w.LLM.Timeout),
 			AssistantName: strings.TrimSpace(w.LLM.AssistantName),
 			Instructions:  strings.TrimSpace(w.LLM.Instructions),
+		},
+		Memory: Memory{
+			Enabled:        w.Memory.Enabled,
+			Learn:          p.enum("memory.learn", w.Memory.Learn, LearnAssistant, LearnLocal, LearnOff),
+			LocalEndpoint:  p.url("memory.local_endpoint", w.Memory.LocalEndpoint, true),
+			LocalModel:     strings.TrimSpace(w.Memory.LocalModel),
+			Verify:         w.Memory.Verify,
+			EmbedEndpoint:  p.url("memory.embed_endpoint", w.Memory.EmbedEndpoint, true),
+			EmbedModel:     strings.TrimSpace(w.Memory.EmbedModel),
+			FilesDir:       p.dir("memory.files_dir", strings.TrimSpace(w.Memory.FilesDir)),
+			Mem0URL:        p.url("memory.mem0_url", w.Memory.Mem0URL, true),
+			SupermemoryURL: p.url("memory.supermemory_url", w.Memory.SupermemoryURL, true),
+			Privacy:        p.enum("memory.privacy", w.Memory.Privacy, PrivacyLocal, PrivacyCloudOK),
 		},
 		Sync: Sync{
 			HubURL:   p.url("sync.hub_url", w.Sync.HubURL, true),
@@ -371,7 +441,46 @@ func (c Config) Validate() error {
 	if len([]rune(c.LLM.Instructions)) > MaxInstructions {
 		return keyErr("llm.instructions", "must be at most %d characters", MaxInstructions)
 	}
+	return c.Memory.validate()
+}
+
+// validate checks the [memory] rules that span keys: a local model to learn
+// with needs its server and name, and while privacy is local the optional
+// lanes may only run on this device.
+func (m Memory) validate() error {
+	if m.Learn == LearnLocal {
+		if m.LocalEndpoint == "" {
+			return keyErr("memory.local_endpoint", "set it to learn with a local model (memory.learn = \"local\")")
+		}
+		if m.LocalModel == "" {
+			return keyErr("memory.local_model", "set it to learn with a local model (memory.learn = \"local\")")
+		}
+	}
+	if m.Privacy == PrivacyLocal {
+		for _, u := range []struct{ key, url string }{
+			{"memory.mem0_url", m.Mem0URL}, {"memory.supermemory_url", m.SupermemoryURL},
+		} {
+			if u.url != "" && !IsLoopbackURL(u.url) {
+				return keyErr(u.key, "must run on this device (localhost) while memory.privacy is \"local\"")
+			}
+		}
+	}
 	return nil
+}
+
+// IsLoopbackURL reports whether rawURL's host is this device: localhost, or
+// a loopback address (127.0.0.0/8, ::1).
+func IsLoopbackURL(rawURL string) bool {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	host := u.Hostname()
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func optionalTime(t *TimeOfDay) string {
@@ -405,6 +514,11 @@ func (c Config) LogValue() slog.Value {
 		slog.Group("llm",
 			"provider", w.LLM.Provider, "model", w.LLM.Model, "endpoint", w.LLM.Endpoint, "command", w.LLM.Command,
 			"timeout", w.LLM.Timeout, "assistant_name", w.LLM.AssistantName),
+		slog.Group("memory",
+			"enabled", w.Memory.Enabled, "learn", w.Memory.Learn, "local_endpoint", w.Memory.LocalEndpoint,
+			"local_model", w.Memory.LocalModel, "verify", w.Memory.Verify, "embed_endpoint", w.Memory.EmbedEndpoint,
+			"embed_model", w.Memory.EmbedModel, "files_dir", w.Memory.FilesDir, "mem0_url", w.Memory.Mem0URL,
+			"supermemory_url", w.Memory.SupermemoryURL, "privacy", w.Memory.Privacy),
 		slog.Group("sync", "hub_url", w.Sync.HubURL, "interval", w.Sync.Interval),
 		slog.Group("log", "level", w.Log.Level),
 	)
@@ -468,6 +582,15 @@ func (p *parser) url(key, s string, emptyOK bool) string {
 	u, err := url.Parse(s)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		p.fail(key, "%q is not an http or https URL", s)
+	}
+	return s
+}
+
+// dir accepts "", an absolute path, or a path under the home directory
+// written "~/...".
+func (p *parser) dir(key, s string) string {
+	if s != "" && !filepath.IsAbs(s) && !strings.HasPrefix(s, "~/") {
+		p.fail(key, "%q must be an absolute path or start with ~/", s)
 	}
 	return s
 }

@@ -97,7 +97,12 @@ func (db *DB) init(ctx context.Context, migrations fs.FS) error {
 	}
 	db.deviceID = id
 	if version >= chatsVersion {
-		return importChats(ctx, db)
+		if err := importChats(ctx, db); err != nil {
+			return err
+		}
+	}
+	if version >= memoryVersion {
+		return importSelf(ctx, db)
 	}
 	return nil
 }

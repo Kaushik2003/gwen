@@ -19,7 +19,7 @@ func TestDayHoursSync(t *testing.T) {
 	_, _, err := src.r.Plans.SetHours(src.ctx, "2026-09-21", testutil.Ptr(19*60), testutil.Ptr(180), src.env())
 	require.NoError(t, err)
 
-	changed, err := src.r.Sync.Changed(src.ctx, time.UnixMilli(0))
+	changed, err := src.r.Sync.Changed(src.ctx, time.UnixMilli(0), nil)
 	require.NoError(t, err)
 	rows := store.Rows{}
 	for _, tr := range changed {
@@ -47,7 +47,7 @@ func TestDayHoursSync(t *testing.T) {
 	src.clk.Advance(time.Minute)
 	_, _, err = src.r.Plans.SetHours(src.ctx, "2026-09-21", nil, nil, src.env())
 	require.NoError(t, err)
-	later, err := src.r.Sync.Changed(src.ctx, src.clk.Now().Add(-30*time.Second))
+	later, err := src.r.Sync.Changed(src.ctx, src.clk.Now().Add(-30*time.Second), nil)
 	require.NoError(t, err)
 	require.Len(t, later, 1)
 	require.NotNil(t, later[0].Row["deleted_at"])

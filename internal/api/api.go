@@ -11,6 +11,7 @@ import (
 	"github.com/kzark/gwen/internal/clock"
 	"github.com/kzark/gwen/internal/config"
 	"github.com/kzark/gwen/internal/llm"
+	"github.com/kzark/gwen/internal/memory"
 	"github.com/kzark/gwen/internal/store"
 	"github.com/kzark/gwen/internal/timeengine"
 	"github.com/kzark/gwen/internal/wire"
@@ -47,7 +48,11 @@ type Server struct {
 	// the daemon runs none.
 	LLM func(cfg config.LLM, self llm.Self) (llm.Planner, error)
 	// Sync is the sync hub client, nil when the daemon runs none.
-	Sync       SyncService
+	Sync SyncService
+	// Memory is Gwen's memory, nil when the daemon runs none: the assistant
+	// then recalls chats by their words, and the memory routes answer 503.
+	// When it is also a MemoryResolver, it resolves the refs chats show.
+	Memory     memory.Memory
 	Clock      clock.Clock
 	Loc        *time.Location // the device's zone, recorded on work days that edits create
 	ConfigPath string

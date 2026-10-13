@@ -1,25 +1,32 @@
 package llm
 
+import "strings"
+
 // The prompts sent with every request. Each asks for a single JSON object and
 // includes its schema verbatim (docs/07-integrations.md#llm-adapter).
 
 // prompt is a job's system prompt and the JSON Schema of its reply. persona
 // opens the system prompt with the assistant's personality and closes it
 // with how the assistant chose to treat the user. system is the same from
-// one request to the next, so providers cache it; tail, which follows it,
-// is what changes.
+// one request to the next, so providers cache it; a conversation's context
+// follows it, and tail, which changes most often, comes last.
 type prompt struct {
 	name, system, schema string
 	persona              bool
 	tail                 string
 }
 
-// full is the whole system prompt, for providers that take it as one text.
-func (p prompt) full() string {
-	if p.tail == "" {
-		return p.system
+// full is the whole system prompt with a conversation's context, for
+// providers that take it as one text: the parts that are not empty, in
+// order, with a blank line between them.
+func (p prompt) full(context string) string {
+	parts := make([]string, 0, 3)
+	for _, s := range []string{p.system, context, p.tail} {
+		if s != "" {
+			parts = append(parts, s)
+		}
 	}
-	return p.system + "\n\n" + p.tail
+	return strings.Join(parts, "\n\n")
 }
 
 var (

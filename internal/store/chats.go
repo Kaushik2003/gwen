@@ -3,8 +3,8 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
-	"log/slog"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -40,7 +40,8 @@ type ChatRepo interface {
 		output func(threadID string, msgs []model.ChatMessage) any) (model.ChatThread, model.LLMRun, error)
 	// Delete deletes a thread. It and its messages stay as tombstones with
 	// their words erased, and the assistant runs of its turns keep no words
-	// either.
+	// either. Its memory notes and observation log are deleted, and the
+	// claims learned from it are forgotten, unless the user edited them.
 	Delete(ctx context.Context, id string) error
 	// Search returns up to limit messages of live threads that share words
 	// with text, the best match first, leaving out the messages in skip.
@@ -73,21 +74,41 @@ func scanChatThread(s scanner) (model.ChatThread, error) {
 	return t, nil
 }
 
-const chatMessageCols = `m.id, m.thread_id, m.role, m.text, m.at, m.mood, m.attitude, m.actions,
+const chatMessageCols = `m.id, m.thread_id, m.role, m.text, m.at, m.mood, m.attitude, m.actions, m.memory,
 	m.created_at, m.updated_at, m.deleted_at, m.device_id, m.rev`
+
+// chatMemory is the JSON of chat_messages.memory: the refs a reply rested on
+// and the claim refs the user asked to stop bringing up. An empty list is
+// left out, so a message without either stores {}.
+type chatMemory struct {
+	Cites  []string `json:"cites,omitempty"`
+	Forget []string `json:"forget,omitempty"`
+}
 
 func scanChatMessage(s scanner, extra ...any) (model.ChatMessage, error) {
 	var (
 		m       model.ChatMessage
 		at      int64
 		actions string
+		memory  string
 		env     envelopeScan
 	)
-	dest := append([]any{&m.ID, &m.ThreadID, &m.Role, &m.Text, &at, &m.Mood, &m.Attitude, &actions}, env.dest()...)
+	dest := append([]any{&m.ID, &m.ThreadID, &m.Role, &m.Text, &at, &m.Mood, &m.Attitude, &actions, &memory},
+		env.dest()...)
 	if err := s.Scan(append(dest, extra...)...); err != nil {
 		return model.ChatMessage{}, err
 	}
 	m.At, m.Actions, m.Envelope = timeOf(at), []byte(actions), env.envelope()
+	// Refs that do not read, say from a newer device, are left out.
+	var mem chatMemory
+	if json.Unmarshal([]byte(memory), &mem) == nil {
+		if len(mem.Cites) > 0 {
+			m.Cites = mem.Cites
+		}
+		if len(mem.Forget) > 0 {
+			m.Forget = mem.Forget
+		}
+	}
 	return m, nil
 }
 
@@ -233,11 +254,15 @@ func insertChatMessage(ctx context.Context, q Querier, m model.ChatMessage) erro
 	if m.Role != model.ChatUser && m.Role != model.ChatAssistant {
 		return FailField(ErrInvalid, "role", "a message is the user's or the assistant's, not %q", m.Role)
 	}
-	const qInsertChatMessage = `INSERT INTO chat_messages (id, thread_id, role, text, at, mood, attitude, actions, ` +
-		envelopeCols + `) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-	_, err := q.ExecContext(ctx, qInsertChatMessage, m.ID, m.ThreadID, m.Role, m.Text, m.At.UnixMilli(), m.Mood,
-		m.Attitude, string(m.Actions), m.CreatedAt.UnixMilli(), m.UpdatedAt.UnixMilli(), nullMillis(m.DeletedAt),
-		m.DeviceID, m.Rev)
+	memory, err := json.Marshal(chatMemory{Cites: m.Cites, Forget: m.Forget})
+	if err != nil {
+		return fmt.Errorf("insert chat message: %w", err)
+	}
+	const qInsertChatMessage = `INSERT INTO chat_messages (id, thread_id, role, text, at, mood, attitude, actions,
+		memory, ` + envelopeCols + `) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	_, err = q.ExecContext(ctx, qInsertChatMessage, m.ID, m.ThreadID, m.Role, m.Text, m.At.UnixMilli(), m.Mood,
+		m.Attitude, string(m.Actions), string(memory), m.CreatedAt.UnixMilli(), m.UpdatedAt.UnixMilli(),
+		nullMillis(m.DeletedAt), m.DeviceID, m.Rev)
 	if err != nil {
 		return fmt.Errorf("insert chat message: %w", classify(err))
 	}
@@ -249,9 +274,13 @@ func (r chatRepo) Delete(ctx context.Context, id string) error {
 		if _, err := getChatThread(ctx, tx, id); err != nil {
 			return err
 		}
+		if err := forgetThreadMemory(ctx, tx, r.db, id); err != nil {
+			return err
+		}
 		now, device := r.db.Now().UnixMilli(), r.db.DeviceID()
 		const qEraseChatMessages = `UPDATE chat_messages SET text = '', mood = '', attitude = '', actions = '[]',
-			deleted_at = ?, updated_at = ?, device_id = ?, rev = rev + 1 WHERE thread_id = ? AND deleted_at IS NULL`
+			memory = '{}', deleted_at = ?, updated_at = ?, device_id = ?, rev = rev + 1
+			WHERE thread_id = ? AND deleted_at IS NULL`
 		if _, err := tx.ExecContext(ctx, qEraseChatMessages, now, now, device, id); err != nil {
 			return err
 		}
@@ -275,10 +304,51 @@ func (r chatRepo) Delete(ctx context.Context, id string) error {
 	}
 	// The write-ahead log still holds the pages as they were until they are
 	// copied into the database; copy them now, when no reader is in the way.
-	if _, err := r.db.sql.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
-		slog.Warn("chat deleted, but the write-ahead log was not checkpointed", "err", err)
-	}
+	checkpoint(ctx, r.db, "chat deleted")
 	return nil
+}
+
+// forgetThreadMemory forgets, in tx, what the memory took from a thread that
+// is being deleted. Its notes and observation log are deleted. Every live
+// claim learned from its messages (source msg, or mem0, whose source is the
+// message Mem0's fact was checked against), unless the user made it their
+// own by editing it, is forgotten as Apply forgets one, its words leaving
+// the notes, profile cards, conflicts, and observation logs of every chat: a
+// ledger row records it, and a project job takes it out of every lane.
+func forgetThreadMemory(ctx context.Context, tx *sql.Tx, db *DB, threadID string) error {
+	for _, q := range []string{`DELETE FROM chat_notes WHERE thread_id = ?`,
+		`DELETE FROM chat_observations WHERE thread_id = ?`} {
+		if _, err := tx.ExecContext(ctx, q, threadID); err != nil {
+			return err
+		}
+	}
+	type learned struct{ id, hash string }
+	const qThreadClaims = `SELECT id, content_hash FROM claims WHERE deleted_at IS NULL
+		AND source_kind IN ('msg', 'mem0') AND trust <> 'owner_edit'
+		AND source_id IN (SELECT id FROM chat_messages WHERE thread_id = ?) ORDER BY rowid`
+	claims, err := queryList(ctx, tx, func(s scanner) (learned, error) {
+		var c learned
+		return c, s.Scan(&c.id, &c.hash)
+	}, qThreadClaims, threadID)
+	if err != nil || len(claims) == 0 {
+		return err
+	}
+	for _, c := range claims {
+		if err := appendLedger(ctx, tx, db, LedgerItem{Data: map[string]any{"action": "claim.forget", "claim": c.id,
+			"hash": c.hash, "reason": reasonChatDeleted}}); err != nil {
+			return err
+		}
+		if err := updateClaim(ctx, tx, db, ClaimUpdate{ID: c.id, Forget: true}, reasonChatDeleted); err != nil {
+			return err
+		}
+		if err := insertJob(ctx, tx, db.Now(), NewJob{Kind: model.JobProject, Subject: "claim:" + c.id}); err != nil {
+			return err
+		}
+	}
+	if err := insertJob(ctx, tx, db.Now(), NewJob{Kind: model.JobFiles}); err != nil {
+		return err
+	}
+	return optimizeIndex(ctx, tx, "claims_fts")
 }
 
 func (r chatRepo) Search(ctx context.Context, text string, limit int, skip []string) ([]model.ChatHit, error) {

@@ -1,14 +1,16 @@
-import { AudioLines, CircleAlert, CircleCheck, CircleX, Download, Drama, History, LoaderCircle, MessageSquarePlus, PhoneOff, SendHorizontal, Settings as SettingsIcon, Square, Trash2, Volume2, VolumeX } from "lucide-react";
+import { AudioLines, BookMarked, Check, CircleAlert, CircleCheck, CircleX, Download, Drama, EyeOff, History, LoaderCircle, MessageSquarePlus, NotebookPen, PhoneOff, SendHorizontal, Settings as SettingsIcon, Square, ThumbsDown, Trash2, Volume2, VolumeX } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { App, apiError, isHub, wire } from "../api";
 import { useDaemon } from "../daemon";
 import { formatAgo, formatTime } from "../format";
 import { useNav } from "../nav";
-import { attitudeOf, type AssistantMessage, type AssistantOutput, type Mood, type RunError } from "../llm";
+import { attitudeOf, type AssistantMessage as ChatTurn, type AssistantOutput, type Mood, type RunError } from "../llm";
+import { claimIdOf, toConfirm, useMemoryVersion, type MessageMemory } from "../memory";
 import { AiFailed, AiProgress, AiUnavailable, providerName } from "./ai";
 import Call, { type CallPhase } from "./Call";
 import Face from "./Face";
-import { useConfirm } from "./feedback";
+import { useConfirm, useToast } from "./feedback";
+import MemoryDetail, { useClaimActions } from "./MemoryDetail";
 import { useAloud, useSpeech } from "./Speech";
 import { Badge, Button, Callout, IconButton, TextArea, cx } from "./ui";
 import { DownloadProgress, useDictation } from "./Voice";
@@ -50,6 +52,17 @@ function recall(): string | null {
   }
 }
 
+/** A message of the chat, with what it cites, asks to forget, and taught her. */
+type AssistantMessage = ChatTurn & MessageMemory;
+
+/** The chip handlers under messages: open a memory, or confirm, reject, or forget the claim a ref names. */
+interface Chips {
+  open: (r: wire.MemoryRef) => void;
+  keep: (r: wire.MemoryRef) => void;
+  reject: (r: wire.MemoryRef) => void;
+  forget: (r: wire.MemoryRef) => void;
+}
+
 /** The chat on screen: its id, or null before the first reply, and its messages. */
 interface Thread {
   id: string;
@@ -64,16 +77,20 @@ interface Thread {
  * and Talk makes it a spoken conversation, shown as a call (Call): the mic
  * listens, a pause sends what you said, she answers aloud, then listens
  * again. With call, it is only that call, started at once, as in the panel
- * widget's talk window; ending it calls onHangUp.
+ * widget's talk window; ending it calls onHangUp. openThread opens that chat
+ * instead of the last one, as the Memory screen's source chips ask. Under
+ * messages, chips show what she remembered, won't bring up, and noted.
  */
 export default function AssistantChat({
   initial,
   onInitialUsed,
+  openThread,
   call,
   onHangUp,
 }: {
   initial?: string | null;
   onInitialUsed?: () => void;
+  openThread?: string | null;
   call?: boolean;
   onHangUp?: () => void;
 }) {
@@ -93,7 +110,13 @@ export default function AssistantChat({
   const speech = useSpeech();
   const { go } = useNav();
   const confirm = useConfirm();
+  const notify = useToast();
   const [aloud, setAloud] = useAloud();
+  // A memory opened from a chip, by its ref and chat.
+  const [memory, setMemory] = useState<{ ref: string; thread?: string } | null>(null);
+  const memoryVersion = useMemoryVersion();
+  const [reload, setReload] = useState(0);
+  const claims = useClaimActions(() => setReload((n) => n + 1));
   const [talking, setTalking] = useState(false);
   const talkingRef = useRef(false);
   // The reply being read aloud, by its time, and its utterance.
@@ -136,6 +159,7 @@ export default function AssistantChat({
   }, [call, voice.known, speech.status]);
 
   useEffect(() => {
+    if (openThread) return; // the chat asked for opens instead
     let live = true;
     const id = recall();
     if (id && !isHub)
@@ -154,6 +178,26 @@ export default function AssistantChat({
       live = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (openThread && !isHub) open(openThread);
+  }, [openThread]);
+
+  // What she learned or forgot changes the chips: the open chat is read again, unless a turn is on its way.
+  useEffect(() => {
+    const id = thread?.id;
+    if ((!memoryVersion && !reload) || !id || asking || isHub) return;
+    let live = true;
+    App.GetThread(id).then(
+      (t) => {
+        if (live) setThread((cur) => (cur?.id === t.thread.id && t.messages.length >= cur.messages.length ? { id: cur.id, messages: t.messages as AssistantMessage[] } : cur));
+      },
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+  }, [memoryVersion, reload]);
 
   useEffect(() => {
     if (initial) {
@@ -322,9 +366,19 @@ export default function AssistantChat({
       setFailure(null);
       setRefused(null);
     } catch (e) {
-      d.fail(e);
+      if (apiError(e).code === "not_found") notify("That chat has been deleted.");
+      else d.fail(e);
     }
   }
+
+  /** The claim a chip names, enough for the claim actions. */
+  const claimOf = (r: wire.MemoryRef) => wire.MemoryClaim.createFrom({ id: claimIdOf(r.ref) ?? "", text: r.text, status: r.status ?? "" });
+  const chips: Chips = {
+    open: (r) => setMemory({ ref: r.ref, thread: r.thread_id || undefined }),
+    keep: (r) => claims.keep(claimOf(r)),
+    reject: (r) => claims.reject(claimOf(r)),
+    forget: (r) => claims.forget(claimOf(r)),
+  };
 
   /** Deletes a chat: its words are erased, and she no longer recalls them. */
   async function forget(t: wire.ChatThread) {
@@ -503,6 +557,7 @@ export default function AssistantChat({
                   key={m.id ?? i}
                   name={name}
                   message={m}
+                  chips={isHub ? undefined : chips}
                   latest={m === last}
                   reading={saying?.at === m.at ? (speech.sounding === saying.id ? "sounding" : "preparing") : null}
                   onRead={speech.ready && m.role === "assistant" ? () => read(m) : undefined}
@@ -552,6 +607,8 @@ export default function AssistantChat({
           </div>
         </>
       )}
+      {memory && <MemoryDetail refId={memory.ref} threadId={memory.thread} onClose={() => setMemory(null)} />}
+      {claims.editor}
     </div>
   );
 }
@@ -631,6 +688,7 @@ function Speaking({ name, sounding, onStop }: { name: string; sounding: boolean;
 function Turn({
   name,
   message,
+  chips,
   latest,
   pending,
   reading,
@@ -639,6 +697,8 @@ function Turn({
 }: {
   name?: string;
   message: AssistantMessage;
+  /** What the memory chips under it do; none, no chips. */
+  chips?: Chips;
   /** Her latest answer, whose face still breathes. */
   latest?: boolean;
   pending?: boolean;
@@ -683,6 +743,7 @@ function Turn({
             ))}
           </ul>
         )}
+        {chips && <MemoryChips name={name ?? "Gwen"} message={message} chips={chips} />}
         {message.at > 0 && !pending && (
           <span className="flex items-center gap-1.5 px-1 text-[11px] text-ink-faint tabular-nums">
             {formatTime(message.at)}
@@ -700,6 +761,70 @@ function Turn({
           </span>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * What a message did to memory, as chips: under a reply, what she
+ * remembered to answer and what she won't bring up again; under your
+ * message, what she noted from it, with Keep and Not true while it waits for
+ * you.
+ */
+function MemoryChips({ name, message: m, chips }: { name: string; message: AssistantMessage; chips: Chips }) {
+  const cites = m.cites ?? [];
+  const forget = m.forget ?? [];
+  const learned = m.learned ?? [];
+  if (cites.length + forget.length + learned.length === 0) return null;
+  const chip = "inline-flex max-w-full min-w-0 items-center gap-1.5 rounded-md border px-2 py-1 text-xs";
+  const small = "rounded px-1.5 py-0.5 text-[11px] font-medium transition-colors";
+  return (
+    <div className={cx("flex max-w-full flex-wrap gap-1.5", m.role === "user" && "justify-end")}>
+      {cites.map((r) =>
+        r.gone ? (
+          <span key={r.ref} className={cx(chip, "border-line bg-surface-2 text-ink-faint")}>
+            <BookMarked size={12} className="shrink-0" aria-hidden />
+            Remembered something since forgotten
+          </span>
+        ) : (
+          <button key={r.ref} type="button" onClick={() => chips.open(r)} title="Why she remembers this" className={cx(chip, "border-accent/25 bg-accent/[0.06] text-ink-muted transition-colors hover:border-accent/50 hover:text-ink")}>
+            <BookMarked size={12} className="shrink-0 text-accent-hover" aria-hidden />
+            <span className="truncate">Remembered: {r.text}</span>
+          </button>
+        ),
+      )}
+      {forget.map((r) => (
+        <span key={r.ref} className={cx(chip, "border-line-strong bg-surface-2 text-ink-muted")}>
+          <EyeOff size={12} className="shrink-0 text-ink-subtle" aria-hidden />
+          <span className="truncate">{r.gone ? "Won't bring up something since forgotten" : `Won't bring up: ${r.text}`}</span>
+          {!r.gone && claimIdOf(r.ref) && (
+            <button type="button" onClick={() => chips.forget(r)} className={cx(small, "text-danger hover:bg-danger/10")}>
+              Forget for good
+            </button>
+          )}
+        </span>
+      ))}
+      {learned.map((r) => (
+        <span key={r.ref} className={cx(chip, toConfirm(r.status) ? "border-idle/30 bg-idle/[0.06] text-ink-muted" : "border-line-strong bg-surface-2 text-ink-muted")}>
+          <NotebookPen size={12} className={cx("shrink-0", toConfirm(r.status) ? "text-idle" : "text-ink-subtle")} aria-hidden />
+          <button type="button" onClick={() => chips.open(r)} title="Why she noted this" className="truncate text-left hover:text-ink">
+            {name} noted: {r.text}
+          </button>
+          {toConfirm(r.status) && (
+            <>
+              <span className="shrink-0 text-[11px] text-idle">to confirm</span>
+              <button type="button" onClick={() => chips.keep(r)} className={cx(small, "inline-flex items-center gap-1 text-working hover:bg-working/10")}>
+                <Check size={11} aria-hidden />
+                Keep
+              </button>
+              <button type="button" onClick={() => chips.reject(r)} className={cx(small, "inline-flex items-center gap-1 text-ink-subtle hover:bg-surface-3 hover:text-ink")}>
+                <ThumbsDown size={11} aria-hidden />
+                Not true
+              </button>
+            </>
+          )}
+        </span>
+      ))}
     </div>
   );
 }

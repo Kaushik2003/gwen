@@ -62,7 +62,9 @@ func (s *Server) getThread(w http.ResponseWriter, r *http.Request) error {
 }
 
 // deleteThread is DELETE /v1/assistant/threads/{id}: the chat's words are
-// erased, and the assistant no longer recalls them.
+// erased, and the assistant no longer recalls them; its memory notes and
+// observation log go, and so do the claims learned from it that the user did
+// not edit (store.ChatRepo.Delete).
 func (s *Server) deleteThread(w http.ResponseWriter, r *http.Request) error {
 	if err := s.Repos.Chats.Delete(r.Context(), r.PathValue("id")); err != nil {
 		return err
@@ -86,9 +88,14 @@ func (s *Server) searchThreads(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	msgs := make([]model.ChatMessage, len(hits))
+	for i, h := range hits {
+		msgs[i] = h.ChatMessage
+	}
+	shown := s.messagesWire(r.Context(), msgs)
 	out := wire.ChatSearchResult{Hits: make([]wire.ChatHit, len(hits))}
 	for i, h := range hits {
-		out.Hits[i] = wire.ChatHit{ThreadID: h.ThreadID, ThreadTitle: h.ThreadTitle, Message: messageWire(h.ChatMessage)}
+		out.Hits[i] = wire.ChatHit{ThreadID: h.ThreadID, ThreadTitle: h.ThreadTitle, Message: shown[i]}
 	}
 	writeJSON(w, http.StatusOK, out)
 	return nil
@@ -124,7 +131,8 @@ func messageWire(m model.ChatMessage) wire.AssistantMessage {
 	return out
 }
 
-// chatMessage is a turn as the chat keeps it.
+// chatMessage is a turn as the chat keeps it. Its memory refs are set by the
+// caller: the wire form holds them resolved.
 func chatMessage(m wire.AssistantMessage) model.ChatMessage {
 	actions := []byte("[]")
 	if len(m.Actions) > 0 {

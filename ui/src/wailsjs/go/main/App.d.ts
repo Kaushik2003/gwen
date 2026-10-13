@@ -5,9 +5,13 @@ import {main} from '../models';
 
 export function AcceptLLMRun(arg1:string,arg2:wire.AcceptRunRequest):Promise<wire.TaskList>;
 
+export function AddResource(arg1:wire.AddResourceRequest):Promise<wire.MemoryResource>;
+
 export function AssistantChat(arg1:wire.AssistantChatRequest):Promise<wire.LlmRun>;
 
 export function AssistantSelf():Promise<wire.AssistantSelf>;
+
+export function AssistantSelfHistory(arg1:number):Promise<wire.SelfHistory>;
 
 export function Autostart():Promise<boolean>;
 
@@ -37,6 +41,8 @@ export function ClockOut():Promise<wire.Status>;
 
 export function CompleteTask(arg1:string,arg2:wire.CompleteTaskRequest):Promise<wire.Task>;
 
+export function ConfirmClaim(arg1:string):Promise<wire.MemoryClaim>;
+
 export function CreateCommitment(arg1:wire.CreateCommitmentRequest):Promise<wire.Commitment>;
 
 export function CreateGoal(arg1:wire.CreateGoalRequest):Promise<wire.Goal>;
@@ -63,11 +69,23 @@ export function DeleteTasks(arg1:wire.DeleteTasksRequest):Promise<wire.DeletedTa
 
 export function DeleteThread(arg1:string):Promise<void>;
 
+export function EditClaim(arg1:string,arg2:wire.EditClaimRequest):Promise<wire.MemoryClaimsResult>;
+
 export function EnableService():Promise<void>;
 
 export function EnergyReport(arg1:number):Promise<wire.EnergyReport>;
 
+export function ExplainMemory(arg1:string):Promise<wire.MemoryExplanation>;
+
+export function ExportMemory():Promise<wire.MemoryExport>;
+
+export function ForgetAllMemory(arg1:string):Promise<wire.ForgetReceipt>;
+
+export function ForgetClaim(arg1:string):Promise<wire.ForgetReceipt>;
+
 export function GeneratePlan(arg1:wire.GeneratePlanRequest):Promise<wire.Plan>;
+
+export function GetClaim(arg1:string):Promise<wire.MemoryClaim>;
 
 export function GetConfig():Promise<wire.Config>;
 
@@ -93,6 +111,8 @@ export function HasCredential(arg1:string):Promise<boolean>;
 
 export function Health():Promise<wire.Health>;
 
+export function HideClaim(arg1:string,arg2:wire.HideClaimRequest):Promise<wire.MemoryClaim>;
+
 export function InstallSpeech(arg1:string):Promise<void>;
 
 export function InstallVoice():Promise<void>;
@@ -101,19 +121,31 @@ export function IsNowCard():Promise<boolean>;
 
 export function IsTalk():Promise<boolean>;
 
+export function ListClaims(arg1:wire.MemoryClaimQuery):Promise<wire.MemoryClaimList>;
+
 export function ListCommitments():Promise<wire.CommitmentList>;
 
+export function ListConflicts(arg1:string):Promise<wire.MemoryConflictList>;
+
 export function ListDays(arg1:string,arg2:string):Promise<wire.DayList>;
+
+export function ListEntities():Promise<wire.MemoryEntityList>;
 
 export function ListGoals(arg1:string):Promise<wire.GoalList>;
 
 export function ListProjects(arg1:string):Promise<wire.ProjectList>;
+
+export function ListResources():Promise<wire.MemoryResourceList>;
 
 export function ListTasks(arg1:wire.TaskQuery):Promise<wire.TaskList>;
 
 export function ListThreads(arg1:number,arg2:number):Promise<wire.ChatThreadList>;
 
 export function LogEnergy(arg1:wire.LogEnergyRequest):Promise<wire.EnergyLog>;
+
+export function MemoryProfile():Promise<wire.ProfileCard>;
+
+export function MemoryStatus():Promise<wire.MemoryStatus>;
 
 export function MovePlanTask(arg1:wire.MovePlanTaskRequest):Promise<wire.Plan>;
 
@@ -122,6 +154,8 @@ export function NewTopic():Promise<string>;
 export function NotifyTest():Promise<wire.NotifyTestResult>;
 
 export function OpenDashboard(arg1:string):Promise<void>;
+
+export function OpenMemoryFolder():Promise<void>;
 
 export function OpenURL(arg1:string):Promise<void>;
 
@@ -141,11 +175,25 @@ export function PatchSegment(arg1:string,arg2:wire.PatchSegmentRequest):Promise<
 
 export function PatchTask(arg1:string,arg2:wire.PatchTaskRequest):Promise<wire.Task>;
 
+export function PickDocument():Promise<string>;
+
+export function PickFolder():Promise<string>;
+
 export function PlanChat(arg1:wire.PlanChatRequest):Promise<wire.LlmRun>;
 
 export function PreviewGoal(arg1:wire.GoalPreviewRequest):Promise<wire.GoalProgress>;
 
+export function RebuildMemory(arg1:wire.RebuildRequest):Promise<void>;
+
+export function RecallMemory(arg1:wire.RecallRequest):Promise<wire.RecallResult>;
+
+export function RejectClaim(arg1:string):Promise<wire.MemoryClaim>;
+
 export function RejectLLMRun(arg1:string):Promise<wire.LlmRun>;
+
+export function Remember(arg1:wire.RememberRequest,arg2:string):Promise<wire.MemoryClaimsResult>;
+
+export function RemoveResource(arg1:string):Promise<wire.ForgetReceipt>;
 
 export function RemoveSpeech(arg1:string):Promise<void>;
 
@@ -155,7 +203,11 @@ export function ReopenTask(arg1:string):Promise<wire.Task>;
 
 export function ResetAssistantSelf():Promise<void>;
 
+export function ResolveConflict(arg1:string,arg2:wire.ResolveConflictRequest):Promise<wire.MemoryConflict>;
+
 export function Retro(arg1:wire.RetroRequest):Promise<wire.LlmRun>;
+
+export function SaveMemoryExport():Promise<string>;
 
 export function SaveReview(arg1:string,arg2:wire.SaveReviewRequest):Promise<wire.WeeklyReview>;
 
@@ -170,6 +222,8 @@ export function SetAutostart(arg1:boolean):Promise<void>;
 export function SetCredential(arg1:string,arg2:string):Promise<void>;
 
 export function SetDayHours(arg1:wire.SetDayHoursRequest):Promise<wire.Plan>;
+
+export function SleepMemory():Promise<wire.SleepReport>;
 
 export function Snooze():Promise<wire.Status>;
 

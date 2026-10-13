@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 
@@ -128,7 +129,8 @@ func TestAssistantChat(t *testing.T) {
 				Text string `json:"text"`
 			} `json:"system"`
 			Messages []struct {
-				Content string `json:"content"`
+				Role    string          `json:"role"`
+				Content json.RawMessage `json:"content"`
 			} `json:"messages"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&body)
@@ -142,7 +144,20 @@ func TestAssistantChat(t *testing.T) {
 		for _, b := range body.System {
 			sent += b.Text + "\n"
 		}
-		sent += body.Messages[0].Content
+		// Earlier turns, then the newest; a turn is text, or blocks when it carries a cache breakpoint.
+		for _, m := range body.Messages {
+			var text string
+			if json.Unmarshal(m.Content, &text) != nil {
+				var blocks []struct {
+					Text string `json:"text"`
+				}
+				_ = json.Unmarshal(m.Content, &blocks)
+				for _, b := range blocks {
+					text += b.Text
+				}
+			}
+			sent += "\n<" + m.Role + ">" + text
+		}
 		text, _ := json.Marshal(reply)
 		fmt.Fprintf(w, `{"content": [{"type": "text", "text": %s}], "stop_reason": "end_turn", `+
 			`"usage": {"input_tokens": 900, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 4000, "output_tokens": 80}}`, text)
@@ -206,7 +221,8 @@ func TestAssistantChat(t *testing.T) {
 	require.NotContains(t, sent, "How you have chosen to treat them", "the first turn had no attitude yet")
 	require.Contains(t, sent, "Call me boss.")
 	require.Contains(t, sent, `"recent_days":[]`)
-	require.Contains(t, sent, `"recalled":[]`, "nothing to remember yet")
+	require.Contains(t, sent, `"memory":"","message":"Add my essay at ten"}`, "nothing to remember yet")
+	require.Equal(t, 1, strings.Count(sent, "<user>"), "a new chat has no earlier turns")
 	mu.Unlock()
 	self, err = d.c.AssistantSelf(d.ctx)
 	require.NoError(t, err)
@@ -243,7 +259,10 @@ func TestAssistantChat(t *testing.T) {
 	require.Contains(t, sent, "on 2026-09-15")
 	require.Contains(t, sent, "you are being angry")
 	require.Contains(t, sent, "Third excuse about the essay.")
-	require.Contains(t, sent, `"messages":[{"role":"user","text":"Add my essay at ten"},{"role":"assistant","text":"Done, boss."},{"role":"user","text":"What's next?"}]`)
+	require.Contains(t, sent, "\n<user>Add my essay at ten\n<assistant>"+`{"reply":"Done, boss.","mood":"smug","did":[`+
+		`"Added \"Essay\", in School","Scheduled \"Essay\" today 10:00 am–11:00 am","failed: update task",`+
+		`"Added the goal \"Pass the exam\", due on Fri 30 Oct"]}`+"\n<user>{", "earlier turns go before the newest, as sent")
+	require.Contains(t, sent, `"memory":"","message":"What's next?"}`)
 	mu.Unlock()
 
 	chat, err := d.c.GetThread(d.ctx, essay)
@@ -265,8 +284,11 @@ func TestAssistantChat(t *testing.T) {
 	require.NoError(t, json.Unmarshal(run.Output, &out))
 	require.NotEqual(t, essay, out.ThreadID)
 	mu.Lock()
-	require.Contains(t, sent, `"recalled":[{"day":"2026-09-15","chat":"Add my essay at ten","role":"user","text":"Add my essay at ten"},`+
-		`{"day":"2026-09-15","chat":"Add my essay at ten","role":"assistant","text":"You have the essay at ten."}]`)
+	recalled := "What you remember that may bear on this (cite [mN] when you rely on one):\n" +
+		"[m1] 15 Sep, chat “Add my essay at ten”, they said: “Add my essay at ten”\n" +
+		"[m2] 15 Sep, chat “Add my essay at ten”, you said: “You have the essay at ten.”"
+	note, _ := json.Marshal(recalled)
+	require.Contains(t, sent, `"memory":`+string(note)+`,"message":"When is my essay?"}`)
 	mu.Unlock()
 	list, err := d.c.ListThreads(d.ctx, 0, 0)
 	require.NoError(t, err)
@@ -285,6 +307,10 @@ func TestAssistantChat(t *testing.T) {
 	var next wire.AssistantOutput
 	require.NoError(t, json.Unmarshal(run.Output, &next))
 	require.Equal(t, out.ThreadID, next.ThreadID)
+	mu.Lock()
+	require.Contains(t, sent, "\n<user>When is my essay?\n\n<memory>\n"+recalled+"\n</memory>\n<assistant>",
+		"the note sent with a message is sent again with it")
+	mu.Unlock()
 
 	require.NoError(t, d.c.DeleteThread(d.ctx, essay))
 	_, err = d.c.GetThread(d.ctx, essay)
@@ -324,4 +350,22 @@ func TestAssistantChat(t *testing.T) {
 	self, err = d.c.AssistantSelf(d.ctx)
 	require.NoError(t, err)
 	require.Equal(t, wire.AssistantSelf{}, *self, "reset forgets the attitude and the note")
+
+	hist, err := d.c.AssistantSelfHistory(d.ctx, 0)
+	require.NoError(t, err)
+	require.Len(t, hist.Versions, 2, "a reply that changes nothing adds no version")
+	require.Equal(t, "reset", hist.Versions[0].Reason, "newest first")
+	require.Empty(t, hist.Versions[0].Attitude)
+	require.Nil(t, hist.Versions[0].ThreadID)
+	require.Equal(t, "chat", hist.Versions[1].Reason)
+	require.Equal(t, "angry", hist.Versions[1].Attitude)
+	require.Equal(t, "Third excuse about the essay.", hist.Versions[1].Note)
+	require.Equal(t, essay, *hist.Versions[1].ThreadID, "the chat she chose it in")
+	hist, err = d.c.AssistantSelfHistory(d.ctx, 1)
+	require.NoError(t, err)
+	require.Len(t, hist.Versions, 1)
+	_, err = d.c.AssistantSelfHistory(d.ctx, 201)
+	apiErr(t, err, wire.CodeInvalidRequest)
+	_, err = d.c.MemoryStatus(d.ctx)
+	apiErr(t, err, wire.CodeUnavailable)
 }

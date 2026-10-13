@@ -58,7 +58,7 @@ func TestChatsMigrationImportsConversations(t *testing.T) {
 	db, err := Open(ctx, dir, clock.NewFake(time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)))
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
-	require.Equal(t, int64(9), db.SchemaVersion())
+	require.Equal(t, int64(10), db.SchemaVersion())
 	chats := NewChatRepo(db)
 
 	threads, err := chats.List(ctx, 10, 0)

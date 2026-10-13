@@ -113,6 +113,9 @@ type LlmUsage struct {
 // AssistantMessage is one turn of an assistant conversation. Mood is the face
 // the assistant made with its turn, one of llm.Moods, or "" for none;
 // Attitude is the one it switched to with this turn, or "" when it kept its own.
+// Cites are what a reply rests on from memory; Forget, what the user asked her
+// to stop bringing up, offered to forget for good; Learned, what she learned
+// from a user message.
 type AssistantMessage struct {
 	ID       string         `json:"id,omitempty"`
 	Role     string         `json:"role"`
@@ -121,6 +124,9 @@ type AssistantMessage struct {
 	Mood     string         `json:"mood,omitempty"`
 	Attitude string         `json:"attitude,omitempty"`
 	Actions  []ActionResult `json:"actions,omitempty"`
+	Cites    []MemoryRef    `json:"cites,omitempty"`
+	Forget   []MemoryRef    `json:"forget,omitempty"`
+	Learned  []MemoryRef    `json:"learned,omitempty"`
 }
 
 // ChatThread is one chat with the assistant, titled by its first message.

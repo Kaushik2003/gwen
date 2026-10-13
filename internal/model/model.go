@@ -335,7 +335,8 @@ type ChatThread struct {
 
 // ChatMessage is a row of chat_messages: one turn of a thread. Mood and
 // Attitude are "" for none; Actions is the JSON array of what an assistant
-// turn changed.
+// turn changed. Cites and Forget, kept in the memory column, are the refs a
+// reply rested on and the claim refs the user asked her to stop bringing up.
 type ChatMessage struct {
 	ID       string
 	ThreadID string
@@ -345,6 +346,8 @@ type ChatMessage struct {
 	Mood     string
 	Attitude string
 	Actions  []byte
+	Cites    []string
+	Forget   []string
 	Envelope
 }
 

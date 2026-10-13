@@ -18,6 +18,9 @@ const (
 	CredLLMAPIKey    = "llm_api_key"
 	CredSyncToken    = "sync_token"
 	CredFishAudioKey = "fish_audio_api_key" // Gwen's voice from Fish Audio
+	// The optional memory lanes' API keys.
+	CredMem0APIKey        = "mem0_api_key"
+	CredSupermemoryAPIKey = "supermemory_api_key"
 )
 
 // CredentialsDir returns the credentials directory under a data directory.

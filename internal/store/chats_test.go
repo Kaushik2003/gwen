@@ -218,3 +218,159 @@ func TestDeleteChat(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(kept.Output), "another secret", "other runs are untouched")
 }
+
+func TestChatMessageMemory(t *testing.T) {
+	t.Parallel()
+	f := newFx(t)
+	chats := f.r.Chats
+	claim := "claim:" + model.NewID()
+	th, stored, err := chats.Append(f.ctx, "", []model.ChatMessage{
+		say(model.ChatUser, "Where do I work again?", at("09:00")),
+		{Role: model.ChatAssistant, Text: "At Acme.", At: at("09:01"), Cites: []string{claim, "msg:x"}},
+		{Role: model.ChatAssistant, Text: "I won't bring it up.", At: at("09:02"), Forget: []string{claim},
+			Cites: []string{}},
+	})
+	require.NoError(t, err)
+	require.Equal(t, []string{claim, "msg:x"}, stored[1].Cites)
+
+	msgs, err := chats.Messages(f.ctx, th.ID)
+	require.NoError(t, err)
+	require.Nil(t, msgs[0].Cites, "a message without memory reads back with none")
+	require.Nil(t, msgs[0].Forget)
+	require.Equal(t, []string{claim, "msg:x"}, msgs[1].Cites)
+	require.Nil(t, msgs[1].Forget)
+	require.Nil(t, msgs[2].Cites, "an empty list is none")
+	require.Equal(t, []string{claim}, msgs[2].Forget)
+	for i, want := range []string{`{}`, `{"cites": ["` + claim + `", "msg:x"]}`, `{"forget": ["` + claim + `"]}`} {
+		var memory string
+		require.NoError(t, f.db.SQL().QueryRow(`SELECT memory FROM chat_messages WHERE id = ?`, msgs[i].ID).Scan(&memory))
+		require.JSONEq(t, want, memory, i)
+	}
+	hits, err := chats.Search(f.ctx, "Acme", 10, nil)
+	require.NoError(t, err)
+	require.Equal(t, []string{claim, "msg:x"}, hits[0].Cites)
+}
+
+// Deleting a chat forgets what the memory learned from it, unless the user
+// made a claim their own by editing it.
+func TestDeleteChatForgetsWhatMemoryLearned(t *testing.T) {
+	t.Parallel()
+	f := newFx(t)
+	chats, mem, state := f.r.Chats, f.r.Memory, f.r.MemoryState
+	th, msgs, err := chats.Append(f.ctx, "", []model.ChatMessage{
+		say(model.ChatUser, "I started at Zanzibarco on Monday", at("09:00")),
+		{Role: model.ChatAssistant, Text: "Congrats on Zanzibarco!", At: at("09:01"), Cites: []string{"msg:x"}},
+	})
+	require.NoError(t, err)
+	other, otherMsgs, err := chats.Append(f.ctx, "", []model.ChatMessage{
+		say(model.ChatUser, "I work at Initech", at("10:00"))})
+	require.NoError(t, err)
+
+	said := fact("user.employer", "Works at Zanzibarco", `"Zanzibarco"`)
+	said.SourceID = msgs[0].ID
+	inferred := fact("user.mood", "Excited about Zanzibarco", `"excited"`)
+	inferred.SourceID, inferred.Status, inferred.Trust = msgs[1].ID, model.ClaimCandidate, model.TrustInferred
+	edited := fact("user.start", "Started a new job in September", `"2026-09"`)
+	edited.SourceID, edited.Trust = msgs[0].ID, model.TrustOwnerEdit
+	elsewhere := fact("user.employer", "Works at Initech", `"Initech"`)
+	elsewhere.SourceID = otherMsgs[0].ID
+	ep, err := mem.AddEpisode(f.ctx, note("Zanzibarco is a startup", at("08:00")))
+	require.NoError(t, err)
+	fromNote := fact("org.kind", "Is a startup", `"startup"`)
+	fromNote.SourceKind, fromNote.SourceID = model.SourceEpisode, ep.ID
+	clash := model.Conflict{ID: model.NewID(), ClaimA: said.ID, ClaimB: elsewhere.ID,
+		Reason: "Zanzibarco or Initech", Sensitivity: model.SensitivityPersonal}
+	byMem0 := fact("user.role", "Is a backend intern", `"backend intern"`)
+	byMem0.SourceKind, byMem0.SourceID, byMem0.Extractor = model.SourceMem0, msgs[0].ID, "mem0"
+	f.apply(store.MemoryChange{Claims: []model.Claim{said, inferred, edited, elsewhere, fromNote, byMem0},
+		Conflicts: []model.Conflict{clash},
+		Ledger:    []store.LedgerItem{{Data: map[string]string{"action": "claim.commit"}}}})
+	require.NoError(t, state.AddNote(f.ctx, model.ChatNote{MessageID: msgs[0].ID, ThreadID: th.ID,
+		Note: "[m1] Works at Zanzibarco"}))
+	require.NoError(t, state.SetObservation(f.ctx, model.ChatObservation{ThreadID: th.ID, ThroughID: msgs[0].ID,
+		ThroughAt: at("09:00"), Log: "- 2026-09-15 [high] Started at Zanzibarco"}))
+	require.NoError(t, state.AddNote(f.ctx, model.ChatNote{MessageID: otherMsgs[0].ID, ThreadID: other.ID,
+		Note: "[m1] Works at Initech\n[m2] Works at Zanzibarco",
+		Refs: map[string]string{"m1": "claim:" + elsewhere.ID, "m2": "claim:" + said.ID}}))
+	require.NoError(t, state.SetObservation(f.ctx, model.ChatObservation{ThreadID: other.ID,
+		ThroughID: otherMsgs[0].ID, ThroughAt: at("10:00"),
+		Log: "- 2026-09-15 [high] Moved on from zanzibarco\n- 2026-09-15 [high] Works at Initech"}))
+	_, err = state.AddProfile(f.ctx, model.ProfileCard{Day: "2026-09-20", Text: "- [p1] Works at Zanzibarco",
+		Refs: map[string]string{"p1": "claim:" + said.ID}})
+	require.NoError(t, err)
+
+	require.NoError(t, chats.Delete(f.ctx, th.ID))
+
+	for _, c := range []model.Claim{said, inferred, byMem0} {
+		_, err := mem.Claim(f.ctx, c.ID)
+		require.ErrorIs(t, err, store.ErrNotFound, c.Text)
+		byHash, err := mem.ClaimsByHash(f.ctx, c.ContentHash)
+		require.NoError(t, err)
+		require.Len(t, byHash, 1)
+		require.Equal(t, "", byHash[0].Text, "a tombstone whose words are erased")
+		require.Equal(t, "null", string(byHash[0].Value))
+	}
+	for _, c := range []model.Claim{edited, elsewhere, fromNote} {
+		_, err := mem.Claim(f.ctx, c.ID)
+		require.NoError(t, err, c.Text)
+	}
+	got, err := mem.Conflict(f.ctx, clash.ID)
+	require.NoError(t, err)
+	require.Equal(t, model.ConflictDismissed, got.Status, "the other claim is no longer disputed")
+	require.Equal(t, "", got.Reason)
+
+	notes, err := state.Notes(f.ctx, th.ID)
+	require.NoError(t, err)
+	require.Empty(t, notes)
+	_, err = state.Observation(f.ctx, th.ID)
+	require.ErrorIs(t, err, store.ErrNotFound)
+	notes, err = state.Notes(f.ctx, other.ID)
+	require.NoError(t, err)
+	require.Len(t, notes, 1, "other chats keep theirs")
+	require.Equal(t, "[m1] Works at Initech\n[m2] (forgotten)", notes[otherMsgs[0].ID].Note,
+		"without the forgotten claim's words")
+	o, err := state.Observation(f.ctx, other.ID)
+	require.NoError(t, err)
+	require.Equal(t, "- 2026-09-15 [high] Works at Initech", o.Log)
+	_, err = state.LatestProfile(f.ctx)
+	require.ErrorIs(t, err, store.ErrNotFound, "the card citing it is deleted")
+	require.Equal(t, 2, f.count(`SELECT count(*) FROM chat_messages WHERE thread_id = ? AND memory = '{}'`, th.ID))
+
+	ledger := f.ledger()
+	require.Len(t, ledger, 5)
+	require.JSONEq(t, `{"action": "claim.forget", "claim": "`+said.ID+`", "hash": "`+said.ContentHash+
+		`", "reason": "chat deleted"}`, string(ledger[1].Data))
+	require.JSONEq(t, `{"action": "conflict.dismiss", "conflict": "`+clash.ID+`", "reason": "chat deleted"}`,
+		string(ledger[2].Data))
+	require.JSONEq(t, `{"action": "claim.forget", "claim": "`+inferred.ID+`", "hash": "`+inferred.ContentHash+
+		`", "reason": "chat deleted"}`, string(ledger[3].Data))
+	seq, err := mem.VerifyLedger(f.ctx)
+	require.NoError(t, err)
+	require.Zero(t, seq)
+	jobs, err := state.JobCounts(f.ctx)
+	require.NoError(t, err)
+	require.Equal(t, map[string]int{model.JobPending: 4}, jobs)
+	require.Equal(t, 3, f.count(`SELECT count(*) FROM memory_jobs WHERE kind = 'project' AND subject IN (?, ?, ?)`,
+		"claim:"+said.ID, "claim:"+inferred.ID, "claim:"+byMem0.ID), "each forgotten claim leaves every lane")
+	require.Equal(t, 1, f.count(`SELECT count(*) FROM memory_jobs WHERE kind = 'files'`))
+
+	found, err := mem.SearchClaims(f.ctx, "Zanzibarco", 10)
+	require.NoError(t, err)
+	require.Empty(t, found)
+	require.Zero(t, f.count(`SELECT count(*) FROM claims_fts WHERE claims_fts MATCH 'excited'`))
+	require.False(t, f.dbFileHas("Works at Zanzibarco"))
+	require.False(t, f.dbFileHas("Excited about"))
+	require.False(t, f.dbFileHas("Zanzibarco or Initech"))
+	require.False(t, f.dbFileHas("Started at Zanzibarco"))
+	require.False(t, f.dbFileHas("Moved on from"), "the other chat's log line is dropped")
+	require.False(t, f.dbFileHas("[m2] Works at"))
+	require.False(t, f.dbFileHas("backend intern"))
+	require.True(t, f.dbFileHas("Zanzibarco is a startup"), "the note is not the chat's")
+
+	require.NoError(t, chats.Delete(f.ctx, other.ID))
+	_, err = mem.Claim(f.ctx, elsewhere.ID)
+	require.ErrorIs(t, err, store.ErrNotFound, "the other chat's claim goes with it")
+	got, err = mem.Conflict(f.ctx, clash.ID)
+	require.NoError(t, err)
+	require.Equal(t, model.ConflictDismissed, got.Status, "a dismissed conflict stays as it was")
+}

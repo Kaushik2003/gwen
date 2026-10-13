@@ -14,6 +14,8 @@ const (
 	EventGoalsChanged    = "goals_changed"
 	// EventIntegrationChanged carries IntegrationChanged.
 	EventIntegrationChanged = "integration_changed"
+	// EventMemoryChanged carries MemoryChanged.
+	EventMemoryChanged = "memory_changed"
 )
 
 // Event is one Server-Sent Events frame. Data is the frame's JSON, undecoded.
@@ -51,3 +53,11 @@ type PlanChanged struct {
 
 // GoalsChanged is the data of goals_changed.
 type GoalsChanged struct{}
+
+// MemoryChanged is the data of memory_changed: claims were learned, changed,
+// or forgotten (ClaimIDs, possibly empty when many changed), or conflicts
+// opened or closed.
+type MemoryChanged struct {
+	ClaimIDs  []string `json:"claim_ids"`
+	Conflicts bool     `json:"conflicts"`
+}
