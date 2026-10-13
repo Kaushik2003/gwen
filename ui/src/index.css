@@ -57,6 +57,8 @@
   --animate-talk: talk 190ms ease-in-out infinite alternate;
   --animate-breathe: breathe 4.2s ease-in-out infinite;
   --animate-aura: aura 2.6s ease-in-out infinite;
+  /* One-shot only: fires when the timeline's now-marker sees a new segment start, never loops. */
+  --animate-now-pulse: now-pulse 900ms ease-out;
 
   @keyframes live {
     0%,
@@ -127,6 +129,16 @@
     50% {
       opacity: 0.7;
       transform: scale(1.08);
+    }
+  }
+  @keyframes now-pulse {
+    from {
+      transform: translateX(-50%) scale(1);
+      opacity: 0.9;
+    }
+    to {
+      transform: translateX(-50%) scale(3.2);
+      opacity: 0;
     }
   }
 }

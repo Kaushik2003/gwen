@@ -1,10 +1,10 @@
 import { CalendarClock, Radio } from "lucide-react";
-import { useMemo, useState, type FocusEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type FocusEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { wire } from "../api";
 import { formatDuration, formatTime } from "../format";
 import { alpha, over, readableOn } from "./color";
-import { Dot } from "./ui";
+import { cx, Dot } from "./ui";
 
 export interface PlannedBlock {
   id: string;
@@ -34,6 +34,10 @@ const labelMinFraction = 0.035;
  * `ml-16` utilities below so the live line lines up with each lane's own track. */
 const gutterRem = 4;
 
+/** Two tracked segments merge into one unbroken shape when they're the same project, back to
+ * back, within this much slack — covers timestamp rounding, not a real gap. */
+const mergeToleranceMs = 1_000;
+
 interface Tip {
   x: number;
   y: number;
@@ -56,6 +60,7 @@ export default function Timeline({
   planned = [],
   fixed = [],
   onSegment,
+  showDensity = false,
 }: {
   segments: wire.Segment[];
   colors: Map<string | null, string>;
@@ -69,6 +74,9 @@ export default function Timeline({
   planned?: PlannedBlock[];
   fixed?: FixedBlock[];
   onSegment?: (s: wire.Segment) => void;
+  /** A real, derived strip under the lanes: tracked minutes per bucket across the day, not a
+   * decorative sparkline. Off by default — opt in where the extra row earns its space. */
+  showDensity?: boolean;
 }) {
   const [tip, setTip] = useState<Tip | null>(null);
   const showTip = (e: ReactMouseEvent | FocusEvent, color: string | undefined, title: string, sub: string) => {
@@ -91,7 +99,8 @@ export default function Timeline({
   const start = floorHour(Math.min(...starts));
   const end = Math.max(start + hour, ceilHour(Math.max(...stops)));
   const span = end - start;
-  const pct = (t: number) => `${((t - start) / span) * 100}%`;
+  const pctNum = (t: number) => ((t - start) / span) * 100;
+  const pct = (t: number) => `${pctNum(t)}%`;
   const width = (a: number, b: number) => `${Math.max(((b - a) / span) * 100, 0.35)}%`;
   const frac = (a: number, b: number) => (b - a) / span;
   // The live line's left offset, past the row label gutter: a CSS calc so it still lines up
@@ -119,6 +128,43 @@ export default function Timeline({
     }
     return { projects: [...projects.entries()], hasBreak };
   }, [segments, colors]);
+
+  // Real tracked minutes per bucket, not a fabricated per-minute signal this app has no telemetry
+  // for (design.md's own rule): each bucket's height is actual work time overlapping it, 0 to 1.
+  const densityBucketMs = 15 * 60_000;
+  const density = useMemo(() => {
+    if (!showDensity) return [];
+    const n = Math.max(1, Math.round(span / densityBucketMs));
+    const buckets = new Array(n).fill(0);
+    for (const s of segments) {
+      if (s.kind !== "work") continue;
+      const a = s.started_at;
+      const b = ends(s);
+      const first = Math.max(0, Math.floor((a - start) / densityBucketMs));
+      const last = Math.min(n - 1, Math.ceil((b - start) / densityBucketMs));
+      for (let i = first; i <= last; i++) {
+        const bs = start + i * densityBucketMs;
+        const overlap = Math.min(b, bs + densityBucketMs) - Math.max(a, bs);
+        if (overlap > 0) buckets[i] += overlap;
+      }
+    }
+    return buckets.map((ms) => Math.min(1, ms / densityBucketMs));
+  }, [showDensity, segments, start, span, live, now]);
+
+  // The now-marker pulses once when a new segment starts — never on mount, never looping — the
+  // one state change this component can see for itself without extra plumbing from the screen.
+  const lastSegmentId = useRef<string | null>(null);
+  const [pulse, setPulse] = useState(false);
+  useEffect(() => {
+    const id = segments[segments.length - 1]?.id ?? null;
+    if (live && id && lastSegmentId.current !== null && id !== lastSegmentId.current) {
+      setPulse(true);
+      const t = window.setTimeout(() => setPulse(false), 900);
+      lastSegmentId.current = id;
+      return () => window.clearTimeout(t);
+    }
+    lastSegmentId.current = id;
+  }, [segments, live]);
 
   const grid = (
     <>
@@ -200,7 +246,7 @@ export default function Timeline({
         )}
         <Lane label="Tracked" icon={Radio} tall pastWidth={pastWidth}>
           {grid}
-          {segments.map((s) => {
+          {segments.map((s, i) => {
             const e = ends(s);
             const work = s.kind === "work";
             const open = live && s.ended_at == null;
@@ -208,6 +254,13 @@ export default function Timeline({
             const who = work ? names.get(s.project_id ?? null) ?? "Unassigned" : kindLabel[s.kind] ?? s.kind;
             const sub = `${formatTime(s.started_at)} – ${open ? "now" : formatTime(e)} · ${formatDuration(e - s.started_at)}${open ? " · in progress" : ""}`;
             const Tag = onSegment ? "button" : "span";
+            // An unbroken run of the same project reads as one shape, not a wall of separate
+            // chips: touching neighbours share no gutter and square off where they meet.
+            const prev = segments[i - 1];
+            const next = segments[i + 1];
+            const sameRun = (n: wire.Segment | undefined, gapMs: number) => work && n?.kind === "work" && (n.project_id ?? null) === (s.project_id ?? null) && Math.abs(gapMs) <= mergeToleranceMs;
+            const touchesPrev = prev && sameRun(prev, s.started_at - ends(prev));
+            const touchesNext = next && sameRun(next, next.started_at - e);
             return (
               <Tag
                 key={s.id}
@@ -218,15 +271,24 @@ export default function Timeline({
                 onMouseLeave={hideTip}
                 onFocus={onSegment ? (e) => showTip(e, color, who, sub) : undefined}
                 onBlur={onSegment ? hideTip : undefined}
-                className={`bar-sheen absolute top-1 bottom-1 overflow-hidden rounded-[4px] ${work ? "" : "hatched"} ${onSegment ? "cursor-pointer hover:brightness-125" : ""}`}
+                className={cx(
+                  "absolute top-1 bottom-1 overflow-hidden",
+                  work ? "" : "bar-sheen hatched",
+                  !touchesPrev && "rounded-l-[4px]",
+                  !touchesNext && "rounded-r-[4px]",
+                  onSegment && "cursor-pointer hover:brightness-125",
+                )}
                 style={{
                   left: pct(s.started_at),
                   width: width(s.started_at, e),
                   backgroundColor: color,
-                  boxShadow: "0 0 0 1.5px var(--color-canvas)",
+                  borderStyle: "solid",
+                  borderColor: "var(--color-canvas)",
+                  borderWidth: `1.5px ${touchesNext ? 0 : "1.5px"} 1.5px ${touchesPrev ? 0 : "1.5px"}`,
+                  boxShadow: work ? "inset 0 0 0 1px rgba(255,255,255,0.35)" : undefined,
                 }}
               >
-                {frac(s.started_at, e) > labelMinFraction && (
+                {!touchesPrev && frac(s.started_at, e) > labelMinFraction && (
                   <span className="truncate px-1.5 text-[11px] leading-[inherit] font-medium" style={{ color: work ? readableOn(color!) : undefined }}>
                     {who}
                   </span>
@@ -243,9 +305,17 @@ export default function Timeline({
               className="pointer-events-none absolute -top-[5px] z-10 size-2 -translate-x-1/2 rounded-full bg-accent ring-2 ring-canvas"
               style={{ left: nowLeft }}
             />
+            {pulse && <span className="pointer-events-none absolute -top-[5px] z-10 size-2 -translate-x-1/2 rounded-full ring-2 ring-accent/70 animate-now-pulse" style={{ left: nowLeft }} aria-hidden />}
           </>
         )}
       </div>
+      {showDensity && density.length > 0 && (
+        <div className="mt-2 ml-16 flex h-6 items-end gap-px" role="img" aria-label="Tracked minutes per 15-minute slice across the day">
+          {density.map((v, i) => (
+            <span key={i} className="min-w-0 flex-1 rounded-t-[1px]" style={{ height: `${Math.max(v * 100, 6)}%`, backgroundColor: v > 0 ? "var(--color-accent)" : "var(--color-line)" }} />
+          ))}
+        </div>
+      )}
       {segments.length > 0 && (legend.projects.length > 0 || legend.hasBreak) && (
         <div className="mt-2.5 ml-16 flex flex-wrap items-center gap-x-3.5 gap-y-1 text-[11px] text-ink-subtle">
           {legend.projects.map(([id, color]) => (

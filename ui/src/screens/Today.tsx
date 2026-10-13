@@ -1,4 +1,4 @@
-import { BellOff, CalendarClock, ChartPie, CircleCheck, Coffee, ListTodo, Play, Plus, Radio, ScrollText, Sparkles, Square, Target, TriangleAlert } from "lucide-react";
+import { BellOff, CalendarClock, ChartPie, CircleCheck, Coffee, Flame, ListTodo, Play, Plus, Radio, ScrollText, Sparkles, Square, Target, Timer, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { App, wire } from "../api";
 import { useBriefing } from "../components/Briefing";
@@ -7,11 +7,11 @@ import { GoalMeter, PaceChip, goalAmount } from "../components/goal";
 import ProgressRing from "../components/ProgressRing";
 import { StepList, stepsDone } from "../components/steps";
 import TaskHover from "../components/TaskHover";
-import { ProjectTag } from "../components/tags";
+import { PriorityFlag, ProjectTag } from "../components/tags";
 import Timeline, { type FixedBlock, type PlannedBlock } from "../components/Timeline";
-import { Badge, Button, Callout, Checkbox, Dot, DotSelect, Empty, IconButton, Input, Panel, Select, cx, stateColor, stateLabel, unassignedColor } from "../components/ui";
+import { Badge, Button, Callout, Checkbox, Dot, DotSelect, Empty, IconButton, Input, Meter, Panel, Select, cx, stateColor, stateLabel, unassignedColor } from "../components/ui";
 import { useDaemon, useTick } from "../daemon";
-import { clockFace, formatClock, formatDuration, formatLongDate, formatTime, instantOn, parseDuration } from "../format";
+import { addDays, clockFace, formatClock, formatDuration, formatLongDate, formatTime, instantOn, parseDuration } from "../format";
 import { useNav } from "../nav";
 import { blockTimes, eventBlocks, groupPlan, type PlanGroup } from "../plan";
 import { clockOf, occursOn } from "../rrule";
@@ -31,6 +31,7 @@ export default function Today() {
   const [plan, setPlan] = useState<wire.Plan | null>(null);
   const [goals, setGoals] = useState<wire.Goal[]>([]);
   const [commitments, setCommitments] = useState<wire.Commitment[]>([]);
+  const [streak, setStreak] = useState(0);
   // What Clock in starts with: the last project and task, until another is picked.
   const [pick, setPick] = useState(d.lastAttribution);
   const [todo, setTodo] = useState("");
@@ -69,6 +70,14 @@ export default function Today() {
       () => setCommitments([]),
     );
   }, [d.goalsVersion]);
+  useEffect(() => {
+    // A week of history, same range Stats uses: the streak is a running count ending today, not
+    // a property of a single day, so it needs enough days behind it to compute at all.
+    App.StatsSummary(addDays(today, -6), today).then(
+      (s) => setStreak(s.current_streak),
+      () => setStreak(0),
+    );
+  }, [today, d.daysVersion]);
 
   const { colors, names } = useMemo(() => {
     const colors = new Map<string | null, string>([[null, unassignedColor]]);
@@ -145,6 +154,8 @@ export default function Today() {
     .filter((x) => x.estimate_minutes == null && !x.parent_id && !(x.goal_id && quantityGoals.has(x.goal_id)))
     .filter((x) => (!x.start_day || x.start_day <= today) && (!x.occurrence_day || x.occurrence_day <= today))
     .sort((a, b) => (a.start_minute ?? 1440) - (b.start_minute ?? 1440));
+  const tasksLeft = agenda.filter((r) => r.kind === "task" && !r.group.done && !r.group.skipped).length + todos.length;
+  const topGoal = shownGoals[0]; // already sorted behind-pace first: the one most worth a glance
 
   async function addTodo(e: React.FormEvent) {
     e.preventDefault();
@@ -227,47 +238,58 @@ export default function Today() {
             </div>
           </div>
 
-          <div className="flex min-w-0 flex-col gap-2.5">
-            <div className="flex min-w-0 gap-2">
-              <DotSelect color={colors.get(projectId) ?? unassignedColor} value={projectId ?? ""} onChange={(e) => chooseProject(e.target.value || null)} aria-label="Project" className="w-40 shrink-0">
-                <option value="">Unassigned</option>
-                {d.projects.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </DotSelect>
-              <Select value={taskId ?? ""} onChange={(e) => chooseTask(e.target.value || null)} aria-label="Task" className="min-w-0 flex-1">
-                <option value="">No task</option>
-                {projectTasks.map((x) => (
-                  <option key={x.id} value={x.id}>
-                    {x.title}
-                  </option>
-                ))}
-              </Select>
+          <div className="flex min-w-0 flex-1 flex-wrap items-start justify-between gap-5">
+            <div className="flex min-w-0 flex-col gap-2.5">
+              <div className="flex min-w-0 gap-2">
+                <DotSelect color={colors.get(projectId) ?? unassignedColor} value={projectId ?? ""} onChange={(e) => chooseProject(e.target.value || null)} aria-label="Project" className="w-40 shrink-0">
+                  <option value="">Unassigned</option>
+                  {d.projects.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </DotSelect>
+                <Select value={taskId ?? ""} onChange={(e) => chooseTask(e.target.value || null)} aria-label="Task" className="min-w-0 flex-1">
+                  <option value="">No task</option>
+                  {projectTasks.map((x) => (
+                    <option key={x.id} value={x.id}>
+                      {x.title}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {state === "off" && (
+                  <Button tone="primary" icon={Play} onClick={() => t.clockIn(pick.project_id, pick.task_id)}>
+                    Clock in
+                  </Button>
+                )}
+                {t.onBreak && (
+                  <Button tone="primary" icon={Play} onClick={t.breakEnd}>
+                    End break
+                  </Button>
+                )}
+                {(state === "working" || state === "break_auto") && (
+                  <Button icon={Coffee} iconColor={stateColor.break_manual} onClick={t.breakStart}>
+                    {state === "break_auto" ? "Stay on break" : "Start break"}
+                  </Button>
+                )}
+                {state !== "off" && (
+                  <Button icon={Square} iconColor="var(--color-danger)" onClick={t.clockOut}>
+                    Clock out
+                  </Button>
+                )}
+                {state !== "off" && <IconButton icon={BellOff} label="Snooze nudges" tone="secondary" onClick={t.snooze} />}
+              </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {state === "off" && (
-                <Button tone="primary" icon={Play} onClick={() => t.clockIn(pick.project_id, pick.task_id)}>
-                  Clock in
-                </Button>
-              )}
-              {t.onBreak && (
-                <Button tone="primary" icon={Play} onClick={t.breakEnd}>
-                  End break
-                </Button>
-              )}
-              {(state === "working" || state === "break_auto") && (
-                <Button icon={Coffee} iconColor={stateColor.break_manual} onClick={t.breakStart}>
-                  {state === "break_auto" ? "Stay on break" : "Start break"}
-                </Button>
-              )}
-              {state !== "off" && (
-                <Button icon={Square} iconColor="var(--color-danger)" onClick={t.clockOut}>
-                  Clock out
-                </Button>
-              )}
-              {state !== "off" && <IconButton icon={BellOff} label="Snooze nudges" tone="secondary" onClick={t.snooze} />}
+
+            {/* The bento: Focus/Tasks/Goals/Streak live here, beside the timer, rather than as
+                their own full-width strip — this card had the room and the strip didn't. */}
+            <div className="grid w-fit shrink-0 grid-cols-2 gap-2">
+              <StatTile icon={Timer} iconColor="var(--color-accent)" label="Focus" value={formatDuration(worked)} />
+              <StatTile icon={ListTodo} label="Tasks" value={`${tasksLeft} left`} />
+              <StatTile icon={Target} label="Goals" value={topGoal ? goalAmount(topGoal) : "No goals"} />
+              <StatTile icon={Flame} iconColor={streak > 0 ? "var(--color-idle)" : undefined} label="Streak" value={`${streak} ${streak === 1 ? "day" : "days"}`} />
             </div>
           </div>
         </div>
@@ -301,14 +323,14 @@ export default function Today() {
           )
         }
       >
-        <Timeline segments={day?.segments ?? []} colors={colors} names={names} now={now} live from={from} to={to} planned={planned} fixed={fixed} />
+        <Timeline segments={day?.segments ?? []} colors={colors} names={names} now={now} live from={from} to={to} planned={planned} fixed={fixed} showDensity />
       </Panel>
 
-      <div className="grid min-h-0 flex-1 gap-4 @2xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] @5xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,0.85fr)]">
+      <div className="grid min-h-0 flex-1 gap-4 @2xl:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)] @5xl:grid-cols-[minmax(0,1.8fr)_minmax(0,1fr)_minmax(0,0.85fr)]">
         <Panel
           title="Agenda"
           icon={CalendarClock}
-          className="flex min-h-64 flex-col"
+          className="flex min-h-[28rem] flex-col"
           bodyClassName="min-h-0 flex-1 overflow-y-auto"
           actions={
             <>
@@ -334,11 +356,11 @@ export default function Today() {
                 if (row.kind === "event") {
                   const e = row.block;
                   return (
-                    <li key={`event-${e.id}`} className="flex items-center gap-3 rounded-lg px-2 py-1.5">
+                    <li key={`event-${e.id}`} className="flex items-center gap-3 rounded-xl px-3 py-3">
                       <span className="size-[18px] shrink-0" aria-hidden />
                       <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm text-ink-subtle">{e.title}</div>
-                        <div className="mt-0.5 flex min-w-0 items-center gap-3">
+                        <div className="truncate text-[15px] text-ink-subtle">{e.title}</div>
+                        <div className="mt-1 flex min-w-0 items-center gap-3">
                           <Badge icon={CalendarClock}>Calendar</Badge>
                           <span className="text-xs text-ink-subtle tabular-nums">{formatTime(e.start)}</span>
                         </div>
@@ -351,8 +373,8 @@ export default function Today() {
                 const tracking = t.isTracking(g.task.id);
                 const project = d.projects.find((p) => p.id === g.task.project_id);
                 return (
-                  <li key={g.task.id} className={cx("rounded-lg", tracking && "bg-surface-2")}>
-                    <TaskHover task={g.task} className="flex items-center gap-3 rounded-lg px-2 py-1.5 hover:bg-surface-2/60">
+                  <li key={g.task.id} className={cx("rounded-xl", tracking && "bg-surface-2")}>
+                    <TaskHover task={g.task} className="flex items-center gap-3.5 rounded-xl px-3 py-3 hover:bg-surface-2/60">
                       <Checkbox
                         checked={isDone}
                         disabled={g.skipped}
@@ -360,23 +382,31 @@ export default function Today() {
                         label={isDone ? `Reopen ${g.task.title}` : `Complete ${g.task.title}`}
                       />
                       <div className="min-w-0 flex-1">
-                        <div className={cx("truncate text-sm", isDone ? "text-ink-faint line-through" : g.skipped ? "text-ink-faint" : "text-ink")}>{g.task.title}</div>
-                        <div className="mt-0.5 flex min-w-0 items-center gap-3">
+                        <div className={cx("truncate text-[15px]", isDone ? "text-ink-faint line-through" : g.skipped ? "text-ink-faint" : "text-ink")}>{g.task.title}</div>
+                        <div className="mt-1 flex min-w-0 flex-wrap items-center gap-3">
                           <ProjectTag project={project} />
+                          <PriorityFlag priority={g.task.priority} />
                           {g.start != null && <span className="text-xs text-ink-subtle tabular-nums">{blockTimes(g)}</span>}
-                          {g.steps.length > 0 && <span className="text-xs text-ink-subtle tabular-nums">{stepsDone(g.steps)}</span>}
+                          {g.steps.length > 0 && (
+                            <span className="flex shrink-0 items-center gap-1.5 text-xs text-ink-subtle tabular-nums">
+                              <span className="w-10 shrink-0">
+                                <Meter value={g.steps.filter((s) => s.status === "done").length / g.steps.length} height={5} label={stepsDone(g.steps)} />
+                              </span>
+                              {stepsDone(g.steps)}
+                            </span>
+                          )}
                           {g.rollover > 0 && <Badge tone="idle">Carried over {g.rollover}×</Badge>}
                           {g.skipped && <Badge>Skipped</Badge>}
                           {!isDone && !g.skipped && g.start == null && <span className="text-xs text-idle">No room left today</span>}
                         </div>
                       </div>
-                      <span className="text-xs text-ink-subtle tabular-nums">{formatDuration(g.minutes * 60_000)}</span>
+                      <span className="text-[13px] text-ink-subtle tabular-nums">{formatDuration(g.minutes * 60_000)}</span>
                       {tracking ? (
                         <Badge tone="working" icon={Radio}>
                           Tracking
                         </Badge>
                       ) : (
-                        !isDone && !g.skipped && <IconButton icon={Play} label={`Start ${g.task.title}`} tone="secondary" size="sm" onClick={() => t.startTask(g.task)} />
+                        !isDone && !g.skipped && <IconButton icon={Play} label={`Start ${g.task.title}`} tone="secondary" onClick={() => t.startTask(g.task)} />
                       )}
                     </TaskHover>
                     {g.steps.length > 0 && <StepList parent={g.task} steps={g.steps} adding={tracking} className="mb-2" />}
@@ -409,9 +439,10 @@ export default function Today() {
                   const steps = d.tasks.filter((s) => s.parent_id === x.id);
                   return (
                     <li key={x.id}>
-                      <TaskHover task={x} className="flex items-center gap-3 rounded-lg px-2 py-1.5 hover:bg-surface-2/60">
+                      <TaskHover task={x} className="flex items-center gap-3 rounded-lg px-2.5 py-2 hover:bg-surface-2/60">
                         <Checkbox checked={false} onChange={() => done.complete(x, steps.length > 0)} label={`Complete ${x.title}`} />
-                        <span className="min-w-0 flex-1 truncate text-sm text-ink">{x.title}</span>
+                        <span className="min-w-0 flex-1 truncate text-[14px] text-ink">{x.title}</span>
+                        <PriorityFlag priority={x.priority} />
                         {x.start_minute != null && x.start_day === today && <span className="text-xs text-ink-subtle tabular-nums">{formatClock(x.start_minute)}</span>}
                         {x.due_day && x.due_day <= today && <span className={cx("text-xs", x.due_day < today ? "text-danger" : "text-idle")}>{x.due_day < today ? "Late" : "Due today"}</span>}
                       </TaskHover>
@@ -475,6 +506,20 @@ export default function Today() {
   );
 }
 
+/** One small bento tile beside the clock-in timer: icon, label, value, stacked tight. This is
+ * filler for space the status card already had, not a panel in its own right. */
+function StatTile({ icon: Icon, iconColor, label, value }: { icon: typeof Target; iconColor?: string; label: string; value: string }) {
+  return (
+    <div className="flex min-w-0 flex-col gap-1 rounded-lg bg-surface-2 px-2.5 py-2">
+      <div className="flex min-w-0 items-center gap-1.5 text-ink-subtle">
+        <Icon size={12} aria-hidden className="shrink-0" style={{ color: iconColor ?? "var(--color-ink-subtle)" }} />
+        <span className="truncate text-[10.5px]">{label}</span>
+      </div>
+      <span className="truncate text-[14px] leading-tight font-semibold text-ink tabular-nums">{value}</span>
+    </div>
+  );
+}
+
 /** Goals behind pace come first. */
 function rank(pace: string): number {
   return pace === "behind" ? 0 : pace === "on_track" ? 1 : 2;
@@ -488,20 +533,22 @@ function BreakdownPanel({ byProject, byTotal, className }: { byProject: wire.Pro
         <p className="text-[13px] text-ink-subtle">No work tracked yet today.</p>
       ) : (
         <>
-          <div className="text-[22px] font-semibold tracking-[-0.02em] text-ink tabular-nums">{formatDuration(byTotal)}</div>
+          <div className="text-[26px] font-semibold tracking-[-0.02em] text-ink tabular-nums">{formatDuration(byTotal)}</div>
           <div className="mt-0.5 text-xs text-ink-subtle">across {byProject.length} {byProject.length === 1 ? "project" : "projects"}</div>
-          <div className="mt-3 flex h-2 overflow-hidden rounded-full bg-surface-3">
+          <ul className="mt-4 flex flex-col gap-3.5">
             {byProject.map((p) => (
-              <span key={p.project_id ?? "none"} style={{ width: `${(p.worked_ms / byTotal) * 100}%`, backgroundColor: p.color }} />
-            ))}
-          </div>
-          <ul className="mt-3.5 flex flex-col gap-2">
-            {byProject.map((p) => (
-              <li key={p.project_id ?? "none"} className="flex items-center gap-2.5 text-[13px]">
-                <Dot color={p.color} />
-                <span className="min-w-0 flex-1 truncate text-ink-muted">{p.name}</span>
-                <span className="font-medium text-ink tabular-nums">{formatDuration(p.worked_ms)}</span>
-                <span className="w-9 text-right text-xs text-ink-subtle tabular-nums">{Math.round((p.worked_ms / byTotal) * 100)}%</span>
+              <li key={p.project_id ?? "none"} className="flex items-center gap-3">
+                <span className="size-7 shrink-0 rounded-md" style={{ backgroundColor: p.color }} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-ink">{p.name}</span>
+                    <span className="shrink-0 text-[13px] font-medium text-ink tabular-nums">{formatDuration(p.worked_ms)}</span>
+                  </div>
+                  <div className="mt-1.5 flex items-center gap-2">
+                    <Meter value={p.worked_ms / byTotal} color={p.color} height={5} label={`${p.name}: ${formatDuration(p.worked_ms)}, ${Math.round((p.worked_ms / byTotal) * 100)}% of today`} />
+                    <span className="w-8 shrink-0 text-right text-xs text-ink-subtle tabular-nums">{Math.round((p.worked_ms / byTotal) * 100)}%</span>
+                  </div>
+                </div>
               </li>
             ))}
           </ul>

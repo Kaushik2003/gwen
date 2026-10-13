@@ -12,7 +12,7 @@ require (
 	github.com/rajveermalviya/go-wayland/wayland v0.0.0-20230130181619-0ad78d1310b2
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.12.1
-	github.com/wailsapp/wails/v2 v2.16.0
+	github.com/wailsapp/wails/v2 v2.12.0
 	golang.org/x/oauth2 v0.37.0
 	google.golang.org/api v0.299.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1

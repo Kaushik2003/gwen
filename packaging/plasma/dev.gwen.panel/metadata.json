@@ -4,7 +4,7 @@
         "Authors": [{ "Name": "Kaushik Samadder" }],
         "Category": "Utilities",
         "Description": "Gwen's timer and what you are working on, right in the panel",
-        "Icon": "chronometer",
+        "Icon": "gwen",
         "Id": "dev.gwen.panel",
         "Name": "Gwen",
         "Version": "1.0"
