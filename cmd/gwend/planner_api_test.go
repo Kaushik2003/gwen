@@ -257,7 +257,7 @@ func TestBriefingEndpointAndClockInNudge(t *testing.T) {
 	d.mon.emit(activity.Event{Kind: activity.Active, At: d.clk.Now()})
 	d.sync()
 	require.Equal(t, []string{"clock_in"}, d.notif.kinds())
-	require.Equal(t, []string{"1 planned today · 1 reminder"}, d.notif.bodies())
+	require.Equal(t, []string{"1 planned today · 1 reminder\nClock in and I'll start counting."}, d.notif.bodies())
 
 	b, err := d.c.Briefing(d.ctx)
 	require.NoError(t, err)
@@ -276,7 +276,7 @@ func TestClockInNudgeFallsBackWithNothingPlanned(t *testing.T) {
 	d.sync() // the loop has started the monitor
 	d.mon.emit(activity.Event{Kind: activity.Active, At: d.clk.Now()})
 	d.sync()
-	require.Equal(t, []string{"Clock in to start tracking."}, d.notif.bodies())
+	require.Equal(t, []string{"Clock in and I'll start counting."}, d.notif.bodies())
 }
 
 func TestBriefingSummary(t *testing.T) {

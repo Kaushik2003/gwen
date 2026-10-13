@@ -65,6 +65,12 @@ type API interface {
 	PatchConfig(ctx context.Context, patch wire.ConfigPatch) (*wire.Config, error)
 
 	NotifyTest(ctx context.Context) (*wire.NotifyTestResult, error)
+	// NotifyPreview shows every nudge, one after another.
+	NotifyPreview(ctx context.Context) (*wire.NotifyPreview, error)
+	// Nudges are the nudges showing; card says the caller is Gwen's panel
+	// card, which then shows desktop nudges itself.
+	Nudges(ctx context.Context, card bool) (*wire.NudgeList, error)
+	ActOnNudge(ctx context.Context, kind, action string) error
 
 	// ListGoals takes wire.GoalActive, GoalDone, GoalAbandoned, or GoalsAll;
 	// "" means the server default, active.
@@ -331,6 +337,22 @@ func (c *Client) PatchConfig(ctx context.Context, patch wire.ConfigPatch) (*wire
 
 func (c *Client) NotifyTest(ctx context.Context) (*wire.NotifyTestResult, error) {
 	return call[wire.NotifyTestResult](ctx, c, http.MethodPost, "/v1/notify/test", nil, empty)
+}
+
+func (c *Client) NotifyPreview(ctx context.Context) (*wire.NotifyPreview, error) {
+	return call[wire.NotifyPreview](ctx, c, http.MethodPost, "/v1/notify/preview", nil, empty)
+}
+
+func (c *Client) Nudges(ctx context.Context, card bool) (*wire.NudgeList, error) {
+	var q url.Values
+	if card {
+		q = url.Values{"card": {"1"}}
+	}
+	return call[wire.NudgeList](ctx, c, http.MethodGet, "/v1/nudges", q, nil)
+}
+
+func (c *Client) ActOnNudge(ctx context.Context, kind, action string) error {
+	return c.do(ctx, http.MethodPost, "/v1/nudges/act", nil, wire.NudgeActRequest{Kind: kind, Action: action}, nil)
 }
 
 func (c *Client) ListGoals(ctx context.Context, status string) (*wire.GoalList, error) {

@@ -13,10 +13,21 @@ import (
 	"github.com/kzark/gwen/internal/wire"
 )
 
-// Notification is one nudge, with its text already rendered by the engine.
+// Notification is one nudge, with its text already rendered. Body is plain
+// text; Markup, when set, is the same body with <b>, <i>, and <br/> for
+// desktops that render it. Mood names Gwen's face to show (faces/). At is
+// when it fired; Until, when set, is when it stops applying (an idle nudge's
+// moment of becoming a break); StartedAt is when the break it is about began.
+// Expires, when set, is when the card drops it on its own (a test or a
+// preview); a Preview's buttons do nothing.
 type Notification struct {
 	Kind, Title, Body string
+	Markup, Mood      string
 	Actions           []Action
+	At, Until         time.Time
+	StartedAt         time.Time
+	Expires           time.Time
+	Preview           bool
 }
 
 // Action is a notification button.
@@ -49,22 +60,38 @@ type configurable interface{ SetConfig(config.Config) }
 // Dispatcher fans each notification out to the desktop and the phone
 // concurrently. Neither blocks the other or the caller; each is bounded by a
 // timeout, and failures are logged at Warn.
+//
+// It also keeps the nudges showing for Gwen's panel card (card.go): while the
+// card is polling, desktop nudges go to it instead of the notification server.
 type Dispatcher struct {
 	desktop Notifier
 	phone   Notifier
-	actions <-chan ActionEvent
+	actions chan ActionEvent
 	log     *slog.Logger
 	timeout time.Duration
+	now     func() time.Time
 
-	mu  sync.Mutex
-	cfg config.Config
-	wg  sync.WaitGroup
+	mu     sync.Mutex
+	cfg    config.Config
+	shown  map[string]Notification // kind, or previewKey → the nudge showing
+	cardAt time.Time               // when the card last polled
+	wg     sync.WaitGroup
+
+	stopPreview context.CancelFunc // ends a preview still running
 }
 
 // NewDispatcher routes to desktop and phone per cfg. actions delivers the
 // desktop's button clicks; it may be nil.
 func NewDispatcher(desktop, phone Notifier, actions <-chan ActionEvent, cfg config.Config) *Dispatcher {
-	d := &Dispatcher{desktop: desktop, phone: phone, actions: actions, log: slog.Default(), timeout: backendTimeout}
+	d := &Dispatcher{desktop: desktop, phone: phone, actions: make(chan ActionEvent, 16), log: slog.Default(),
+		timeout: backendTimeout, now: time.Now, shown: map[string]Notification{}}
+	if actions != nil {
+		go func() {
+			for a := range actions {
+				d.actions <- a
+			}
+		}()
+	}
 	d.SetConfig(cfg)
 	return d
 }
@@ -87,7 +114,7 @@ func (d *Dispatcher) config() config.Config {
 	return d.cfg
 }
 
-// Actions delivers notification button clicks.
+// Actions delivers notification and card button clicks.
 func (d *Dispatcher) Actions() <-chan ActionEvent { return d.actions }
 
 // Send delivers a nudge to every backend its routing allows, returning at
@@ -95,8 +122,15 @@ func (d *Dispatcher) Actions() <-chan ActionEvent { return d.actions }
 // is set, and the kind goes to the phone.
 func (d *Dispatcher) Send(n Notification) {
 	cfg := d.config()
+	if n.At.IsZero() {
+		n.At = d.now()
+	}
 	if cfg.Nudge.Desktop {
-		d.async(d.desktop, func(ctx context.Context) error { return d.desktop.Notify(ctx, n) })
+		if d.show(n) {
+			d.chime()
+		} else {
+			d.async(d.desktop, func(ctx context.Context) error { return d.desktop.Notify(ctx, n) })
+		}
 	}
 	if cfg.Nudge.Phone && cfg.Ntfy.Topic != "" && phoneKinds[n.Kind] {
 		d.async(d.phone, func(ctx context.Context) error { return d.phone.Notify(ctx, n) })
@@ -105,6 +139,9 @@ func (d *Dispatcher) Send(n Notification) {
 
 // Withdraw closes the kind's desktop notification, returning at once.
 func (d *Dispatcher) Withdraw(kind string) {
+	d.mu.Lock()
+	delete(d.shown, kind)
+	d.mu.Unlock()
 	d.async(d.desktop, func(ctx context.Context) error { return d.desktop.Withdraw(ctx, kind) })
 }
 
@@ -133,11 +170,18 @@ func (d *Dispatcher) Wait() { d.wg.Wait() }
 // nudge state, and reports each outcome (docs/04-api-contract.md#notifications).
 func (d *Dispatcher) Test(ctx context.Context) wire.NotifyTestResult {
 	cfg := d.config()
-	n := Notification{Kind: KindTest, Title: "Gwen test", Body: "Notifications are working."}
+	now := d.now()
+	n := Notification{Kind: KindTest, Title: "It's me, Gwen!", Body: "If you can see my face, notifications are working.", Mood: "winking",
+		At: now, Expires: now.Add(testShown)}
 	res := wire.NotifyTestResult{Desktop: wire.NotifyDisabled, Phone: wire.NotifyDisabled}
 	var wg sync.WaitGroup
 	if cfg.Nudge.Desktop {
-		wg.Go(func() { res.Desktop = d.try(ctx, d.desktop, n) })
+		if d.show(n) {
+			res.Desktop = wire.NotifyOK
+			d.chime()
+		} else {
+			wg.Go(func() { res.Desktop = d.try(ctx, d.desktop, n) })
+		}
 	}
 	if cfg.Nudge.Phone && cfg.Ntfy.Topic != "" {
 		wg.Go(func() { res.Phone = d.try(ctx, d.phone, n) })

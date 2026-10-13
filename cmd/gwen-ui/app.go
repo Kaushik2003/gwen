@@ -134,6 +134,14 @@ func (a *App) PatchConfig(patch wire.ConfigPatch) (*wire.Config, error) {
 
 func (a *App) NotifyTest() (*wire.NotifyTestResult, error) { return call(a.api.NotifyTest(a.ctx)) }
 
+func (a *App) NotifyPreview() (*wire.NotifyPreview, error) { return call(a.api.NotifyPreview(a.ctx)) }
+
+func (a *App) Nudges(card bool) (*wire.NudgeList, error) { return call(a.api.Nudges(a.ctx, card)) }
+
+func (a *App) ActOnNudge(kind, action string) error {
+	return wrap(a.api.ActOnNudge(a.ctx, kind, action))
+}
+
 func (a *App) ListGoals(status string) (*wire.GoalList, error) {
 	return call(a.api.ListGoals(a.ctx, status))
 }

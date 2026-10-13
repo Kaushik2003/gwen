@@ -124,7 +124,12 @@ export default function Settings() {
         </nav>
         <div className="@container flex max-w-3xl min-w-0 flex-col gap-5">
           {section === "tracking" && <ConfigForm title="Tracking" description="How Gwen counts your day." name="tracking" fields={tracking} values={c.tracking} />}
-          {section === "nudges" && <ConfigForm title="Nudges" description="When Gwen taps you on the shoulder." name="nudge" fields={nudge} values={c.nudge} />}
+          {section === "nudges" && (
+            <>
+              <ConfigForm title="Nudges" description="When Gwen taps you on the shoulder." name="nudge" fields={nudge} values={c.nudge} />
+              <NudgePreview desktop={c.nudge.desktop} />
+            </>
+          )}
           {section === "phone" && <PhoneSettings config={c} />}
           {section === "planner" && <ConfigForm title="Planner" description="The hours Gwen plans tasks into." name="planner" fields={planner} values={c.planner} />}
           {section === "calendar" && <CalendarSettings />}
@@ -244,6 +249,50 @@ function SettingRow({ field: f, value, error, onChange }: { field: FieldDef; val
       </div>
       <div className="shrink-0">{control}</div>
     </div>
+  );
+}
+
+/** Shows every nudge Gwen can send, one after another, without waiting for the moment it fits. */
+function NudgePreview({ desktop }: { desktop: boolean }) {
+  const d = useDaemon();
+  const notify = useToast();
+  const [shown, setShown] = useState<wire.Nudge[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  return (
+    <Panel title="See every nudge" icon={BellRing}>
+      <p className="text-sm text-ink-muted">
+        Gwen only nudges when the moment fits: after you're idle a while, on a long break, or when a day starts. Preview them all here, one every 7 seconds, with her face, words, and sound.
+        Nothing goes to your phone, and the buttons only close them.
+      </p>
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <Button
+          icon={Sparkles}
+          busy={busy}
+          disabled={!desktop}
+          onClick={async () => {
+            setBusy(true);
+            const res = await d.act(() => App.NotifyPreview());
+            setBusy(false);
+            if (!res) return;
+            setShown(res.nudges);
+            notify(`Watch the top of your screen: ${res.nudges.length} nudges, one every 7 seconds.`, "success");
+          }}
+        >
+          Preview all nudges
+        </Button>
+        {!desktop && <span className="text-sm text-ink-subtle">Turn on desktop notifications first.</span>}
+      </div>
+      {shown && (
+        <ol className="mt-4 flex flex-col gap-1.5 text-sm">
+          {shown.map((n, i) => (
+            <li key={i} className="flex items-baseline gap-3">
+              <span className="w-8 shrink-0 text-right text-xs text-ink-subtle tabular-nums">{i * 7}s</span>
+              <span className="text-ink">{n.title}</span>
+            </li>
+          ))}
+        </ol>
+      )}
+    </Panel>
   );
 }
 

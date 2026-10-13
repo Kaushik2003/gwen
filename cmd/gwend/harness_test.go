@@ -92,6 +92,12 @@ func (n *fakeNotifier) Test(context.Context) wire.NotifyTestResult {
 	return wire.NotifyTestResult{Desktop: wire.NotifyOK, Phone: wire.NotifyDisabled}
 }
 
+func (n *fakeNotifier) Nudges(bool) []wire.Nudge { return []wire.Nudge{} }
+
+func (n *fakeNotifier) Preview() []wire.Nudge { return []wire.Nudge{} }
+
+func (n *fakeNotifier) Act(string, string) error { return notify.ErrNoSuchNudge }
+
 func (n *fakeNotifier) kinds() []string {
 	n.mu.Lock()
 	defer n.mu.Unlock()

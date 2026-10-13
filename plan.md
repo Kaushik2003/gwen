@@ -118,6 +118,7 @@ W17 fixes this by making calendar events first-class entries of the agenda.
  4 Harness       runs: routine, email review, coding; steps, approvals, log       internal/harness
                                           |
  5 Connectors    typed capabilities: browser.open, gmail.*, code.*, mcp.*          internal/connect
+
 ```
 
 The cue engine decides **when** something is due. Presence decides **how** to tell you. Gwen's persona
@@ -326,7 +327,31 @@ CREATE TABLE agenda_marks (  -- synced
 ) STRICT;
 CREATE UNIQUE INDEX agenda_marks_subject ON agenda_marks (subject) WHERE deleted_at IS NULL;
 
--- 00010_cues.sql (W18)
+-- 00010_memory.sql (memory layer)
+-- Existing chat messages remain the conversation record. Memory stores cited
+-- evidence and claims separately, and keeps derived or device-local state out
+-- of sync.
+ALTER TABLE chat_messages ADD COLUMN memory TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(memory));
+CREATE TABLE entities (id TEXT PRIMARY KEY, kind TEXT NOT NULL, name TEXT NOT NULL, aliases TEXT NOT NULL DEFAULT '[]', <envelope>) STRICT;
+CREATE TABLE episodes (id TEXT PRIMARY KEY, kind TEXT NOT NULL, channel TEXT NOT NULL, speaker TEXT NOT NULL,
+    title TEXT NOT NULL DEFAULT '', body TEXT NOT NULL, source TEXT NOT NULL DEFAULT '', at INTEGER NOT NULL,
+    sensitivity TEXT NOT NULL, content_hash TEXT NOT NULL, <envelope>) STRICT;
+CREATE TABLE claims (id TEXT PRIMARY KEY, key TEXT NOT NULL, subject_id TEXT, value TEXT NOT NULL, text TEXT NOT NULL,
+    cardinality TEXT NOT NULL, status TEXT NOT NULL, trust TEXT NOT NULL, sensitivity TEXT NOT NULL,
+    confidence REAL NOT NULL, valid_from INTEGER, valid_to INTEGER, occurred_at INTEGER, mentioned_at INTEGER NOT NULL,
+    recorded_at INTEGER NOT NULL, superseded_at INTEGER, superseded_by TEXT, suppressed INTEGER NOT NULL DEFAULT 0,
+    source_kind TEXT NOT NULL, source_id TEXT NOT NULL DEFAULT '', span TEXT NOT NULL DEFAULT '',
+    source_device_id TEXT NOT NULL, channel TEXT NOT NULL, extractor TEXT NOT NULL DEFAULT '', content_hash TEXT NOT NULL,
+    <envelope>) STRICT;
+CREATE TABLE conflicts (id TEXT PRIMARY KEY, claim_a TEXT NOT NULL, claim_b TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '',
+    sensitivity TEXT NOT NULL, status TEXT NOT NULL, resolution TEXT, resolved_at INTEGER, <envelope>) STRICT;
+CREATE TABLE memory_links (id TEXT PRIMARY KEY, from_kind TEXT NOT NULL, from_id TEXT NOT NULL, to_kind TEXT NOT NULL,
+    to_id TEXT NOT NULL, relation TEXT NOT NULL, <envelope>) STRICT;
+-- `claims_fts` and `episodes_fts` are FTS5 indexes. `chat_notes`,
+-- `memory_jobs`, `memory_backends`, `memory_usage`, `resources`, and the
+-- ledger are device-local. `index.db` holds the rebuildable vector index.
+
+-- 00011_cues.sql (W18)
 CREATE TABLE cue_rules (  -- synced; NULL means "use the default", 0 means "off"
     id TEXT PRIMARY KEY CHECK (length(id) = 36), subject TEXT NOT NULL,
     lead_minutes INTEGER CHECK (lead_minutes BETWEEN 0 AND 1440), at_start INTEGER CHECK (at_start IN (0, 1)),
@@ -341,8 +366,8 @@ CREATE TABLE cue_log (  -- device-local
     action TEXT NOT NULL DEFAULT '', snoozed_until INTEGER, channels TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(channels))
 ) STRICT;
 
--- 00011_runs.sql (W19)
-CREATE TABLE resources (  -- synced; links and folders attached to a subject
+-- 00012_runs.sql (W19)
+CREATE TABLE subject_resources (  -- synced; links and folders attached to a subject
     id TEXT PRIMARY KEY CHECK (length(id) = 36), subject TEXT NOT NULL,
     kind TEXT NOT NULL CHECK (kind IN ('url', 'folder', 'file', 'note')), title TEXT NOT NULL DEFAULT '',
     value TEXT NOT NULL, position INTEGER NOT NULL CHECK (position >= 0), <envelope>
@@ -400,6 +425,7 @@ error codes. Every endpoint gets a `client.API` method and a `clienttest.Fake` e
 | Agenda | `GET /v1/agenda?day=`, `PUT /v1/agenda/marks` (subject, status), `DELETE /v1/agenda/marks?subject=` | W17 |
 | Cues | `GET /v1/cues?state=active`, `POST /v1/cues/{id}/act` (start, snooze, skip, open), `GET /v1/cue-rules?subject=`, `PUT /v1/cue-rules` | W18 |
 | Presence | `GET /v1/cues/{id}/line` (the line to show and speak) | W20 |
+| Memory | `GET/PATCH/POST/DELETE /v1/memory/claims`; `GET /v1/memory/{status, conflicts, entities, profile, resources, explain, export}`; `POST /v1/memory/{remember, recall, sleep, rebuild, forget-all}` | developed |
 | Subjects | `GET/PUT /v1/resources?subject=`, `GET/PUT /v1/routines?subject=` | W19 |
 | Projects | `GET/PUT /v1/projects/{id}/dir` (folder and test command on this machine) | W19 |
 | Runs | `GET /v1/runs`, `POST /v1/runs`, `GET /v1/runs/{id}` (with steps and log), `POST /v1/runs/{id}/start`, `/cancel`, `/resume`, `/message` | W19 |
@@ -407,7 +433,7 @@ error codes. Every endpoint gets a `client.API` method and a `clienttest.Fake` e
 | Connections | `GET /v1/connections`, `POST /v1/connections/{id}/connect`, `DELETE /v1/connections/{id}` | W19, Gmail in W22 |
 
 New SSE events: `agenda_changed`, `cue_fired`, `cue_updated`, `run_changed` (run id and status),
-`approval_requested`, `approval_decided`, `connection_changed`.
+`approval_requested`, `approval_decided`, `connection_changed`, `memory_changed`.
 
 ### 3.11 The three workflows, end to end
 
@@ -479,11 +505,67 @@ progress note to the run log). Runs reuse the binary discovery and `systemd-run 
 `internal/llm/claudecode.go`, and strip API keys from the environment as that file does. Limits: 45 minutes
 per execute phase, `--max-budget-usd 5` when an API key is in use.
 
-### 3.12 Processes and memory
+### 3.12 Memory
+
+Gwen remembers in her own store. A memory answer names the evidence it rests on, and you can inspect, edit,
+hide, reject, export, or erase it. A model or an external memory service never becomes the authority for what
+Gwen believes about you.
+
+```text
+chat message · note · resource · memory-file edit
+                  │
+                  ▼
+      episodes: verbatim, append-only evidence
+                  │ background learning
+                  ▼
+ claims: keyed facts with time, trust, source span, and status ──► conflicts for review
+                  │
+                  ├──► FTS5 and vector index       derived, local, rebuildable
+                  ├──► Mem0                         optional shadow lane
+                  ├──► Supermemory                  optional document lane
+                  └──► ~/Gwen/memory/*.md           readable projection
+
+question ──► claims, FTS, vectors, time window, and typed Gwen data ──► compact cited note
+```
+
+**Evidence and claims.** An episode preserves words Gwen may need to cite. A claim is a short, keyed statement
+about a person, place, preference, or fact. It has a source reference (`msg:<id>` or `ep:<id>`), its supporting
+span, a confidence, a sensitivity level, and a trust level: `owner_edit`, `owner_said`, `observed`, `inferred`,
+or `external`. Existing tasks, plans, calendar events, and time records stay in their typed tables. Memory
+links can point from an episode or claim to those records without copying them into prose.
+
+**Time and contradictions.** `valid_from` and `valid_to` describe when a claim was true. `recorded_at` and
+`superseded_at` describe when Gwen learned or retired it. A newer unambiguous value for a single-valued key
+supersedes the older claim. When the order or meaning is unclear, Gwen creates an open conflict instead of
+guessing. External and inferred claims stay candidates or quarantined until corroborated or confirmed. Gwen's
+own chat reply cannot make an active claim without confirmation.
+
+**Read path.** The router first looks up a keyed claim when it can identify one. It then queries FTS, the vector
+lane, the relevant time window, and typed records in parallel. It filters results by supersession, trust,
+sensitivity, and an optional "as of" time before it builds the memory note sent with a chat turn. The note has
+short citations. If no source supports a past fact, Gwen says that she does not know it.
+
+**Lanes and operations.** The native claims and FTS lanes work without any sidecar. The vector lane, Mem0,
+Supermemory, and memory files are optional. Mem0 receives verified claims only and stays off unless its recall
+improves Gwen's benchmark. Supermemory receives resources and document evidence, never unique data. Background
+jobs learn, embed, project, consolidate, and rebuild. A failed optional lane does not prevent native recall.
+
+**Privacy and control.** Sensitive claims do not sync. The user can review conflicts, explain any reference,
+rebuild a derived lane, export all memory, and erase all memory. Erasure removes the words from episodes and
+claims while preserving only the hashes required to avoid learning the same erased fact again. The editable
+Markdown projection comes back as `owner_edit`. Any sidecar runs local and loopback-only with telemetry disabled;
+hosted memory is an explicit opt-in for a namespace.
+
+**Delivery checks.** The memory layer is evaluated with GwenBench cases for updates, "as of" questions,
+abstention, cross-record recall, non-ASCII text, poisoned external content, and degraded mode. Track recall p95,
+write cost, citation coverage, and poisoned-write acceptance. A derived lane stays enabled only when an ablation
+shows a measurable improvement.
+
+### 3.13 Processes and memory
 
 | Process | When it runs | Change |
 |---|---|---|
-| `gwend` | always | adds the cue loop, the run executor, and connector clients (Go, no models loaded) |
+| `gwend` | always | adds the cue loop, the run executor, connector clients, and the memory worker; models load only for a memory job |
 | `gwen-ui` dashboard | when you open it | new screens |
 | `gwen-ui --cue` | a few seconds to 2 minutes per cue | new |
 | `gwen-ui --talk` | when you talk | can start from a cue |
@@ -672,7 +754,8 @@ Later    W24 MCP connectors · W25 notes folder · W26 browser automation
 Packages in the same wave run in parallel on their own branches (`w17-agenda` and so on). Merge in the order
 listed. After Wave 1 your appointments are on Today. After Wave 2 you get the 5 minute reminder. After Wave 3
 Gwen speaks first and the DSA routine opens your browser. After Wave 4 she can review email and take coding
-tasks.
+tasks. The memory layer already owns migration `00010`; later packages begin at `00011` and use its cited claims
+and episodes instead of adding another memory store.
 
 ### 6.3 Work packages
 
@@ -720,7 +803,7 @@ Each package is one prompt (template in 6.4).
 
 #### W18: Cues
 
-- **Owns:** `internal/cue` (new); migration `00010_cues.sql`; `internal/store/cues.go`; `cmd/gwend/cues.go`;
+- **Owns:** `internal/cue` (new); migration `00011_cues.sql`; `internal/store/cues.go`; `cmd/gwend/cues.go`;
   `internal/notify` (the `Inhibited` check, cue kinds, their buttons, and phone routing); the `[cues]` section in
   `internal/config`; `internal/api/cues.go`; `internal/wire/cues.go`; `internal/client/cues.go`;
   `ui/src/settings/Reminders.tsx`; `cmd/gwen/cues.go`.
@@ -751,7 +834,7 @@ Each package is one prompt (template in 6.4).
 
 - **Owns:** `internal/harness` (new); `internal/connect` (new: registry, policy, the desktop connector with
   `browser.open`, `folder.open`, `tracking.start`, and the calendar connector with `calendar.read`); migration
-  `00011_runs.sql`; `internal/store/{runs,resources,routines,projectdirs}.go`;
+  `00012_runs.sql`; `internal/store/{runs,resources,routines,projectdirs}.go`;
   `internal/api/{runs,approvals,resources,routines,connections}.go`; matching `internal/wire` and
   `internal/client` files; `cmd/gwen/runs.go`.
 - **Delivers:** sections 3.7 and 3.8, the routine run kind, the start hook (Start runs the subject's routine),
@@ -862,3 +945,11 @@ These bind every package.
    values say "Not available", never a made-up number.
 8. **Google account.** Keep the OAuth app published to production (as `setup.md` explains) so tokens don't expire
    every 7 days, and keep 2-Step Verification on.
+9. **Memory is untrusted evidence until checked.** External text and model output cannot create an active claim
+   without the source span, a verifier, and corroboration or your confirmation. A claim cannot grant a permission
+   or change a policy.
+10. **Memory answers cite their source.** When Gwen states a fact about the past, the response includes a claim,
+    message, or episode reference. If no cited evidence supports it, Gwen says that she does not know.
+11. **Optional memory services stay optional.** Mem0, Supermemory, vector search, and memory files are derived
+    lanes. They run locally and loopback-only by default, with telemetry disabled. Rebuilding or removing a lane
+    cannot erase Gwen's source episodes or claims.

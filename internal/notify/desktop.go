@@ -25,6 +25,8 @@ type notifyBus interface {
 	Capabilities(ctx context.Context) ([]string, error)
 	Notify(ctx context.Context, replaces uint32, summary, body string, actions []string, hints map[string]dbus.Variant, expire int32) (uint32, error)
 	Close(ctx context.Context, id uint32) error
+	// Inhibited reports Do Not Disturb; servers without the property fail.
+	Inhibited(ctx context.Context) (bool, error)
 	// Signals delivers ActionInvoked and NotificationClosed.
 	Signals() (<-chan *dbus.Signal, error)
 }
@@ -34,6 +36,7 @@ type notifyBus interface {
 type Desktop struct {
 	bus     notifyBus
 	actions chan ActionEvent
+	play    func(context.Context) error // plays the nudge sound
 
 	mu       sync.Mutex
 	caps     []string
@@ -49,13 +52,13 @@ func NewDesktop() *Desktop {
 	b, err := newSessionNotifyBus()
 	if err != nil {
 		slog.Warn("desktop notifications unavailable", "err", err)
-		return newDesktop(nil)
+		return newDesktop(nil, playSound)
 	}
-	return newDesktop(b)
+	return newDesktop(b, playSound)
 }
 
-func newDesktop(bus notifyBus) *Desktop {
-	d := &Desktop{bus: bus, actions: make(chan ActionEvent, 16), last: map[string]uint32{},
+func newDesktop(bus notifyBus, play func(context.Context) error) *Desktop {
+	d := &Desktop{bus: bus, actions: make(chan ActionEvent, 16), play: play, last: map[string]uint32{},
 		kindOf: map[uint32]string{}, first: map[string]string{}}
 	if bus != nil {
 		sigs, err := bus.Signals()
@@ -104,10 +107,17 @@ func (d *Desktop) Notify(ctx context.Context, n Notification) error {
 		"urgency":       dbus.MakeVariant(byte(1)),
 		"desktop-entry": dbus.MakeVariant("gwen"),
 	}
+	if img, ok := face(n.Mood); ok {
+		hints["image-data"] = img
+	}
+	body := n.Body
+	if n.Markup != "" && slices.Contains(caps, "body-markup") {
+		body = n.Markup
+	}
 	d.mu.Lock()
 	replaces := d.last[n.Kind]
 	d.mu.Unlock()
-	id, err := d.bus.Notify(ctx, replaces, n.Title, n.Body, actions, hints, expire)
+	id, err := d.bus.Notify(ctx, replaces, n.Title, body, actions, hints, expire)
 	if err != nil {
 		return err
 	}
@@ -118,7 +128,19 @@ func (d *Desktop) Notify(ctx context.Context, n Notification) error {
 		d.first[n.Kind] = n.Actions[0].ID
 	}
 	d.mu.Unlock()
-	return nil
+	return d.Chime(ctx)
+}
+
+// Chime plays the nudge sound, unless Do Not Disturb is on or there is no
+// desktop to play it on. Gwen's panel card has the daemon chime for it.
+func (d *Desktop) Chime(ctx context.Context) error {
+	if d.bus == nil {
+		return nil
+	}
+	if quiet, err := d.bus.Inhibited(ctx); err == nil && quiet {
+		return nil
+	}
+	return d.play(ctx)
 }
 
 // Withdraw closes the kind's notification if one was shown.
@@ -189,14 +211,29 @@ func newSessionNotifyBus() (*sessionNotifyBus, error) {
 	if err != nil {
 		return nil, err
 	}
-	var has bool
-	if err := conn.BusObject().Call("org.freedesktop.DBus.NameHasOwner", 0, notificationsDest).Store(&has); err != nil {
+	has, err := notificationService(conn)
+	if err != nil {
 		return nil, err
 	}
 	if !has {
 		return nil, errors.New("no notification service on the session bus")
 	}
 	return &sessionNotifyBus{conn: conn, obj: conn.Object(notificationsDest, notificationsPath)}, nil
+}
+
+// notificationService reports whether a notification service runs or can be
+// started on demand. At login gwend can start before Plasma claims the name;
+// Plasma's activation file then makes the first call wait for it.
+func notificationService(conn *dbus.Conn) (bool, error) {
+	var has bool
+	if err := conn.BusObject().Call("org.freedesktop.DBus.NameHasOwner", 0, notificationsDest).Store(&has); err != nil || has {
+		return has, err
+	}
+	var names []string
+	if err := conn.BusObject().Call("org.freedesktop.DBus.ListActivatableNames", 0).Store(&names); err != nil {
+		return false, err
+	}
+	return slices.Contains(names, notificationsDest), nil
 }
 
 func (b *sessionNotifyBus) Capabilities(ctx context.Context) ([]string, error) {
@@ -214,6 +251,18 @@ func (b *sessionNotifyBus) Notify(ctx context.Context, replaces uint32, summary,
 	err := b.obj.CallWithContext(ctx, notificationsIface+".Notify", 0,
 		"Gwen", replaces, "gwen", summary, body, actions, hints, expire).Store(&id)
 	return id, err
+}
+
+func (b *sessionNotifyBus) Inhibited(context.Context) (bool, error) {
+	v, err := b.obj.GetProperty(notificationsIface + ".Inhibited")
+	if err != nil {
+		return false, err
+	}
+	quiet, ok := v.Value().(bool)
+	if !ok {
+		return false, errors.New("Inhibited is not a boolean")
+	}
+	return quiet, nil
 }
 
 func (b *sessionNotifyBus) Close(ctx context.Context, id uint32) error {

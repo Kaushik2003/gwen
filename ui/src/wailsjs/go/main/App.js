@@ -6,6 +6,10 @@ export function AcceptLLMRun(arg1, arg2) {
   return window['go']['main']['App']['AcceptLLMRun'](arg1, arg2);
 }
 
+export function ActOnNudge(arg1, arg2) {
+  return window['go']['main']['App']['ActOnNudge'](arg1, arg2);
+}
+
 export function AddResource(arg1) {
   return window['go']['main']['App']['AddResource'](arg1);
 }
@@ -298,8 +302,16 @@ export function NewTopic() {
   return window['go']['main']['App']['NewTopic']();
 }
 
+export function NotifyPreview() {
+  return window['go']['main']['App']['NotifyPreview']();
+}
+
 export function NotifyTest() {
   return window['go']['main']['App']['NotifyTest']();
+}
+
+export function Nudges(arg1) {
+  return window['go']['main']['App']['Nudges'](arg1);
 }
 
 export function OpenDashboard(arg1) {

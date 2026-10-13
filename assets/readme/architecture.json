@@ -7,12 +7,12 @@
     "quality_profile": "showcase",
     "viewBox": [
       1340,
-      700
+      800
     ],
     "repository": {
       "url": "https://github.com/Kaushik2003/gwen",
       "link_mode": "local-only",
-      "revision": "40eca1da801085f1d6232532d64c66b382c2b50b",
+      "revision": "dd161a5d93337f3a2a62b270ecc45a2d359eddec",
       "provider": "github"
     }
   },
@@ -155,6 +155,25 @@
       ]
     },
     {
+      "id": "memory",
+      "type": "backend",
+      "label": "Memory",
+      "sublabel": "claims · episodes · recall",
+      "pos": [
+        280,
+        640
+      ],
+      "size": [
+        180,
+        64
+      ],
+      "sources": [
+        {
+          "path": "internal/memory/service/service.go"
+        }
+      ]
+    },
+    {
       "id": "llm",
       "type": "external",
       "label": "LLM provider",
@@ -256,7 +275,8 @@
         "cli",
         "activity",
         "gwend",
-        "store"
+        "store",
+        "memory"
       ]
     }
   ],
@@ -288,7 +308,8 @@
       "id": "cli-api",
       "from": "cli",
       "to": "gwend",
-      "label": "socket API"
+      "label": "socket API",
+      "labelDx": -80
     },
     {
       "id": "activity-gwend",
@@ -309,6 +330,13 @@
         660,
         436
       ]
+    },
+    {
+      "id": "gwend-memory",
+      "from": "gwend",
+      "to": "memory",
+      "label": "recall and learning",
+      "labelDy": 100
     },
     {
       "id": "gwend-llm",
@@ -370,6 +398,7 @@
       "title": "Daemon",
       "items": [
         "Pure time engine and planner",
+        "Memory keeps cited claims and episodes in SQLite",
         "Idle signal is input or no input, nothing else",
         "LLM only proposes; you accept"
       ]

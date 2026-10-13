@@ -33,6 +33,9 @@ type panelLine struct {
 	Projects  []panelProject `json:"projects"`
 	// Energy is the latest check-in of the last day, or nil.
 	Energy *wire.EnergyLog `json:"energy"`
+	// Nudge is the newest nudge showing, for the widget's card, or nil.
+	// Asking makes the widget the one that shows desktop nudges.
+	Nudge *wire.Nudge `json:"nudge"`
 }
 
 type panelProject struct {
@@ -54,9 +57,11 @@ type panelBlock struct {
 }
 
 // panelCmd prints one panelLine as JSON for the panel widget, which polls it.
+// With --card the widget shows nudge cards, in place of desktop notifications.
 // It is not for people, so it is hidden from help.
 func (c *cli) panelCmd() *cobra.Command {
-	return &cobra.Command{
+	var card bool
+	cmd := &cobra.Command{
 		Use:    "panel",
 		Short:  "Print the panel widget's line as JSON",
 		Args:   args(0),
@@ -102,9 +107,14 @@ func (c *cli) panelCmd() *cobra.Command {
 					}
 				}
 			}
+			if list, err := c.api.Nudges(ctx, card); err == nil && list != nil && len(list.Nudges) > 0 {
+				line.Nudge = &list.Nudges[0]
+			}
 			return json.NewEncoder(c.stdout).Encode(line)
 		},
 	}
+	cmd.Flags().BoolVar(&card, "card", false, "show nudges as the widget's card")
+	return cmd
 }
 
 // nextBlock is the planned block on at now, else the next to start, and how

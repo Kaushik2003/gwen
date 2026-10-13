@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/kzark/gwen/internal/notify"
 	"github.com/kzark/gwen/internal/store"
 	"github.com/kzark/gwen/internal/timeengine"
 	"github.com/kzark/gwen/internal/wire"
@@ -103,5 +104,38 @@ func (s *Server) notifyTest(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	writeJSON(w, http.StatusOK, s.Notify.Test(r.Context()))
+	return nil
+}
+
+// notifyPreview serves POST /v1/notify/preview: every nudge, one after another.
+func (s *Server) notifyPreview(w http.ResponseWriter, r *http.Request) error {
+	var body struct{}
+	if err := decode(r, &body); err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, wire.NotifyPreview{Nudges: s.Notify.Preview()})
+	return nil
+}
+
+// listNudges serves GET /v1/nudges; ?card=1 is Gwen's panel card asking,
+// which then shows desktop nudges itself.
+func (s *Server) listNudges(w http.ResponseWriter, r *http.Request) error {
+	writeJSON(w, http.StatusOK, wire.NudgeList{Nudges: s.Notify.Nudges(r.URL.Query().Get("card") == "1")})
+	return nil
+}
+
+// actOnNudge serves POST /v1/nudges/act: a click on a nudge's button.
+func (s *Server) actOnNudge(w http.ResponseWriter, r *http.Request) error {
+	var body wire.NudgeActRequest
+	if err := decode(r, &body); err != nil {
+		return err
+	}
+	if err := s.Notify.Act(body.Kind, body.Action); err != nil {
+		if errors.Is(err, notify.ErrNoSuchNudge) {
+			return &requestError{code: wire.CodeNotFound, status: http.StatusNotFound, msg: "no such nudge or button"}
+		}
+		return err
+	}
+	w.WriteHeader(http.StatusNoContent)
 	return nil
 }

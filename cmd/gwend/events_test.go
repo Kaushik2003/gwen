@@ -124,7 +124,11 @@ func TestActivityDrivesTheEngine(t *testing.T) {
 	require.Equal(t, []string{"idle"}, d.notif.kinds())
 	var fired wire.NudgeFired
 	require.NoError(t, json.Unmarshal(next(wire.EventNudgeFired).Data, &fired))
-	require.Equal(t, "Still there?", fired.Title)
+	d.notif.mu.Lock()
+	said := d.notif.sent[0]
+	d.notif.mu.Unlock()
+	require.Equal(t, said.Title, fired.Title, "the event carries the line Gwen said")
+	require.NotEmpty(t, said.Mood)
 
 	// The hard deadline fires from the loop's own timer.
 	d.clk.BlockUntil(2)

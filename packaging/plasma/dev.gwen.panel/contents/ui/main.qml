@@ -2,7 +2,8 @@
 // tracked. A click drops down the now card (NowCard.qml) as Plasma's own
 // popup; a right click has the tray's commands. Talk opens a call with Gwen
 // in her own window (gwen-ui --talk). It polls `gwen panel` every few seconds
-// and ticks the timers in between.
+// and ticks the timers in between. Gwen's nudges rise from it as her own card
+// (NudgeCard.qml) instead of desktop notifications while it runs.
 import QtQuick
 import QtQuick.Layouts
 import org.kde.plasma.plasmoid
@@ -41,6 +42,22 @@ PlasmoidItem {
         : working ? (targetMet ? "love" : "cool")
         : "smiling"
 
+    // The newest nudge showing, and the one the card last hid: a closed card
+    // stays closed until a new nudge arrives.
+    readonly property var nudge: line.nudge || null
+    readonly property string nudgeKey: nudge ? nudge.kind + "@" + nudge.at : ""
+    property string dismissedKey: ""
+    readonly property bool nudgeOpen: inPanel && nudgeKey !== "" && nudgeKey !== dismissedKey && !root.expanded
+    // Idle and long-break nudges wait for an answer; the rest pass.
+    readonly property bool nudgeSticky: nudge !== null && (nudge.kind === "idle" || nudge.kind === "break_long")
+    function dismissNudge() { dismissedKey = nudgeKey; }
+    function actOnNudge(id) {
+        run("gwen notify act " + (nudge.preview ? "preview" : nudge.kind) + " " + id);
+        dismissNudge();
+    }
+    // gwend plays the nudge's sound; the card only rises.
+    onNudgeKeyChanged: if (nudgeOpen) nudgeCard.enter()
+
     preferredRepresentation: compactRepresentation
     Plasmoid.backgroundHints: PlasmaCore.Types.NoBackground | PlasmaCore.Types.ConfigurableBackground
     toolTipMainText: off ? stateLabel : onBreak ? "On break · " + duration(since) : "Worked " + duration(worked) + " today"
@@ -68,7 +85,11 @@ PlasmoidItem {
         return h === 0 ? m + "m" : m % 60 === 0 ? h + "h" : h + "h " + (m % 60) + "m";
     }
 
-    function refresh() { exec.connectSource("gwen panel"); }
+    // Only a widget in a panel shows nudge cards; a copy on the desktop does not
+    // claim them, so with no panel widget the desktop notifications return.
+    readonly property bool inPanel: Plasmoid.formFactor === PlasmaCore.Types.Horizontal || Plasmoid.formFactor === PlasmaCore.Types.Vertical
+    readonly property string panelCommand: inPanel ? "gwen panel --card" : "gwen panel"
+    function refresh() { exec.connectSource(panelCommand); }
     // Runs a command, then shows what it changed.
     function run(command) { exec.connectSource(command); }
     // Opens the dashboard, on a screen such as "inbox", or on Today for "".
@@ -101,7 +122,7 @@ PlasmoidItem {
         connectedSources: []
         onNewData: (source, data) => {
             disconnectSource(source);
-            if (source !== "gwen panel") {
+            if (source !== root.panelCommand) {
                 root.refresh();
                 return;
             }
@@ -122,6 +143,31 @@ PlasmoidItem {
     Timer {
         interval: 1000; running: true; repeat: true
         onTriggered: root.now = Date.now()
+    }
+    // A passing nudge leaves after a while, unless the pointer is on it.
+    Timer {
+        id: nudgeTimeout
+        interval: 12000
+        running: root.nudgeOpen && !root.nudgeSticky && !nudgeCard.hovered
+        onTriggered: root.dismissNudge()
+    }
+
+    // Gwen's card, risen from the widget like a notification of her own.
+    PlasmaCore.Dialog {
+        id: nudgeWindow
+        visualParent: root.compactRepresentationItem
+        location: Plasmoid.location
+        type: PlasmaCore.Dialog.Notification
+        backgroundHints: PlasmaCore.Dialog.NoBackground
+        flags: Qt.WindowStaysOnTopHint | Qt.WindowDoesNotAcceptFocus
+        hideOnWindowDeactivate: false
+        visible: root.nudgeOpen
+        mainItem: NudgeCard {
+            id: nudgeCard
+            gwen: root
+            width: implicitWidth
+            height: implicitHeight
+        }
     }
 
     Plasmoid.contextualActions: [

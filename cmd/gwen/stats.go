@@ -273,6 +273,35 @@ func (c *cli) notifyCmd() *cobra.Command {
 			})
 		},
 	}
-	notify.AddCommand(test)
+	preview := &cobra.Command{
+		Use:   "preview",
+		Short: "Show every nudge Gwen can send, one after another",
+		Args:  args(0),
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			res, err := c.api.NotifyPreview(cmd.Context())
+			if err != nil {
+				return err
+			}
+			return c.emit(res, func(w io.Writer) error {
+				for i, n := range res.Nudges {
+					if _, err := fmt.Fprintf(w, "%2ds  %-12s %s\n", i*7, n.Kind, n.Title); err != nil {
+						return err
+					}
+				}
+				return nil
+			})
+		},
+	}
+	// act is the panel card's buttons; it is not for people.
+	act := &cobra.Command{
+		Use:    "act KIND ACTION",
+		Short:  "Click a button of a nudge showing",
+		Args:   args(2),
+		Hidden: true,
+		RunE: func(cmd *cobra.Command, a []string) error {
+			return c.api.ActOnNudge(cmd.Context(), a[0], a[1])
+		},
+	}
+	notify.AddCommand(test, preview, act)
 	return notify
 }

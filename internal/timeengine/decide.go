@@ -163,6 +163,7 @@ func (d *decider) switchTo(project, task *string, at time.Time, trigger string) 
 }
 
 func (d *decider) idle(threshold time.Duration, at time.Time, trigger string) {
+	d.s.nudges.present = false
 	c := d.s.cfg
 	switch threshold {
 	case c.SoftIdle:
@@ -197,6 +198,7 @@ func (d *decider) active(at time.Time, trigger string) {
 	if d.s.Locked {
 		return // input reaching the lock screen is not presence
 	}
+	d.s.nudges.present = true
 	switch d.s.State {
 	case Off:
 		d.promptClockIn(at)
@@ -217,6 +219,7 @@ func (d *decider) active(at time.Time, trigger string) {
 
 func (d *decider) locked(at time.Time, trigger string) {
 	d.s.Locked = true
+	d.s.nudges.present = false
 	switch d.s.State {
 	case Working:
 		d.close(at)

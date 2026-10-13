@@ -128,6 +128,9 @@ func (s *Server) Handler() http.Handler {
 	route("GET /v1/config", s.getConfig)
 	route("PATCH /v1/config", s.patchConfig)
 	route("POST /v1/notify/test", s.notifyTest)
+	route("POST /v1/notify/preview", s.notifyPreview)
+	route("GET /v1/nudges", s.listNudges)
+	route("POST /v1/nudges/act", s.actOnNudge)
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, errNotFoundRoute)

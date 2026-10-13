@@ -32,6 +32,9 @@ type notifier interface {
 	Actions() <-chan notify.ActionEvent
 	SetConfig(config.Config)
 	Test(ctx context.Context) wire.NotifyTestResult
+	Nudges(card bool) []wire.Nudge
+	Preview() []wire.Nudge
+	Act(kind, action string) error
 }
 
 // loop is the one goroutine that owns all tracking state. Every transition
@@ -296,11 +299,31 @@ func (l *loop) apply(ctx context.Context, in timeengine.Input) (wire.Status, err
 	return st, nil
 }
 
-// nudge turns an engine notification into one for the dispatcher. The
-// clock_in nudge carries the briefing summary when there is one
-// (docs/07-integrations.md#notifications).
+// nudge turns an engine notification into one for the dispatcher, in Gwen's
+// voice: her mood and words follow the time of day, today's progress, and how
+// long a break has run. The clock_in nudge carries the briefing summary when
+// there is one (docs/07-integrations.md#notifications).
 func (l *loop) nudge(ctx context.Context, e timeengine.Notify) notify.Notification {
-	n := notify.Notification{Kind: e.Kind, Title: e.Title, Body: e.Body}
+	n := notify.Notification{Kind: e.Kind, Title: e.Title, Body: e.Body, At: e.At}
+	for _, a := range e.Actions {
+		n.Actions = append(n.Actions, notify.Action{ID: a.ID, Label: a.Label})
+	}
+	c := timeengine.ConfigFrom(l.Config(), l.loc)
+	m := notify.Moment{At: e.At.In(l.loc), SoftIdle: c.SoftIdle, HardIdle: c.HardIdle, BreakReminder: c.BreakReminder,
+		Repeat: c.Repeat, Target: c.DailyTarget}
+	if e.Kind == timeengine.NudgeIdle {
+		n.Until = e.At.Add(c.HardIdle - c.SoftIdle)
+	}
+	if seg := l.snapshot().Segment; seg != nil && seg.Kind != model.KindWork {
+		m.BreakFor = e.At.Sub(seg.StartedAt)
+		n.StartedAt = seg.StartedAt
+	}
+	if st, err := l.Status(ctx); err != nil {
+		slog.Warn("status for a nudge", "err", err)
+	} else if st.Today != nil {
+		m.Worked = time.Duration(st.Today.WorkedMs) * time.Millisecond
+		m.Target = time.Duration(st.Today.TargetSeconds) * time.Second
+	}
 	if e.Kind == timeengine.NudgeClockIn {
 		b, ch, err := l.repos.Plans.Briefing(ctx, api.NewPlanEnv(l.Config(), l.loc, l.now()))
 		if err != nil {
@@ -308,14 +331,11 @@ func (l *loop) nudge(ctx context.Context, e timeengine.Notify) notify.Notificati
 		} else {
 			api.PublishChanges(l.hub, ch)
 			if body := briefingSummary(b); body != "" {
-				n.Body = body
+				n.Body, m.Briefing = body, body
 			}
 		}
 	}
-	for _, a := range e.Actions {
-		n.Actions = append(n.Actions, notify.Action{ID: a.ID, Label: a.Label})
-	}
-	return n
+	return notify.Speak(n, m)
 }
 
 // applyEffects runs a decision's store effects in order inside tx and returns

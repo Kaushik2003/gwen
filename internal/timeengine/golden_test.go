@@ -95,7 +95,7 @@ func TestG7ManualBreak(t *testing.T) {
 		te.Tick{At: at("12:15")}, te.Tick{At: at("12:25")}, te.BreakEnd{At: at("12:30")},
 	)
 	require.Equal(t, []string{
-		"12:02 +break_active",
+		"12:00:30 +break_active", // first input after the break is 15s old
 		"12:15 +break_long",
 		"12:25 +break_long",
 		"12:30 -break_long",
@@ -114,6 +114,23 @@ func TestG7ManualBreak(t *testing.T) {
 	require.Equal(t, "Ready to get back to it?", n[1].Body)
 	require.Equal(t, []te.Action{{ID: "end_break", Label: "Back to work"}, {ID: "snooze", Label: "Snooze 10m"}}, n[1].Actions)
 	require.Equal(t, "On a break for 25m", n[2].Title)
+}
+
+func TestG7TypingThroughAManualBreak(t *testing.T) {
+	t.Parallel()
+	// Typing from before the break and never stopping sends no activity
+	// event after it starts; the nudge still comes on the deadline's tick.
+	r := start(t, defaults()).feed(
+		clockIn(P, "09:00"), te.Active{At: at("11:59:50")}, te.BreakStart{At: at("12:00")}, te.Tick{At: at("12:00:15")},
+	)
+	require.Equal(t, []string{"12:00:15 +break_active"}, r.nudges())
+
+	// A pause before 15s: nothing until typing resumes.
+	r = start(t, defaults()).feed(
+		clockIn(P, "09:00"), te.Active{At: at("11:59:50")}, te.BreakStart{At: at("12:00")},
+		te.Idle{Threshold: te.PresenceThreshold, At: at("12:00:08")}, te.Tick{At: at("12:03")}, te.Active{At: at("12:04")},
+	)
+	require.Equal(t, []string{"12:04 +break_active"}, r.nudges())
 }
 
 func TestG8Snooze(t *testing.T) {

@@ -30,9 +30,18 @@ type Tracker interface {
 	SetConfig(ctx context.Context, c config.Config) error
 }
 
-// NotifyTester sends the test notification of POST /v1/notify/test.
+// NotifyTester sends the test notification of POST /v1/notify/test, and
+// serves the nudges showing to Gwen's panel card.
 type NotifyTester interface {
 	Test(ctx context.Context) wire.NotifyTestResult
+	// Nudges are the nudges showing; card says the caller is the panel card.
+	Nudges(card bool) []wire.Nudge
+	// Preview shows a sample of every nudge, one after another, and returns
+	// them in order.
+	Preview() []wire.Nudge
+	// Act clicks a button of a showing nudge; it fails with a not-found
+	// error matching notify.ErrNoSuchNudge.
+	Act(kind, action string) error
 }
 
 // Server holds what the handlers need.

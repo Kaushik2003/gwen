@@ -46,8 +46,9 @@
   Claude Pro/Max subscription through Claude Code. Or none: everything else works without an LLM.
 - **A personality.** Gwen has a voice, 12 moods with animated sprites, and attitudes she picks for herself. Rename
   her and tell her about yourself under **Settings → AI → Personality**.
-- **She remembers.** Chats are kept on your machine. Open or delete an earlier one from **Past chats**; when something
-  comes up again, Gwen recalls what was said about it in earlier chats, and on which day.
+- **She remembers.** Gwen keeps cited episodes and time-aware claims in your local database. When a subject comes up
+  again, she recalls a short note with its source. You can inspect, correct, hide, export, or erase each memory in
+  **Settings → Memory**.
 - **Talk out loud.** Dictate into any chat, or open the talk window from the panel and have a spoken conversation.
   Speech-to-text (NVIDIA Parakeet) and text-to-speech (Kokoro) run **on your machine**; Fish Audio is an optional
   online voice.
@@ -69,23 +70,27 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/readme/architecture-dark.png">
-  <img alt="Gwen architecture: the KDE panel widget, gwen-ui dashboard, and gwen CLI and tray talk to the gwend daemon over its Unix socket. gwend owns the SQLite database, reads idle events from the activity monitor, and reaches out to an LLM provider, Google Calendar, ntfy, and an optional Raspberry Pi sync hub. Phones get ntfy pushes and the hub's read-only dashboard." src="assets/readme/architecture-light.png">
+  <img alt="Gwen architecture: the KDE panel widget, gwen-ui dashboard, and gwen CLI and tray talk to the gwend daemon over its Unix socket. gwend owns the SQLite database and its memory service, reads idle events from the activity monitor, and reaches out to an LLM provider, Google Calendar, ntfy, and an optional Raspberry Pi sync hub. Phones get ntfy pushes and the hub's read-only dashboard." src="assets/readme/architecture-light.png">
 </picture>
 
 **`gwend`** is the heart: a systemd user service that is the only owner of the database. It runs the activity
-monitor, the time engine, the planner, notifications, and the integrations, and serves an HTTP API with live
+monitor, the time engine, the planner, memory, notifications, and integrations, and serves an HTTP API with live
 Server-Sent Events on `$XDG_RUNTIME_DIR/gwen/gwend.sock`. Every client (dashboard, panel widget, tray, CLI) goes
 through that socket, so closing the dashboard never stops tracking.
 
+Memory keeps verbatim episodes and cited, time-aware claims in `gwen.db`. FTS, vector search, Mem0, Supermemory,
+and Markdown files are optional derived copies. They can be rebuilt without losing Gwen's source memory.
+
 | Piece | What it is | Where |
 |---|---|---|
-| `gwend` | The daemon: API, time engine, planner, notifier, sync, LLM adapter | [cmd/gwend](cmd/gwend) |
+| `gwend` | The daemon: API, time engine, planner, memory, notifier, sync, LLM adapter | [cmd/gwend](cmd/gwend) |
 | `gwen-ui` | Wails window over the React dashboard; also hosts voice in and out | [cmd/gwen-ui](cmd/gwen-ui), [ui](ui) |
 | `gwen` | The command-line client and setup wizard | [cmd/gwen](cmd/gwen) |
 | `gwen-tray` | Tray icon (StatusNotifierItem) for desktops without the panel widget | [cmd/gwen-tray](cmd/gwen-tray) |
 | Panel widget | KDE Plasma applet; polls `gwen panel` and opens the dashboard or talk window | [packaging/plasma](packaging/plasma) |
 | Time engine | Pure state machine: activity events and commands in, segments out | [internal/timeengine](internal/timeengine) |
 | Planner | Pure functions: goals, tasks, and commitments in, a day plan out | [internal/planner](internal/planner) |
+| Memory | Cited episodes and claims, recall, conflicts, and optional derived lanes | [internal/memory](internal/memory) |
 | Voice | `pw-record` → Parakeet, Kokoro or Fish → `pw-play`, via sherpa-onnx | [internal/voice](internal/voice) |
 | Sync hub | `gwend` in hub mode on an arm64 Pi, plus the laptop-side client | [internal/sync](internal/sync), [packaging/pi](packaging/pi) |
 

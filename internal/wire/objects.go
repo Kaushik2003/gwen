@@ -201,6 +201,48 @@ type NotifyTestResult struct {
 	Phone   string `json:"phone"`
 }
 
+// Nudge is a notification Gwen is showing, for her panel card. Body is plain
+// text and Markup the same with <b>, <i>, and <br/>; Mood names her face.
+// UntilAt, when set, is when it stops applying: an idle nudge becomes a break.
+// StartedAt, when set, is when the break it is about began. A Preview is a
+// sample from POST /v1/notify/preview: its buttons, sent with the kind
+// "preview", only close it.
+type Nudge struct {
+	Kind      string        `json:"kind"`
+	Title     string        `json:"title"`
+	Body      string        `json:"body"`
+	Markup    string        `json:"markup"`
+	Mood      string        `json:"mood"`
+	Actions   []NudgeAction `json:"actions"`
+	At        int64         `json:"at"`
+	UntilAt   *int64        `json:"until_at"`
+	StartedAt *int64        `json:"started_at"`
+	Preview   bool          `json:"preview"`
+}
+
+// NotifyPreview is the POST /v1/notify/preview response: the nudges it will
+// show, in order, a few seconds apart.
+type NotifyPreview struct {
+	Nudges []Nudge `json:"nudges"`
+}
+
+// NudgeAction is a nudge's button.
+type NudgeAction struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+}
+
+// NudgeList is the GET /v1/nudges response, newest first.
+type NudgeList struct {
+	Nudges []Nudge `json:"nudges"`
+}
+
+// NudgeActRequest is the POST /v1/nudges/act body: a click on a nudge's button.
+type NudgeActRequest struct {
+	Kind   string `json:"kind"`
+	Action string `json:"action"`
+}
+
 // Config mirrors config.toml (docs/03-data-model.md#configuration). Durations
 // and HH:MM times stay strings. It is also the string form internal/config
 // reads and writes, hence the toml tags.

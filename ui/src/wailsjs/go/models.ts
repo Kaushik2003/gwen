@@ -2453,6 +2453,98 @@ export namespace wire {
 	        this.before_task_id = source["before_task_id"];
 	    }
 	}
+	export class NudgeAction {
+	    id: string;
+	    label: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new NudgeAction(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.label = source["label"];
+	    }
+	}
+	export class Nudge {
+	    kind: string;
+	    title: string;
+	    body: string;
+	    markup: string;
+	    mood: string;
+	    actions: NudgeAction[];
+	    at: number;
+	    until_at?: number;
+	    started_at?: number;
+	    preview: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new Nudge(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.kind = source["kind"];
+	        this.title = source["title"];
+	        this.body = source["body"];
+	        this.markup = source["markup"];
+	        this.mood = source["mood"];
+	        this.actions = this.convertValues(source["actions"], NudgeAction);
+	        this.at = source["at"];
+	        this.until_at = source["until_at"];
+	        this.started_at = source["started_at"];
+	        this.preview = source["preview"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class NotifyPreview {
+	    nudges: Nudge[];
+	
+	    static createFrom(source: any = {}) {
+	        return new NotifyPreview(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.nudges = this.convertValues(source["nudges"], Nudge);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class NotifyTestResult {
 	    desktop: string;
 	    phone: string;
@@ -2469,6 +2561,38 @@ export namespace wire {
 	}
 	
 	
+	
+	
+	export class NudgeList {
+	    nudges: Nudge[];
+	
+	    static createFrom(source: any = {}) {
+	        return new NudgeList(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.nudges = this.convertValues(source["nudges"], Nudge);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class Optional_int64_ {
 	    Set: boolean;
 	    Null: boolean;

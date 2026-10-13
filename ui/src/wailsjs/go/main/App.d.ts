@@ -5,6 +5,8 @@ import {main} from '../models';
 
 export function AcceptLLMRun(arg1:string,arg2:wire.AcceptRunRequest):Promise<wire.TaskList>;
 
+export function ActOnNudge(arg1:string,arg2:string):Promise<void>;
+
 export function AddResource(arg1:wire.AddResourceRequest):Promise<wire.MemoryResource>;
 
 export function AssistantChat(arg1:wire.AssistantChatRequest):Promise<wire.LlmRun>;
@@ -151,7 +153,11 @@ export function MovePlanTask(arg1:wire.MovePlanTaskRequest):Promise<wire.Plan>;
 
 export function NewTopic():Promise<string>;
 
+export function NotifyPreview():Promise<wire.NotifyPreview>;
+
 export function NotifyTest():Promise<wire.NotifyTestResult>;
+
+export function Nudges(arg1:boolean):Promise<wire.NudgeList>;
 
 export function OpenDashboard(arg1:string):Promise<void>;
 

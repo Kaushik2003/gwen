@@ -13,11 +13,14 @@ const (
 	hardIdle deadlineKind = iota
 	rollover
 	breakLong
+	breakActive
 )
 
 // nextDeadline is the earliest pending deadline: the hard idle threshold in
-// idle_pending, the day rollover whenever clocked in, and break_long during a
-// break, moved to the end of any snooze it falls inside.
+// idle_pending, the day rollover whenever clocked in, break_long during a
+// break, moved to the end of any snooze it falls inside, and break_active
+// once a manual break is old enough while input keeps arriving: typing that
+// began before then sends no fresh activity event to catch it.
 func (s Snapshot) nextDeadline() (time.Time, deadlineKind, bool) {
 	var (
 		best  time.Time
@@ -41,6 +44,9 @@ func (s Snapshot) nextDeadline() (time.Time, deadlineKind, bool) {
 			t = *s.SnoozedUntil
 		}
 		consider(t, breakLong)
+	}
+	if n := s.nudges; s.State == BreakManual && n.present && !n.breakActiveSent && s.Segment != nil {
+		consider(s.Segment.StartedAt.Add(breakActiveAfter), breakActive)
 	}
 	return best, kind, found
 }
@@ -75,6 +81,11 @@ func (d *decider) fire(kind deadlineKind, dl, at time.Time) {
 		d.notify(NudgeBreakLong, dl)
 		n.nextBreakLong = dl.Add(d.s.cfg.Repeat)
 		n.breakLongFired = true
+	case breakActive:
+		d.s.nudges.breakActiveSent = true
+		if at.Sub(dl) <= staleNudge {
+			d.notify(NudgeBreakActive, dl)
+		}
 	}
 }
 

@@ -254,6 +254,19 @@ func (f *Fake) NotifyTest(context.Context) (*wire.NotifyTestResult, error) {
 	return result[*wire.NotifyTestResult](f, "NotifyTest")
 }
 
+func (f *Fake) NotifyPreview(context.Context) (*wire.NotifyPreview, error) {
+	return result[*wire.NotifyPreview](f, "NotifyPreview")
+}
+
+func (f *Fake) Nudges(_ context.Context, card bool) (*wire.NudgeList, error) {
+	return result[*wire.NudgeList](f, "Nudges", card)
+}
+
+func (f *Fake) ActOnNudge(_ context.Context, kind, action string) error {
+	_, err := f.invoke("ActOnNudge", kind, action)
+	return err
+}
+
 func (f *Fake) ListGoals(_ context.Context, status string) (*wire.GoalList, error) {
 	return result[*wire.GoalList](f, "ListGoals", status)
 }

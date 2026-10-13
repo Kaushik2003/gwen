@@ -234,8 +234,11 @@ type nudgeState struct {
 	nextBreakLong   time.Time // zero outside breaks
 	breakLongFired  bool
 	breakActiveSent bool
-	promptedDay     string // the day the clock_in nudge last fired for
-	clockedOutDay   string // the day the user last clocked out of
+	// present is whether input is arriving now: set by activity, cleared by
+	// any idle threshold (the shortest is PresenceThreshold) and the lock.
+	present       bool
+	promptedDay   string // the day the clock_in nudge last fired for
+	clockedOutDay string // the day the user last clocked out of
 }
 
 // shownSet records which nudge kinds are showing: sent and not withdrawn.

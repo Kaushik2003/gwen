@@ -155,6 +155,7 @@ type fakeBus struct {
 	notifys []notifyCall
 	closed  []uint32
 	sigs    chan *dbus.Signal
+	dnd     bool
 }
 
 type notifyCall struct {
@@ -187,10 +188,19 @@ func (b *fakeBus) Close(_ context.Context, id uint32) error {
 
 func (b *fakeBus) Signals() (<-chan *dbus.Signal, error) { return b.sigs, nil }
 
+func (b *fakeBus) Inhibited(context.Context) (bool, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.dnd, nil
+}
+
+// silent stands in for the sound player.
+func silent(context.Context) error { return nil }
+
 func TestDesktopNotify(t *testing.T) {
 	t.Parallel()
 	bus := &fakeBus{caps: []string{"body", "actions"}, sigs: make(chan *dbus.Signal, 4)}
-	d := newDesktop(bus)
+	d := newDesktop(bus, silent)
 	ctx := context.Background()
 	require.True(t, d.Available())
 	require.Equal(t, "desktop", d.Name())
@@ -218,7 +228,7 @@ func TestDesktopNotify(t *testing.T) {
 func TestDesktopWithoutActionCapability(t *testing.T) {
 	t.Parallel()
 	bus := &fakeBus{caps: []string{"body"}, sigs: make(chan *dbus.Signal)}
-	d := newDesktop(bus)
+	d := newDesktop(bus, silent)
 	require.NoError(t, d.Notify(context.Background(), idleNudge))
 	require.Nil(t, bus.notifys[0].actions)
 }
@@ -226,7 +236,7 @@ func TestDesktopWithoutActionCapability(t *testing.T) {
 func TestDesktopActions(t *testing.T) {
 	t.Parallel()
 	bus := &fakeBus{caps: []string{"actions"}, sigs: make(chan *dbus.Signal, 8)}
-	d := newDesktop(bus)
+	d := newDesktop(bus, silent)
 	require.NoError(t, d.Notify(context.Background(), idleNudge))
 	bus.sigs <- &dbus.Signal{Name: notificationsIface + ".ActionInvoked", Body: []any{uint32(1), "break"}}
 	bus.sigs <- &dbus.Signal{Name: notificationsIface + ".ActionInvoked", Body: []any{uint32(1), "default"}}
@@ -246,7 +256,7 @@ func TestDesktopActions(t *testing.T) {
 
 func TestDesktopWithoutBus(t *testing.T) {
 	t.Parallel()
-	d := newDesktop(nil)
+	d := newDesktop(nil, silent)
 	require.False(t, d.Available())
 	require.NoError(t, d.Notify(context.Background(), idleNudge), "a missing bus is a no-op")
 	require.ErrorIs(t, d.Notify(context.Background(), Notification{Kind: KindTest}), ErrUnavailable)
@@ -381,7 +391,7 @@ func TestDispatcherForwardsConfigAndActions(t *testing.T) {
 	require.Equal(t, ActionEvent{Kind: "idle", Action: "back"}, <-d.Actions())
 
 	desk := &fakeBus{caps: []string{"actions"}, sigs: make(chan *dbus.Signal)}
-	dd := NewDispatcher(newDesktop(desk), phone, nil, cfgWith(true, false))
+	dd := NewDispatcher(newDesktop(desk, silent), phone, nil, cfgWith(true, false))
 	require.NoError(t, dd.desktop.Notify(context.Background(), idleNudge))
 	dd.Withdraw("idle")
 	dd.Wait()

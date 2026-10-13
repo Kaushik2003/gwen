@@ -28,15 +28,25 @@ func TestPanelLine(t *testing.T) {
 		{ID: "e1", At: wire.Millis(testutil.At("08:00")), Level: 2},
 	}}
 	f := fake().Returns("Status", st, nil).Returns("GetProject", &projectP, nil).Returns("GetTask", &taskT, nil).Returns("GetPlan", plan, nil).
-		Returns("ListProjects", &wire.ProjectList{Projects: []wire.Project{projectP}}, nil).Returns("EnergyReport", energy, nil)
-	out, errOut, code := runCLI(t, f, "panel")
+		Returns("ListProjects", &wire.ProjectList{Projects: []wire.Project{projectP}}, nil).Returns("EnergyReport", energy, nil).
+		Returns("Nudges", &wire.NudgeList{Nudges: []wire.Nudge{
+			{Kind: "idle", Title: "Psst", Body: "Quiet", Markup: "<b>Quiet</b>", Mood: "winking", Actions: []wire.NudgeAction{{ID: "back", Label: "I'm here"}}, At: 2},
+			{Kind: "test", At: 1},
+		}}, nil)
+	out, errOut, code := runCLI(t, f, "panel", "--card")
 	require.Equal(t, exitOK, code, errOut)
 	require.JSONEq(t, `{"state": "working", "worked_ms": 20820000, "break_ms": 2280000, "target_ms": 28800000, "since_ms": 11520000,
 		"project": "Internship", "color": "#3b82f6", "task": "Two pointers",
 		"next": {"task_id": "now", "project_id": "none", "title": "Two pointers", "start_at": `+fmt.Sprint(wire.Millis(testutil.At("10:00")))+`, "minutes": 60, "now": true},
 		"more": 1, "project_id": "`+pID+`", "projects": [{"id": "`+pID+`", "name": "Internship", "color": "#3b82f6"}],
-		"energy": {"id": "e2", "at": `+fmt.Sprint(wire.Millis(testutil.At("09:00")))+`, "level": 4}}`, out)
+		"energy": {"id": "e2", "at": `+fmt.Sprint(wire.Millis(testutil.At("09:00")))+`, "level": 4},
+		"nudge": {"kind": "idle", "title": "Psst", "body": "Quiet", "markup": "<b>Quiet</b>", "mood": "winking",
+			"actions": [{"id": "back", "label": "I'm here"}], "at": 2, "until_at": null, "started_at": null, "preview": false}}`, out)
 	require.Equal(t, []any{1}, lastCall(t, f, "EnergyReport"), "the last day's check-ins")
+	require.Equal(t, []any{true}, lastCall(t, f, "Nudges"), "the panel's widget asks as the card")
+	_, _, code = runCLI(t, f, "panel")
+	require.Equal(t, exitOK, code)
+	require.Equal(t, []any{false}, lastCall(t, f, "Nudges"), "a desktop copy does not")
 }
 
 func TestPanelLineWithoutTheDaemon(t *testing.T) {
@@ -44,7 +54,7 @@ func TestPanelLineWithoutTheDaemon(t *testing.T) {
 	out, errOut, code := runCLI(t, fake().Returns("Status", nil, client.ErrDaemonNotRunning), "panel")
 	require.Equal(t, exitOK, code, errOut, "the widget shows Gwen as off rather than an error")
 	require.JSONEq(t, `{"state": "down", "worked_ms": 0, "break_ms": 0, "target_ms": 0, "since_ms": 0, "project": "", "color": "", "task": "",
-		"next": null, "more": 0, "project_id": "", "projects": null, "energy": null}`, out)
+		"next": null, "more": 0, "project_id": "", "projects": null, "energy": null, "nudge": null}`, out)
 }
 
 func TestEnergy(t *testing.T) {

@@ -20,8 +20,9 @@ const PresenceThreshold = 5 * time.Second
 const staleNudge = 60 * time.Second
 
 // breakActiveAfter is how long a manual break must last before typing during
-// it nudges.
-const breakActiveAfter = 60 * time.Second
+// it nudges: long enough to click "Start break" and move off the keyboard,
+// short enough that getting back to work is noticed quickly.
+const breakActiveAfter = 15 * time.Second
 
 // quickRestart bounds how long the daemon may have been gone for an open
 // segment to survive recovery untouched.
