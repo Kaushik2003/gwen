@@ -23,3 +23,16 @@ export function over(hex: string, a: number, background = "#141516"): string {
   const mix = fg.map((c, i) => Math.round(c * a + bg[i] * (1 - a)));
   return `rgb(${mix.join(", ")})`;
 }
+
+/** Ink or white, whichever reads on a label set inside hex: dark text on a light fill, light text on a dark one. */
+export function readableOn(hex: string): string {
+  const h = hex.replace("#", "");
+  const full = h.length === 3 ? h.replace(/./g, (c) => c + c) : h.slice(0, 6);
+  const n = parseInt(full, 16);
+  if (!Number.isFinite(n) || full.length !== 6) return "rgba(255, 255, 255, 0.92)";
+  const r = (n >> 16) & 255,
+    g = (n >> 8) & 255,
+    b = n & 255;
+  const luma = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luma > 0.6 ? "rgba(0, 0, 0, 0.78)" : "rgba(255, 255, 255, 0.92)";
+}

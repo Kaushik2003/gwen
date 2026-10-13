@@ -20,7 +20,7 @@ type Tone = "primary" | "secondary" | "ghost" | "danger" | "destroy";
 type Size = "sm" | "md" | "lg";
 
 const tones: Record<Tone, string> = {
-  primary: "bg-accent text-white hover:bg-accent-hover active:bg-accent-focus",
+  primary: "bg-accent text-on-accent hover:bg-accent-hover active:bg-accent-pressed",
   secondary: "border border-line-strong bg-surface-2 text-ink hover:border-line-3 hover:bg-surface-3",
   ghost: "text-ink-subtle hover:bg-surface-2 hover:text-ink",
   danger: "border border-line-strong bg-surface-2 text-danger hover:border-danger/50 hover:bg-danger/10",
@@ -323,7 +323,7 @@ export function Segmented<T extends string | number>({
   );
 }
 
-type BadgeTone = "neutral" | "accent" | "working" | "idle" | "break" | "danger";
+export type BadgeTone = "neutral" | "accent" | "working" | "idle" | "break" | "danger";
 const badgeTones: Record<BadgeTone, string> = {
   neutral: "bg-surface-3 text-ink-muted",
   accent: "bg-accent/15 text-accent-hover",

@@ -2,46 +2,47 @@
 
 ---
 
-version: 1.0
+version: 1.1
 name: Gwen-Workshop-Desktop
 product: Gwen local AI companion and inference workspace
-description: "A restrained, cinematic engineering-workstation UI for a personal AI companion. The visual reference is a believable maker's workstation: near-black graphite surfaces, compact technical panels, warm neutral text, disciplined red accents, practical diagnostic colors, code and terminal typography, and a persistent but unobtrusive character presence. It should feel like software built by a resourceful engineer, not a generic cyberpunk HUD or a marketing website. Every panel must serve a real task. Avoid decorative holograms, atmospheric gradients, excessive glow, oversized headings, and fake telemetry."
+description: "A restrained, cinematic engineering-workstation UI for a personal AI companion. The visual reference is an obsidian-black maker's workstation shot through with a Spider-Man-inspired duality: disciplined crimson action accents against a believable deep-blue signal color, printed-comic-panel contrast, and warm neutral text. It should feel like software built by a resourceful engineer with a web-slinger's palette, not a generic cyberpunk HUD or a marketing website. Every panel must serve a real task. Avoid decorative holograms, atmospheric gradients, excessive glow, oversized headings, and fake telemetry."
 
 colors:
-  canvas: "#0A0C0F"
-  surface-1: "#11151A"
-  surface-2: "#171C22"
-  surface-3: "#1D242C"
-  surface-4: "#252D36"
-  hairline: "#29313B"
-  hairline-strong: "#3A4653"
-  hairline-subtle: "#20262D"
-  ink: "#E8EDF2"
-  ink-muted: "#B2BCC7"
-  ink-subtle: "#84909D"
-  ink-tertiary: "#606C78"
-  accent: "#D94A57"
-  accent-hover: "#EC606B"
-  accent-pressed: "#B93643"
-  accent-soft: "#351C22"
-  accent-focus: "#F07A83"
+  canvas: "#0D1012"         # Obsidian — base canvas, never flat black
+  surface-1: "#141819"      # Ink — cards, panels
+  surface-2: "#1C2225"      # Slate — elevated, hover
+  surface-3: "#232A2E"      # derived — active row / nested emphasis
+  surface-4: "#2B3338"      # derived — menus, popovers, command palette
+  hairline: "#2A3236"       # derived
+  hairline-strong: "#3C464D" # derived
+  hairline-subtle: "#1A2024" # derived
+  ink: "#F2F1ED"            # Soft Pearl — body text (display numerals/titles may step up to Pop White #FCFBF8)
+  ink-muted: "#AFA2A0"      # Ash — muted text, metadata, captions
+  ink-subtle: "#958A88"     # derived from Ash
+  ink-tertiary: "#696160"   # derived from Ash — disabled only
+  accent: "#D72638"         # Crimson Silk — the action colour, budgeted
+  accent-hover: "#E2495A"   # derived, lightened Crimson Silk
+  accent-pressed: "#98111E" # Ruby Red
+  accent-soft: "#3F0D12"    # Deep Bordeaux — warm surface, red bands
+  accent-focus: "#F2707D"   # derived, lightest red — focus ring only
   on-accent: "#FFFFFF"
-  success: "#55C58A"
-  success-soft: "#172D23"
-  warning: "#E5B45B"
-  warning-soft: "#302819"
-  danger: "#F06A6A"
-  danger-soft: "#351C1C"
-  info: "#76B4E8"
-  info-soft: "#192A38"
-  telemetry-red: "#F06464"
-  telemetry-amber: "#E5B45B"
-  telemetry-blue: "#76B4E8"
-  telemetry-green: "#55C58A"
-  overlay: "#05070ACC"
-  scrim: "#05070A99"
-  inverse-canvas: "#F1F3F5"
-  inverse-ink: "#11151A"
+  success: "#4FB88A"        # derived jade — no bright green in source palette
+  success-soft: "#235451"   # Green
+  warning: "#F2B33D"        # Taxi Yellow
+  warning-soft: "#332814"   # derived
+  danger: "#E5384A"         # derived from Scarlet Bikini, brightened for text contrast
+  danger-soft: "#260A0E"    # Bordeaux Deep — "never black-on-red"
+  info: "#4D9BDB"           # derived from Aegean Sky, lightened for legibility on obsidian
+  info-soft: "#1A1A2E"      # Navy
+  telemetry-red: "#E5384A"  # = danger
+  telemetry-amber: "#F2B33D" # = warning
+  telemetry-blue: "#4D9BDB"  # = info
+  telemetry-green: "#4FB88A" # = success
+  overlay: "#0D1012CC"
+  scrim: "#0D101299"
+  inverse-canvas: "#EFE8DE" # Sandy Linen — rare light-surface inverse
+  inverse-ink: "#141819"    # Ink
+  highlight: "#FBE4E3"      # Soft Blush — rare highlight, celebratory character moments only
 
 typography:
   display-xl:
@@ -315,8 +316,9 @@ The companion experience is the default. Engineering panels are available when u
 
 ### Core characteristics
 
-- Graphite-black canvas with slightly lifted charcoal panels.
-- Restrained red accent used for selection, active controls, and a small amount of brand identity.
+- Obsidian-black canvas with slightly lifted charcoal/ink panels — never flat, never pure `#000`.
+- Restrained crimson accent used for selection, active controls, and a small amount of brand identity.
+- A single deep signal-blue reserved for info/telemetry, giving the red a quiet counterpart rather than a second loud accent.
 - Green, amber, red, and blue reserved for meaningful status and telemetry.
 - Compact panel headers, thin borders, readable labels, and precise alignment.
 - Sans-serif UI text paired with monospaced code, logs, IDs, and measured values.
@@ -329,11 +331,41 @@ The companion experience is the default. Engineering panels are available when u
 
 Do not reproduce proprietary movie frames or pretend the interface is an exact screen from a film. Treat the film's workshop-software feel as a broad reference: grounded engineering tools, a compact interface, and technology with a reason to exist.
 
+The Spider-Man reference above is a palette and mood cue only — obsidian black, printed-comic contrast, a disciplined red/blue duality. Do not reproduce the webbing pattern, the spider emblem, suit linework, or any other trademarked character likeness anywhere in the product, and never imply the app is an official or licensed Spider-Man product.
+
 ## 2. Color System
+
+### Palette source
+
+The token set below is built from a named obsidian-black swatch board, reconciled against the Spider-Man mood reference (obsidian black, printed-comic red/blue, webbing white). Each row is either a direct source swatch or a derived tint built to fill a gap the source board didn't cover (contrast, hover/pressed states, etc.). Treat the named swatches as the identity; derived tints exist only to make that identity usable at UI scale.
+
+| Swatch | Hex | Role in token set |
+|---|---|---|
+| Obsidian | `#0D1012` | `canvas` |
+| Ink | `#141819` | `surface-1`, `inverse-ink` |
+| Slate | `#1C2225` | `surface-2` |
+| Deep Bordeaux | `#3F0D12` | `accent-soft` (warm surface, red bands) |
+| Bordeaux Deep | `#260A0E` | `danger-soft` (cards on a red band — never black-on-red) |
+| Crimson Depth | `#710014` | reserved — dramatic grounds, not currently assigned to a token |
+| Ruby Red | `#98111E` | `accent-pressed` |
+| Crimson Silk | `#D72638` | `accent` — the action colour, budgeted |
+| Taxi Yellow | `#F2B33D` | `warning`, `telemetry-amber` |
+| Ash | `#AFA2A0` | `ink-muted` |
+| Soft Pearl | `#F2F1ED` | `ink` (body text) |
+| Pop White | `#FCFBF8` | display numerals / titles only, used at the `ink` position for emphasis, not a separate token |
+| Soft Blush | `#FBE4E3` | `highlight` — rare, celebratory character moments only |
+| Aegean Sky | `#1664B0` | source for `info` / `telemetry-blue` (lightened — see below) |
+| Sandy Linen | `#EFE8DE` | `inverse-canvas` |
+| Scarlet Bikini | `#D21624` | source for `danger` / `telemetry-red` (brightened — see below) |
+| Green | `#235451` | `success-soft` |
+| Navy | `#1A1A2E` | `info-soft` |
+| Orange ×2 | `#EC5D3D`, `#F97316` | excluded — a third hot hue would compete with the red/blue duality; kept out by design |
+
+Two swatches needed derived tints rather than raw reuse, because the raw hex is too dark to read as small text or a thin chart line against the obsidian canvas: `info` lightens Aegean Sky to `#4D9BDB`, and `danger` brightens Scarlet Bikini to `#E5384A`. Everything else in the token list below is either a direct swatch or a straightforward lighten/darken of one (surfaces 3–4, hairlines, `ink-subtle`/`ink-tertiary`, `accent-hover`/`accent-focus`, `warning-soft`).
 
 ### Surfaces
 
-- **Canvas** (`{colors.canvas}`): primary app background and deep work area.
+- **Canvas** (`{colors.canvas}`): primary app background and deep work area — Obsidian, never flat.
 - **Surface 1** (`{colors.surface-1}`): default panels, conversation region, sidebars, and editor chrome.
 - **Surface 2** (`{colors.surface-2}`): raised controls, selected rows, inputs, and nested content.
 - **Surface 3** (`{colors.surface-3}`): active list row, code selection background, and emphasized nested regions.
@@ -345,36 +377,38 @@ Surface changes—not heavy shadows—provide most of the depth. Keep adjacent s
 
 ### Accent
 
-- **Workbench Red** (`{colors.accent}`): selected navigation, primary action, recording/active interaction marker, and the occasional important highlight.
+- **Crimson Silk** (`{colors.accent}`): selected navigation, primary action, recording/active interaction marker, and the occasional important highlight.
 - **Accent Hover** (`{colors.accent-hover}`): hover and active emphasis.
-- **Accent Pressed** (`{colors.accent-pressed}`): pressed state.
-- **Accent Soft** (`{colors.accent-soft}`): subtle active-state background behind icons or status indicators.
+- **Accent Pressed** (`{colors.accent-pressed}`, Ruby Red): pressed state.
+- **Accent Soft** (`{colors.accent-soft}`, Deep Bordeaux): subtle active-state background behind icons or status indicators.
 - **Accent Focus** (`{colors.accent-focus}`): keyboard focus outline only.
 
-Red must remain scarce. Do not apply it to every icon, panel border, chart, and label. If all elements are accent-colored, no element feels important.
+Red must remain scarce. Do not apply it to every icon, panel border, chart, and label. If all elements are accent-colored, no element feels important. `danger` sits in the same red family as `accent` by design — the whole identity is red — so the two are told apart by context, label, and icon, never by hue alone; see Semantic colors below.
 
 ### Semantic colors
 
 - **Success green** (`{colors.success}`): completed actions, connected devices, healthy services, successful builds.
-- **Warning amber** (`{colors.warning}`): degraded performance, elevated memory pressure, pending approval, or attention required.
-- **Danger red** (`{colors.danger}`): failures, disconnected critical services, destructive actions, and errors. Use the semantic danger token rather than the brand accent when communicating an actual problem.
-- **Info blue** (`{colors.info}`): neutral technical signals, selected telemetry series, and informational events.
+- **Warning amber** (`{colors.warning}`, Taxi Yellow): degraded performance, elevated memory pressure, pending approval, or attention required.
+- **Danger red** (`{colors.danger}`): failures, disconnected critical services, destructive actions, and errors. Use the semantic danger token rather than the brand accent when communicating an actual problem. It reads as a related-but-distinct red from `accent`, never the same button red.
+- **Info blue** (`{colors.info}`, from Aegean Sky): neutral technical signals, selected telemetry series, and informational events. This is the one deliberate counterpart to the red identity — use it, not a second red, whenever a cooler, calmer signal is needed.
 
 Semantic color always accompanies a text label, icon, or shape difference. Do not communicate status by color alone.
 
 ### Telemetry colors
 
-The telemetry series have stable identities to make live charts readable across sessions: red for pressure/latency, amber for queue or temperature-like signals, blue for memory/token rate, and green for healthy throughput. Choose series according to their meaning and keep the mapping consistent in every chart.
+The telemetry series have stable identities to make live charts readable across sessions: red for pressure/latency, amber for queue or temperature-like signals, blue for memory/token rate, and green for healthy throughput. Each telemetry color equals its semantic counterpart exactly (`telemetry-red` = `danger`, etc.) — there is no separate chart-only hue to track. Choose series according to their meaning and keep the mapping consistent in every chart.
 
 Do not show made-up values. When metrics are unavailable, display `Unavailable`, `Waiting for data`, or `Not measured` instead of sample numbers that look real.
 
 ### Contrast and restraint
 
-- Primary content uses `ink`; secondary labels use `ink-muted`.
+- Primary content uses `ink` (Soft Pearl); secondary labels use `ink-muted` (Ash).
+- Display-scale numerals and card titles may step up to Pop White (`#FCFBF8`) at the `ink` position for extra emphasis — the only context where text brightness exceeds the base `ink` value.
 - `ink-subtle` is for low-priority metadata, not essential instructions.
 - `ink-tertiary` is limited to disabled controls and very low-priority annotations.
 - Never use a low-contrast label for an action the user needs to find.
 - Avoid gradients in normal surfaces. A barely perceptible tint is acceptable only when it communicates a state, not atmosphere.
+- `{colors.highlight}` (Soft Blush) is reserved for rare, positive character moments (see §6, `happy` state) — it is not a general-purpose UI color and should not appear in panels, charts, or navigation.
 
 ## 3. Typography
 
@@ -502,7 +536,7 @@ The character state is driven by the real conversation pipeline, not random anim
 | `listening` | Microphone capture is active | Attentive pose; subtle audio-reactive cue if input level is available |
 | `processing` | A request is being processed | Focused pose; restrained indicator; no fake thought timer |
 | `speaking` | Voice output is playing | Speaking animation synchronized to audio where feasible |
-| `happy` | Positive response or explicit persona expression | Brief expression change, then return to neutral |
+| `happy` | Positive response or explicit persona expression | Brief expression change, then return to neutral; may use a single hairline-thin `{colors.highlight}` glow behind the character stage, nothing else |
 | `confused` | Gwen asks for clarification or reports uncertainty | Brief puzzled expression; do not use when the model is merely slow |
 | `annoyed` | Explicitly chosen persona reaction, only when contextually appropriate | Controlled and brief expression; never obscure important errors |
 | `error` | A real runtime, audio, or tool error occurs | Clear status message plus a restrained concerned/error pose |

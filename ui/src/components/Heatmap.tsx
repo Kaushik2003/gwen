@@ -35,12 +35,12 @@ export default function Heatmap({ heatmap, targetMs, today }: { heatmap: wire.He
       <div className="overflow-x-auto">
         <svg viewBox={`0 0 ${left + weeks * (size + gap)} ${top + 7 * (size + gap)}`} className="w-full min-w-160" role="img" aria-label={`${heatmap.year}: ${tracked} days tracked`}>
           {months.map((c) => (
-            <text key={c.month} x={left + c.x * (size + gap)} y={10} fontSize={10} fill="#62666d">
+            <text key={c.month} x={left + c.x * (size + gap)} y={10} fontSize={10} fill="var(--color-ink-faint)">
               {monthNames[c.month]}
             </text>
           ))}
           {["Mon", "", "Wed", "", "Fri", "", ""].map((l, i) => (
-            <text key={i} x={0} y={top + i * (size + gap) + size - 2} fontSize={9} fill="#62666d">
+            <text key={i} x={0} y={top + i * (size + gap) + size - 2} fontSize={9} fill="var(--color-ink-faint)">
               {l}
             </text>
           ))}
@@ -54,9 +54,9 @@ export default function Heatmap({ heatmap, targetMs, today }: { heatmap: wire.He
                 width={size}
                 height={size}
                 rx={2.5}
-                fill={lv === 0 ? "#18191a" : "#27a644"}
+                fill={lv === 0 ? "var(--color-surface-3)" : "var(--color-working)"}
                 fillOpacity={lv === 0 ? 1 : 0.22 + 0.195 * lv}
-                stroke={c.day === today ? "#f7f8f8" : "none"}
+                stroke={c.day === today ? "var(--color-ink)" : "none"}
                 strokeWidth={c.day === today ? 1.25 : 0}
               >
                 <title>{`${formatDate(c.day)}: ${c.ms > 0 ? formatDuration(c.ms) : "nothing tracked"}`}</title>
@@ -71,7 +71,7 @@ export default function Heatmap({ heatmap, targetMs, today }: { heatmap: wire.He
           <span
             key={l}
             className="inline-block size-2.75 rounded-[2.5px]"
-            style={{ backgroundColor: i === 0 ? "#18191a" : "#27a644", opacity: i === 0 ? 1 : 0.22 + 0.195 * i }}
+            style={{ backgroundColor: i === 0 ? "var(--color-surface-3)" : "var(--color-working)", opacity: i === 0 ? 1 : 0.22 + 0.195 * i }}
           />
         ))}
         <span className="ml-1">More, against the daily target</span>

@@ -524,7 +524,7 @@ function WeekdayDots({ rule }: { rule: string }) {
   return (
     <span className="flex w-34 shrink-0 gap-1" title={describeRule(rule)} aria-label={describeRule(rule)}>
       {weekdayCodes.map((c, i) => (
-        <span key={c} aria-hidden className={cx("grid size-4 place-items-center rounded-full text-[9px] font-semibold", lit.has(c) ? "bg-accent/80 text-white" : "bg-surface-3 text-ink-faint")}>
+        <span key={c} aria-hidden className={cx("grid size-4 place-items-center rounded-full text-[9px] font-semibold", lit.has(c) ? "bg-accent/80 text-on-accent" : "bg-surface-3 text-ink-faint")}>
           {dayLetters[i]}
         </span>
       ))}

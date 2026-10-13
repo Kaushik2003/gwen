@@ -116,7 +116,12 @@ export default function History({ readOnly = readOnlyUI }: { readOnly?: boolean 
                   formatter={(v, k) => [formatDuration(Number(v) * 3_600_000), projects.get(String(k))?.name ?? String(k)]}
                 />
                 {target > 0 && (
-                  <ReferenceLine y={target / 3_600_000} stroke="#62666d" strokeDasharray="4 4" label={{ value: "Target", position: "insideTopRight", fill: "#8a8f98", fontSize: 11 }} />
+                  <ReferenceLine
+                    y={target / 3_600_000}
+                    stroke="var(--color-ink-faint)"
+                    strokeDasharray="4 4"
+                    label={{ value: "Target", position: "insideTopRight", fill: "var(--color-ink-subtle)", fontSize: 11 }}
+                  />
                 )}
                 {[...projects.entries()].map(([id, p], i, arr) => (
                   <Bar key={id} dataKey={id} stackId="w" fill={p.color} cursor="pointer" radius={i === arr.length - 1 ? [3, 3, 0, 0] : 0} maxBarSize={44} isAnimationActive={false} />

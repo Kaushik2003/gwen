@@ -625,31 +625,34 @@ data and stay as they are.
 
 | Token | Ghost (default) | Tide | Ember |
 |---|---|---|---|
-| canvas | `#0F0E13` | `#0B0F14` | `#110F0D` |
-| surface-1 | `#16151C` | `#111821` | `#191613` |
-| surface-2 | `#1D1B24` | `#172029` | `#201C18` |
-| surface-3 | `#25222D` | `#1E2833` | `#28231E` |
-| surface-4 | `#2D2A36` | `#26313D` | `#302A24` |
-| line | `#2F2B38` | `#26303B` | `#322C26` |
-| line-strong | `#443F50` | `#384656` | `#473F37` |
-| ink | `#F3F0F5` | `#E9EFF5` | `#F4EFE9` |
-| ink-muted | `#C7C0CD` | `#B6C2CE` | `#CDC4B9` |
-| ink-subtle | `#958D9E` | `#8392A1` | `#998F84` |
-| ink-faint (disabled only) | `#6C6575` | `#5E6C7A` | `#70665D` |
-| accent | `#E0679A` rose | `#3EC1AF` teal | `#E9935A` apricot |
-| accent-hover / pressed | `#EB86B0` / `#C44F80` | `#62D5C5` / `#2BA393` | `#F1AB7A` / `#CD7942` |
-| accent-soft | `#3A1E2C` | `#12302C` | `#3B2617` |
-| on-accent (text on buttons) | `#1B0D14` | `#04130F` | `#1C0F06` |
-| focus | `#F2A5C5` | `#86E2D6` | `#F6C29A` |
-| success / warning | `#5CC58E` / `#E9BE5C` | `#86C66A` / `#E9B65A` | `#6CC58C` / `#E6D16A` |
-| danger / info | `#F2694F` / `#62C3D0` | `#EF6B6B` / `#7FA9EE` | `#F0656A` / `#79B2E6` |
+| canvas | `#0D1012` | `#0B0F14` | `#110F0D` |
+| surface-1 | `#141819` | `#111821` | `#191613` |
+| surface-2 | `#1C2225` | `#172029` | `#201C18` |
+| surface-3 | `#232A2E` | `#1E2833` | `#28231E` |
+| surface-4 | `#2B3338` | `#26313D` | `#302A24` |
+| line | `#2A3236` | `#26303B` | `#322C26` |
+| line-strong | `#3C464D` | `#384656` | `#473F37` |
+| ink | `#F2F1ED` | `#E9EFF5` | `#F4EFE9` |
+| ink-muted | `#AFA2A0` | `#B6C2CE` | `#CDC4B9` |
+| ink-subtle | `#958A88` | `#8392A1` | `#998F84` |
+| ink-faint (disabled only) | `#696160` | `#5E6C7A` | `#70665D` |
+| accent | `#D72638` crimson | `#3EC1AF` teal | `#E9935A` apricot |
+| accent-hover / pressed | `#E2495A` / `#98111E` | `#62D5C5` / `#2BA393` | `#F1AB7A` / `#CD7942` |
+| accent-soft | `#3F0D12` | `#12302C` | `#3B2617` |
+| on-accent (text on buttons) | `#FFFFFF` | `#04130F` | `#1C0F06` |
+| focus | `#F2707D` | `#86E2D6` | `#F6C29A` |
+| success / warning | `#4FB88A` / `#F2B33D` | `#86C66A` / `#E9B65A` | `#6CC58C` / `#E6D16A` |
+| danger / info | `#E5384A` / `#4D9BDB` | `#EF6B6B` / `#7FA9EE` | `#F0656A` / `#79B2E6` |
 
-Measured contrast (WCAG): ink on canvas 16.6 to 17.0, ink-muted on surface-1 9.9 to 10.5, ink-subtle on
-surface-1 5.6 to 5.7, text on accent buttons 5.9 to 8.6, accent on canvas 6.0 to 8.7. All body text passes AA.
+Measured contrast (WCAG): ink on canvas 16.6 to 16.9, ink-muted on surface-1 7.2 to 10.5, ink-subtle on
+surface-1 5.3 to 5.7, text on accent buttons 4.9 to 8.6, accent on canvas 3.8 to 8.7. All body text passes AA;
+Ghost's accent trades some of that headroom for staying a believable, restrained crimson rather than a pastel.
 
-**Why Ghost is the default:** it comes from Gwen's own art (black suit, white hood, magenta-pink lining), so the
-app and the character look like one thing. It is warm without being loud, and its danger colour is an
-orange-red that reads differently from the rose accent. If you want something cooler, pick Tide.
+**Why Ghost is the default:** it's rebuilt around Gwen's `design.md` swatch board — obsidian black with a
+Spider-Man-inspired red/blue duality, not the earlier rose Spider-Gwen lining. Crimson Silk stays the one
+budgeted action colour; danger is a distinct, slightly brighter red (Scarlet Bikini, lightened) so a real
+problem never looks like a button; and Aegean Sky supplies the one cool signal colour the app needs, instead
+of a second warm accent. If you want the cooler Tide or warmer Ember palette instead, pick it in Settings.
 
 ### 5.3 Navigation
 

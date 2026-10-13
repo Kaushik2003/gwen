@@ -1,5 +1,6 @@
 import {
   BookMarked,
+  Cable,
   CalendarClock,
   ChartColumn,
   ClipboardCheck,
@@ -8,18 +9,21 @@ import {
   FolderKanban,
   History as HistoryIcon,
   Inbox as InboxIcon,
+  ListChecks,
   Play,
   Settings as SettingsIcon,
   Sparkles,
   Square,
   Sun,
   Target,
+  Workflow,
   type LucideIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ComponentType } from "react";
 import { App as Host, isHub, onEvent } from "./api";
 import BrandMark from "./components/BrandMark";
 import { BriefingProvider } from "./components/Briefing";
+import { TabGroup } from "./components/TabGroup";
 import { FeedbackProvider } from "./components/feedback";
 import { Button, Dot, IconButton, Splash, cx, stateColor } from "./components/ui";
 import { DaemonProvider, useDaemon, useTick } from "./daemon";
@@ -27,6 +31,7 @@ import { clockFace, formatDuration } from "./format";
 import { NavContext, useNav } from "./nav";
 import Assistant from "./screens/Assistant";
 import Board from "./screens/Board";
+import Connections from "./screens/Connections";
 import FirstRun from "./screens/FirstRun";
 import Goals from "./screens/Goals";
 import History from "./screens/History";
@@ -41,6 +46,7 @@ import Settings from "./screens/Settings";
 import Stats from "./screens/Stats";
 import Talk from "./screens/Talk";
 import Today from "./screens/Today";
+import Work from "./screens/Work";
 import { useTracking } from "./tracking";
 
 interface Screen {
@@ -50,28 +56,71 @@ interface Screen {
   view: ComponentType;
 }
 
-const allScreens: Screen[] = [
-  { id: "today", label: "Today", icon: Sun, view: Today },
-  { id: "assistant", label: "Assistant", icon: Sparkles, view: Assistant },
-  { id: "memory", label: "Memory", icon: BookMarked, view: Memory },
-  { id: "inbox", label: "Inbox", icon: InboxIcon, view: Inbox },
-  { id: "board", label: "Board", icon: Columns3, view: Board },
+interface NavGroup {
+  id: string;
+  label: string;
+  icon: LucideIcon;
+  tabs: Screen[];
+}
+
+// Leaf screens. Each keeps the id it has always had, since the tray (cmd/gwen-tray/main.go) and
+// the KDE panel (packaging/plasma/.../main.qml) hardcode "assistant", "inbox", and "board" to open
+// the dashboard on them, and several in-app deep links (go("board", "matrix"), go("plan", "chat"),
+// go("goals")) do the same. Grouping below is purely a sidebar and layout change; every one of
+// those calls still resolves to the same screen it always did.
+const todayScreen: Screen = { id: "today", label: "Today", icon: Sun, view: Today };
+const assistantScreen: Screen = { id: "assistant", label: "Gwen", icon: Sparkles, view: Assistant };
+const inboxScreen: Screen = { id: "inbox", label: "Inbox", icon: InboxIcon, view: Inbox };
+const boardScreen: Screen = { id: "board", label: "Board", icon: Columns3, view: Board };
+const projectsScreen: Screen = { id: "projects", label: "Projects", icon: FolderKanban, view: Projects };
+const planScreen: Screen = { id: "plan", label: "Day plan", icon: CalendarClock, view: Plan };
+const goalsScreen: Screen = { id: "goals", label: "Goals", icon: Target, view: Goals };
+const workScreen: Screen = { id: "work", label: "Work", icon: Workflow, view: Work };
+const weeklyScreen: Screen = { id: "review", label: "Weekly", icon: ClipboardCheck, view: Review };
+const statsScreen: Screen = { id: "stats", label: "Stats", icon: ChartColumn, view: Stats };
+const historyScreen: Screen = { id: "history", label: "History", icon: HistoryIcon, view: History };
+const connectionsScreen: Screen = { id: "connections", label: "Connections", icon: Cable, view: Connections };
+const memoryScreen: Screen = { id: "memory", label: "Memory", icon: BookMarked, view: Memory };
+const settingsScreen: Screen = { id: "settings", label: "Settings", icon: SettingsIcon, view: Settings };
+
+/** The desktop nav, grouped to plan.md §5.3's eight items: Today, Gwen, Tasks, Plan, Work, Review,
+ * Connections, Settings (pinned separately below, as before). Memory has no slot in that table and
+ * plan.md does not say where it goes, so it keeps its own slot rather than losing its nav entry on
+ * a guess; that gap is still open. */
+const navGroups: NavGroup[] = [
+  { id: "today", label: "Today", icon: Sun, tabs: [todayScreen] },
+  { id: "assistant", label: "Gwen", icon: Sparkles, tabs: [assistantScreen] },
+  { id: "tasks", label: "Tasks", icon: ListChecks, tabs: [inboxScreen, boardScreen, projectsScreen] },
+  { id: "plan", label: "Plan", icon: CalendarClock, tabs: [planScreen, goalsScreen] },
+  { id: "work", label: "Work", icon: Workflow, tabs: [workScreen] },
+  { id: "review", label: "Review", icon: ClipboardCheck, tabs: [weeklyScreen, statsScreen, historyScreen] },
+  { id: "connections", label: "Connections", icon: Cable, tabs: [connectionsScreen] },
+  { id: "memory", label: "Memory", icon: BookMarked, tabs: [memoryScreen] },
+];
+const settingsGroup: NavGroup = { id: "settings", label: "Settings", icon: SettingsIcon, tabs: [settingsScreen] };
+const allGroups = [...navGroups, settingsGroup];
+
+function resolveGroup(screenId: string): { group: NavGroup; tab: Screen } | null {
+  for (const g of allGroups) {
+    const tab = g.tabs.find((t) => t.id === screenId);
+    if (tab) return { group: g, tab };
+  }
+  return null;
+}
+
+/** The sync hub's read-only dashboard keeps its own flat four screens (docs/08-clients.md#v3-
+ * additions), unchanged by and untouched by the grouping above. */
+const hubScreens: Screen[] = [
   { id: "plan", label: "Plan", icon: CalendarClock, view: Plan },
   { id: "goals", label: "Goals", icon: Target, view: Goals },
-  { id: "review", label: "Weekly review", icon: ClipboardCheck, view: Review },
   { id: "history", label: "History", icon: HistoryIcon, view: History },
   { id: "stats", label: "Stats", icon: ChartColumn, view: Stats },
-  { id: "projects", label: "Projects & tasks", icon: FolderKanban, view: Projects },
-  { id: "settings", label: "Settings", icon: SettingsIcon, view: Settings },
 ];
-
-/** The hub's read-only dashboard shows only these (docs/08-clients.md#v3-additions). */
-const hubScreens = new Set(["history", "stats", "plan", "goals"]);
-const screens = isHub ? allScreens.filter((s) => hubScreens.has(s.id)) : allScreens;
+const hubGroups: NavGroup[] = hubScreens.map((s) => ({ id: s.id, label: s.label, icon: s.icon, tabs: [s] }));
 
 function Shell() {
   const d = useDaemon();
-  const [nav, setNav] = useState<{ screen: string; param: string | null }>({ screen: screens[0].id, param: null });
+  const [nav, setNav] = useState<{ screen: string; param: string | null }>({ screen: isHub ? hubScreens[0].id : "today", param: null });
   const go = useCallback((screen: string, param: string | null = null) => setNav({ screen, param }), []);
   const main = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -80,7 +129,7 @@ function Shell() {
   // The tray opens the dashboard on a screen: at launch, or in the running window.
   useEffect(() => {
     if (isHub) return;
-    const open = (screen: string) => screens.some((s) => s.id === screen) && go(screen);
+    const open = (screen: string) => resolveGroup(screen) !== null && go(screen);
     Host.StartScreen().then(open, () => {});
     return onEvent("navigate", open);
   }, [go]);
@@ -88,16 +137,40 @@ function Shell() {
   if (d.up === null) return <Splash>Connecting to Gwen…</Splash>;
   if (isHub && d.locked) return <Login />;
   if (!d.up) return isHub ? <Splash>The hub is not reachable. Check that the Pi is on.</Splash> : <FirstRun />;
-  const current = screens.find((s) => s.id === nav.screen) ?? screens[0];
-  const View = current.view;
+
+  if (isHub) {
+    const current = hubScreens.find((s) => s.id === nav.screen) ?? hubScreens[0];
+    const View = current.view;
+    return (
+      <NavContext.Provider value={{ ...nav, go }}>
+        <BriefingProvider>
+          <div className="flex h-full flex-col md:flex-row">
+            <Sidebar current={current.id} groups={hubGroups} />
+            <main ref={main} className="min-w-0 flex-1 overflow-y-auto">
+              <div className="@container mx-auto w-full max-w-290 px-4 py-5 md:px-8 md:py-7">
+                <View key={current.id} />
+              </div>
+            </main>
+          </div>
+        </BriefingProvider>
+      </NavContext.Provider>
+    );
+  }
+
+  const resolved = resolveGroup(nav.screen) ?? resolveGroup("today")!;
+  const View = resolved.tab.view;
+  // Today is a dashboard, not prose: it earns a wider stage than the rest of the app, since
+  // it's where plan.md §5.3 expects people to live. Everything else keeps the narrower,
+  // reading-comfortable cap.
+  const wide = resolved.tab.id === "today";
   return (
     <NavContext.Provider value={{ ...nav, go }}>
       <BriefingProvider>
         <div className="flex h-full flex-col md:flex-row">
-          <Sidebar current={current.id} />
+          <Sidebar current={resolved.group.id} groups={navGroups} settings={settingsGroup} />
           <main ref={main} className="min-w-0 flex-1 overflow-y-auto">
-            <div className="@container mx-auto w-full max-w-290 px-4 py-5 md:px-8 md:py-7">
-              <View key={current.id} />
+            <div className={cx("@container mx-auto w-full px-4 py-5 md:px-8 md:py-7", wide ? "max-w-420" : "max-w-290")}>
+              {resolved.group.tabs.length > 1 ? <TabGroup tabs={resolved.group.tabs} active={resolved.tab.id} /> : <View key={resolved.tab.id} />}
             </div>
           </main>
         </div>
@@ -106,9 +179,9 @@ function Shell() {
   );
 }
 
-function Sidebar({ current }: { current: string }) {
+function Sidebar({ current, groups, settings }: { current: string; groups: NavGroup[]; settings?: NavGroup }) {
   const d = useDaemon();
-  const settings = screens.find((s) => s.id === "settings");
+  const { go } = useNav();
   const inboxCount = d.tasks.filter((t) => t.stage === "inbox" && !t.parent_id).length;
   return (
     <nav
@@ -119,25 +192,21 @@ function Sidebar({ current }: { current: string }) {
         <BrandMark className="size-6" />
         <span className="text-[15px] font-semibold tracking-[-0.01em]">Gwen</span>
       </div>
-      {screens
-        .filter((s) => s !== settings)
-        .map((s) => (
-          <NavItem key={s.id} screen={s} selected={current === s.id} count={s.id === "inbox" ? inboxCount : 0} />
-        ))}
+      {groups.map((g) => (
+        <NavItem key={g.id} label={g.label} icon={g.icon} selected={current === g.id} count={g.id === "tasks" ? inboxCount : 0} onClick={() => go(g.tabs[0].id)} />
+      ))}
       <div className="hidden md:block md:flex-1" />
       {!isHub && <StatusDock />}
-      {settings && <NavItem screen={settings} selected={current === settings.id} />}
+      {settings && <NavItem label={settings.label} icon={settings.icon} selected={current === settings.id} onClick={() => go(settings.tabs[0].id)} />}
     </nav>
   );
 }
 
-function NavItem({ screen, selected, count = 0 }: { screen: Screen; selected: boolean; count?: number }) {
-  const { go } = useNav();
-  const Icon = screen.icon;
+function NavItem({ label, icon: Icon, selected, count = 0, onClick }: { label: string; icon: LucideIcon; selected: boolean; count?: number; onClick: () => void }) {
   return (
     <button
       type="button"
-      onClick={() => go(screen.id)}
+      onClick={onClick}
       aria-current={selected ? "page" : undefined}
       className={cx(
         "flex h-8 shrink-0 items-center gap-2.5 rounded-md px-2.5 text-left text-[13.5px] font-medium transition-colors",
@@ -145,7 +214,7 @@ function NavItem({ screen, selected, count = 0 }: { screen: Screen; selected: bo
       )}
     >
       <Icon size={16} aria-hidden className={selected ? "text-ink" : "text-ink-faint"} />
-      {screen.label}
+      {label}
       {count > 0 && <span className="ml-auto rounded-full bg-accent/20 px-1.5 text-[11px] font-semibold text-accent-hover tabular-nums">{count}</span>}
     </button>
   );

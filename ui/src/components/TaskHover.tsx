@@ -74,7 +74,7 @@ function Card({ task: given, anchor }: { task: wire.Task; anchor: HTMLElement })
     <div
       ref={card}
       role="tooltip"
-      className="pointer-events-none fixed z-50 rounded-xl border border-line-strong bg-surface-2 p-3.5 shadow-[0_12px_40px_rgb(0_0_0/0.55)]"
+      className="pointer-events-none fixed z-50 rounded-xl border border-line-3 bg-surface-2 p-3.5 shadow-[0_12px_40px_rgb(0_0_0/0.55)]"
       style={{ width, left: pos?.left ?? -9999, top: pos?.top ?? -9999 }}
     >
       <div className="text-[14px] leading-snug font-semibold text-ink">{task.title}</div>

@@ -1,35 +1,44 @@
 @import "tailwindcss";
 
-/* The design system is ui/DESIGN.md: a near-black canvas, a surface ladder
-   with hairline borders, light grey ink, and lavender as the only brand
-   accent. State and project colours are data, never decoration. */
+/* The design system is ui/DESIGN.md: a near-black canvas, a surface ladder with hairline
+   borders, light grey ink, and one accent per theme (plan.md §5.2). Tokens keep these names
+   across all three themes; [data-theme] below overrides their values. State and project
+   colours are data, never decoration. */
 @theme {
   --font-sans: "Inter Variable", "Inter", "Noto Sans", system-ui, sans-serif;
 
-  --color-canvas: #010102;
-  --color-surface-1: #0f1011;
-  --color-surface-2: #141516;
-  --color-surface-3: #18191a;
-  --color-surface-4: #191a1b;
-  --color-line: #23252a;
-  --color-line-strong: #34343a;
-  --color-line-3: #3e3e44;
+  /* Ghost (default): obsidian black, crimson accent, a quiet spider-blue signal. */
+  --color-canvas: #0d1012;
+  --color-surface-1: #141819;
+  --color-surface-2: #1c2225;
+  --color-surface-3: #232a2e;
+  --color-surface-4: #2b3338;
+  --color-line: #2a3236;
+  --color-line-strong: #3c464d;
+  --color-line-3: #63717c;
 
-  --color-ink: #f7f8f8;
-  --color-ink-muted: #d0d6e0;
-  --color-ink-subtle: #8a8f98;
-  --color-ink-faint: #62666d;
+  --color-ink: #f2f1ed;
+  --color-ink-muted: #afa2a0;
+  --color-ink-subtle: #958a88;
+  --color-ink-faint: #696160;
 
-  --color-accent: #5e6ad2;
-  --color-accent-hover: #828fff;
-  --color-accent-focus: #5e69d1;
+  --color-accent: #d72638;
+  --color-accent-hover: #e2495a;
+  --color-accent-pressed: #98111e;
+  --color-accent-soft: #3f0d12;
+  --color-accent-focus: #f2707d;
+  --color-on-accent: #ffffff;
 
-  /* Tracking states, matching the tray icons. */
+  /* Tracking states, matching the tray icons; the same in every theme. */
   --color-working: #27a644;
   --color-idle: #f2c94c;
   --color-break: #4ea7fc;
   --color-off: #62666d;
-  --color-danger: #eb5757;
+
+  --color-success: #4fb88a;
+  --color-warning: #f2b33d;
+  --color-danger: #e5384a;
+  --color-info: #4d9bdb;
 
   --text-display: 4.5rem;
   --text-display--line-height: 1;
@@ -120,6 +129,82 @@
       transform: scale(1.08);
     }
   }
+}
+
+/* Three dark themes (plan.md §5.2), picked in Settings > Appearance (src/settings/Appearance.tsx).
+   Unlayered, so these win over @theme's values above regardless of specificity. Ghost repeats the
+   @theme defaults so every theme is an explicit, equally real choice rather than a fallback case. */
+[data-theme="ghost"] {
+  --color-canvas: #0d1012;
+  --color-surface-1: #141819;
+  --color-surface-2: #1c2225;
+  --color-surface-3: #232a2e;
+  --color-surface-4: #2b3338;
+  --color-line: #2a3236;
+  --color-line-strong: #3c464d;
+  --color-line-3: #63717c;
+  --color-ink: #f2f1ed;
+  --color-ink-muted: #afa2a0;
+  --color-ink-subtle: #958a88;
+  --color-ink-faint: #696160;
+  --color-accent: #d72638;
+  --color-accent-hover: #e2495a;
+  --color-accent-pressed: #98111e;
+  --color-accent-soft: #3f0d12;
+  --color-accent-focus: #f2707d;
+  --color-on-accent: #ffffff;
+  --color-success: #4fb88a;
+  --color-warning: #f2b33d;
+  --color-danger: #e5384a;
+  --color-info: #4d9bdb;
+}
+[data-theme="tide"] {
+  --color-canvas: #0b0f14;
+  --color-surface-1: #111821;
+  --color-surface-2: #172029;
+  --color-surface-3: #1e2833;
+  --color-surface-4: #26313d;
+  --color-line: #26303b;
+  --color-line-strong: #384656;
+  --color-line-3: #46576a;
+  --color-ink: #e9eff5;
+  --color-ink-muted: #b6c2ce;
+  --color-ink-subtle: #8392a1;
+  --color-ink-faint: #5e6c7a;
+  --color-accent: #3ec1af;
+  --color-accent-hover: #62d5c5;
+  --color-accent-pressed: #2ba393;
+  --color-accent-soft: #12302c;
+  --color-accent-focus: #86e2d6;
+  --color-on-accent: #04130f;
+  --color-success: #86c66a;
+  --color-warning: #e9b65a;
+  --color-danger: #ef6b6b;
+  --color-info: #7fa9ee;
+}
+[data-theme="ember"] {
+  --color-canvas: #110f0d;
+  --color-surface-1: #191613;
+  --color-surface-2: #201c18;
+  --color-surface-3: #28231e;
+  --color-surface-4: #302a24;
+  --color-line: #322c26;
+  --color-line-strong: #473f37;
+  --color-line-3: #5a5042;
+  --color-ink: #f4efe9;
+  --color-ink-muted: #cdc4b9;
+  --color-ink-subtle: #998f84;
+  --color-ink-faint: #70665d;
+  --color-accent: #e9935a;
+  --color-accent-hover: #f1ab7a;
+  --color-accent-pressed: #cd7942;
+  --color-accent-soft: #3b2617;
+  --color-accent-focus: #f6c29a;
+  --color-on-accent: #1c0f06;
+  --color-success: #6cc58c;
+  --color-warning: #e6d16a;
+  --color-danger: #f0656a;
+  --color-info: #79b2e6;
 }
 
 @layer base {
@@ -273,6 +358,12 @@
   .hatched-grey {
     background-color: rgb(255 255 255 / 0.03);
     background-image: repeating-linear-gradient(135deg, rgb(255 255 255 / 0.13) 0 2px, transparent 2px 6px);
+  }
+
+  /* A soft top-light/bottom-shade on timeline bars, for a touch of material depth over a flat
+     project colour. Painted over the inline backgroundColor, never in place of it. */
+  .bar-sheen {
+    background-image: linear-gradient(180deg, rgb(255 255 255 / 0.16) 0%, rgb(255 255 255 / 0) 45%, rgb(0 0 0 / 0.16) 100%);
   }
 }
 

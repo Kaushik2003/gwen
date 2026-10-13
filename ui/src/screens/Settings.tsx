@@ -1,5 +1,5 @@
 import QRCode from "qrcode";
-import { BellRing, BookMarked, Brain, CalendarClock, CalendarDays, CircleCheck, Cloud, Copy, Info, RefreshCw, Send, Smartphone, Sparkles, Timer, Wrench, type LucideIcon } from "lucide-react";
+import { BellRing, BookMarked, Brain, CalendarClock, CalendarDays, CircleCheck, Cloud, Copy, Info, Palette, RefreshCw, Send, Smartphone, Sparkles, Timer, Wrench, type LucideIcon } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { App, apiError, wire } from "../api";
 import DurationInput from "../components/DurationInput";
@@ -9,6 +9,7 @@ import { Badge, Button, Callout, Input, PageHeader, Panel, Select, ToggleRow, cx
 import { useDaemon } from "../daemon";
 import { useNav } from "../nav";
 import AISettings from "../settings/AI";
+import AppearanceSettings from "../settings/Appearance";
 import CalendarSettings from "../settings/Calendar";
 import { CredentialField } from "../settings/Credential";
 import MemorySettings from "../settings/Memory";
@@ -82,6 +83,7 @@ const sections: { id: string; label: string; icon: LucideIcon }[] = [
   { id: "calendar", label: "Google Calendar", icon: CalendarDays },
   { id: "ai", label: "AI", icon: Sparkles },
   { id: "memory", label: "Memory", icon: BookMarked },
+  { id: "appearance", label: "Appearance", icon: Palette },
   { id: "sync", label: "Sync", icon: Cloud },
   { id: "advanced", label: "Advanced", icon: Wrench },
   { id: "about", label: "About", icon: Info },
@@ -143,6 +145,7 @@ export default function Settings() {
             </>
           )}
           {section === "memory" && <MemorySettings />}
+          {section === "appearance" && <AppearanceSettings />}
           {section === "sync" && <SyncSettings />}
           {section === "advanced" && <ConfigForm title="Advanced" name="log" fields={log} values={c.log} />}
           {section === "about" && <About />}
@@ -296,7 +299,7 @@ function NudgePreview({ desktop }: { desktop: boolean }) {
   );
 }
 
-function PhoneSettings({ config }: { config: wire.Config }) {
+export function PhoneSettings({ config }: { config: wire.Config }) {
   const d = useDaemon();
   const notify = useToast();
   const confirm = useConfirm();

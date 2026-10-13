@@ -85,7 +85,7 @@ export default function Recurrence({
                 onClick={() => toggleDay(d)}
                 className={cx(
                   "grid size-8 place-items-center rounded-full text-xs font-semibold transition-colors",
-                  on ? "bg-accent text-white" : "border border-line-strong bg-surface-2 text-ink-subtle hover:text-ink",
+                  on ? "bg-accent text-on-accent" : "border border-line-strong bg-surface-2 text-ink-subtle hover:text-ink",
                 )}
               >
                 {letters[d]}

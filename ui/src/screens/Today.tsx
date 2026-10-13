@@ -1,4 +1,4 @@
-import { BellOff, CalendarClock, CircleCheck, Coffee, ListTodo, Play, Plus, Radio, ScrollText, Sparkles, Square, Target, TriangleAlert } from "lucide-react";
+import { BellOff, CalendarClock, ChartPie, CircleCheck, Coffee, ListTodo, Play, Plus, Radio, ScrollText, Sparkles, Square, Target, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { App, wire } from "../api";
 import { useBriefing } from "../components/Briefing";
@@ -13,7 +13,7 @@ import { Badge, Button, Callout, Checkbox, Dot, DotSelect, Empty, IconButton, In
 import { useDaemon, useTick } from "../daemon";
 import { clockFace, formatClock, formatDuration, formatLongDate, formatTime, instantOn, parseDuration } from "../format";
 import { useNav } from "../nav";
-import { blockTimes, eventBlocks, groupPlan } from "../plan";
+import { blockTimes, eventBlocks, groupPlan, type PlanGroup } from "../plan";
 import { clockOf, occursOn } from "../rrule";
 import { useTracking } from "../tracking";
 import { TaskForm } from "./Projects";
@@ -124,6 +124,16 @@ export default function Today() {
       minutes: c.duration_minutes,
     }))
     .concat(eventBlocks(plan, from, to));
+  // What's coming up next, across both calendar events and Gwen's own plan: whichever starts
+  // soonest. A task already marked done is never "next", even if its block is still in the future.
+  const next = [...planned.filter((p) => !p.done && p.start > now).map((p) => ({ title: p.title, start: p.start })), ...fixed.filter((f) => f.start > now)].sort(
+    (a, b) => a.start - b.start,
+  )[0];
+
+  type AgendaRow = { kind: "task"; group: PlanGroup } | { kind: "event"; block: FixedBlock };
+  const agenda: AgendaRow[] = [...groups.map((group): AgendaRow => ({ kind: "task", group })), ...fixed.map((block): AgendaRow => ({ kind: "event", block }))].sort(
+    (a, b) => (a.kind === "task" ? a.group.start ?? Infinity : a.block.start) - (b.kind === "task" ? b.group.start ?? Infinity : b.block.start),
+  );
 
   const byProject = day?.summary.by_project ?? [];
   const byTotal = byProject.reduce((sum, p) => sum + p.worked_ms, 0);
@@ -151,8 +161,14 @@ export default function Today() {
     <div className="flex flex-col gap-4 @2xl:h-[calc(100dvh-3.5rem)] @2xl:min-h-[540px]">
       <header className="flex shrink-0 flex-wrap items-center justify-between gap-3">
         <h1 className="text-[22px] font-semibold tracking-[-0.02em] text-ink">{formatLongDate(today)}</h1>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2.5">
           <span className="text-sm text-ink-subtle tabular-nums">{formatTime(now)}</span>
+          {next && (
+            <Badge tone="accent" icon={CalendarClock} className="h-6 min-w-0 gap-1.5 px-2.5 text-[12px]" title={`Next: ${next.title}`}>
+              <span className="max-w-36 truncate">{next.title}</span>
+              <span className="shrink-0 tabular-nums">{formatTime(next.start)}</span>
+            </Badge>
+          )}
           <Button size="sm" icon={ScrollText} onClick={openBriefing}>
             Briefing
           </Button>
@@ -166,7 +182,7 @@ export default function Today() {
         </p>
       ))}
 
-      <section className="lift shrink-0 overflow-hidden rounded-2xl border border-line bg-surface-1">
+      <section className="lift shrink-0 overflow-hidden rounded-xl border border-line bg-surface-1">
         <div className="grid items-center gap-x-8 gap-y-4 px-6 py-5 @2xl:grid-cols-[auto_minmax(0,1fr)]">
           <div className="flex min-w-0 items-center gap-5">
             <ProgressRing fraction={target > 0 ? worked / target : 0} color={met ? stateColor.working : color} size={84} stroke={7} label="Worked against the daily target">
@@ -270,14 +286,27 @@ export default function Today() {
             {d.config?.tracking.hard_idle ? formatDuration(parseDuration(d.config.tracking.hard_idle)) : "the limit"}, then becomes a break.
           </Callout>
         )}
-        <div className="border-t border-line bg-canvas/40 px-6 py-3">
-          <Timeline segments={day?.segments ?? []} colors={colors} names={names} now={now} live from={from} to={to} planned={planned} fixed={fixed} />
-        </div>
       </section>
 
-      <div className="grid min-h-0 flex-1 gap-4 @2xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] @6xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,0.85fr)]">
+      <Panel
+        title="Schedule"
+        icon={CalendarClock}
+        className="shrink-0"
+        actions={
+          state !== "off" &&
+          !t.onBreak && (
+            <Badge tone="working" icon={Radio}>
+              Live
+            </Badge>
+          )
+        }
+      >
+        <Timeline segments={day?.segments ?? []} colors={colors} names={names} now={now} live from={from} to={to} planned={planned} fixed={fixed} />
+      </Panel>
+
+      <div className="grid min-h-0 flex-1 gap-4 @2xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] @5xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,0.85fr)]">
         <Panel
-          title="Today's plan"
+          title="Agenda"
           icon={CalendarClock}
           className="flex min-h-64 flex-col"
           bodyClassName="min-h-0 flex-1 overflow-y-auto"
@@ -295,13 +324,29 @@ export default function Today() {
             </>
           }
         >
-          {plan && items.length === 0 ? (
-            <Empty icon={CalendarClock} title="Nothing to plan yet">
-              Tasks with a time estimate and your goals' sessions show up here by themselves, timed around your commitments.
+          {plan && agenda.length === 0 ? (
+            <Empty icon={CalendarClock} title="Nothing on today yet">
+              Tasks with a time estimate and your goals' sessions show up here by themselves, timed around your calendar.
             </Empty>
           ) : (
             <ul className="-mx-2 flex flex-col">
-              {groups.map((g) => {
+              {agenda.map((row) => {
+                if (row.kind === "event") {
+                  const e = row.block;
+                  return (
+                    <li key={`event-${e.id}`} className="flex items-center gap-3 rounded-lg px-2 py-1.5">
+                      <span className="size-[18px] shrink-0" aria-hidden />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm text-ink-subtle">{e.title}</div>
+                        <div className="mt-0.5 flex min-w-0 items-center gap-3">
+                          <Badge icon={CalendarClock}>Calendar</Badge>
+                          <span className="text-xs text-ink-subtle tabular-nums">{formatTime(e.start)}</span>
+                        </div>
+                      </div>
+                    </li>
+                  );
+                }
+                const g = row.group;
                 const isDone = g.done;
                 const tracking = t.isTracking(g.task.id);
                 const project = d.projects.find((p) => p.id === g.task.project_id);
@@ -419,31 +464,10 @@ export default function Today() {
               </ul>
             )}
           </Panel>
+          <BreakdownPanel byProject={byProject} byTotal={byTotal} className="flex flex-[2] @5xl:hidden" />
         </div>
 
-        <Panel title="Where today went" className="hidden min-h-0 flex-col @6xl:flex" bodyClassName="min-h-0 flex-1 overflow-y-auto">
-          {byTotal === 0 ? (
-            <p className="text-[13px] text-ink-subtle">No work tracked yet today.</p>
-          ) : (
-            <>
-              <div className="flex h-2 overflow-hidden rounded-full bg-surface-3">
-                {byProject.map((p) => (
-                  <span key={p.project_id ?? "none"} style={{ width: `${(p.worked_ms / byTotal) * 100}%`, backgroundColor: p.color }} />
-                ))}
-              </div>
-              <ul className="mt-3.5 flex flex-col gap-2">
-                {byProject.map((p) => (
-                  <li key={p.project_id ?? "none"} className="flex items-center gap-2.5 text-[13px]">
-                    <Dot color={p.color} />
-                    <span className="min-w-0 flex-1 truncate text-ink-muted">{p.name}</span>
-                    <span className="font-medium text-ink tabular-nums">{formatDuration(p.worked_ms)}</span>
-                    <span className="w-9 text-right text-xs text-ink-subtle tabular-nums">{Math.round((p.worked_ms / byTotal) * 100)}%</span>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-        </Panel>
+        <BreakdownPanel byProject={byProject} byTotal={byTotal} className="hidden @5xl:flex" />
       </div>
       {adding && <TaskForm task={null} projects={d.projects} goals={goals} defaultProject="" onClose={() => setAdding(false)} />}
       {done.dialog}
@@ -454,4 +478,35 @@ export default function Today() {
 /** Goals behind pace come first. */
 function rank(pace: string): number {
   return pace === "behind" ? 0 : pace === "on_track" ? 1 : 2;
+}
+
+/** Today's tracked time by project: a headline total, a stacked bar, then the breakdown. */
+function BreakdownPanel({ byProject, byTotal, className }: { byProject: wire.ProjectTotal[]; byTotal: number; className?: string }) {
+  return (
+    <Panel title="Where today went" icon={ChartPie} className={cx("min-h-0 flex-col", className)} bodyClassName="min-h-0 flex-1 overflow-y-auto">
+      {byTotal === 0 ? (
+        <p className="text-[13px] text-ink-subtle">No work tracked yet today.</p>
+      ) : (
+        <>
+          <div className="text-[22px] font-semibold tracking-[-0.02em] text-ink tabular-nums">{formatDuration(byTotal)}</div>
+          <div className="mt-0.5 text-xs text-ink-subtle">across {byProject.length} {byProject.length === 1 ? "project" : "projects"}</div>
+          <div className="mt-3 flex h-2 overflow-hidden rounded-full bg-surface-3">
+            {byProject.map((p) => (
+              <span key={p.project_id ?? "none"} style={{ width: `${(p.worked_ms / byTotal) * 100}%`, backgroundColor: p.color }} />
+            ))}
+          </div>
+          <ul className="mt-3.5 flex flex-col gap-2">
+            {byProject.map((p) => (
+              <li key={p.project_id ?? "none"} className="flex items-center gap-2.5 text-[13px]">
+                <Dot color={p.color} />
+                <span className="min-w-0 flex-1 truncate text-ink-muted">{p.name}</span>
+                <span className="font-medium text-ink tabular-nums">{formatDuration(p.worked_ms)}</span>
+                <span className="w-9 text-right text-xs text-ink-subtle tabular-nums">{Math.round((p.worked_ms / byTotal) * 100)}%</span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </Panel>
+  );
 }
