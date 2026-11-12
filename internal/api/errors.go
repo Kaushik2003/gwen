@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/kzark/gwen/internal/config"
+	"github.com/kzark/gwen/internal/remote"
 	"github.com/kzark/gwen/internal/store"
 	"github.com/kzark/gwen/internal/timeengine"
 	"github.com/kzark/gwen/internal/wire"
@@ -52,7 +53,18 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 		ke *config.KeyError
 		se *store.Error
 	)
+	var ce *remote.Error
 	switch {
+	case errors.As(err, &ce):
+		body.Code, body.Message = ce.Code, ce.Message
+		for k, v := range ce.Details {
+			body.Details[k] = v
+		}
+		status = map[string]int{wire.CodeNotFound: http.StatusNotFound, wire.CodeConflict: http.StatusConflict,
+			wire.CodeInvalidRequest: http.StatusBadRequest, wire.CodeUnavailable: http.StatusServiceUnavailable}[ce.Code]
+		if status == 0 {
+			status = http.StatusInternalServerError
+		}
 	case errors.As(err, &re):
 		status, body.Code, body.Message = re.status, re.code, re.msg
 		if re.field != "" {

@@ -59,6 +59,7 @@ type Config struct {
 	LLM      LLM
 	Memory   Memory
 	Sync     Sync
+	Remote   Remote
 	Log      Log
 }
 
@@ -158,6 +159,43 @@ type Sync struct {
 	Interval time.Duration
 }
 
+// How Gwen keeps the laptop awake for code sessions (remote.keep_awake):
+// while one works, also with the lid closed, or never.
+const (
+	KeepAwakeWorking    = "working"
+	KeepAwakeWorkingLid = "working_lid"
+	KeepAwakeNever      = "never"
+)
+
+// Remote is the [remote] section: Gwen on the phone (plan.md 3.14.14).
+type Remote struct {
+	Enabled bool
+	Port    int
+	// Roots are the folders a phone may start a session in: absolute, or
+	// under "~/", or "~" itself.
+	Roots     []string
+	KeepAwake string
+	Push      bool
+	// SandboxExtra are more folders a sandboxed session sees.
+	SandboxExtra []SandboxPath
+	// CoreSocket is herdr-core's socket, "" for its default.
+	CoreSocket string
+}
+
+// SandboxPath is one remote.sandbox_extra entry: "~/data" is read-only and
+// "~/out:rw" may be written.
+type SandboxPath struct {
+	Path  string
+	Write bool
+}
+
+func (s SandboxPath) String() string {
+	if s.Write {
+		return s.Path + ":rw"
+	}
+	return s.Path
+}
+
 // Log is the [log] section.
 type Log struct {
 	Level slog.Level
@@ -198,8 +236,9 @@ func Defaults() Config {
 			AssistantName: "Gwen"},
 		Memory: Memory{Enabled: true, Learn: LearnAssistant, Verify: true, EmbedModel: "nomic-embed-text",
 			Privacy: PrivacyLocal},
-		Sync: Sync{Interval: 5 * time.Minute},
-		Log:  Log{Level: slog.LevelInfo},
+		Sync:   Sync{Interval: 5 * time.Minute},
+		Remote: Remote{Port: 8443, Roots: []string{"~"}, KeepAwake: KeepAwakeWorking, Push: true, SandboxExtra: []SandboxPath{}},
+		Log:    Log{Level: slog.LevelInfo},
 	}
 }
 
@@ -325,8 +364,25 @@ func (c Config) Wire() wire.Config {
 			HubURL:   c.Sync.HubURL,
 			Interval: FormatDuration(c.Sync.Interval),
 		},
+		Remote: wire.RemoteConfig{
+			Enabled:      c.Remote.Enabled,
+			Port:         c.Remote.Port,
+			Roots:        append([]string{}, c.Remote.Roots...),
+			KeepAwake:    c.Remote.KeepAwake,
+			Push:         c.Remote.Push,
+			SandboxExtra: sandboxStrings(c.Remote.SandboxExtra),
+			CoreSocket:   c.Remote.CoreSocket,
+		},
 		Log: wire.LogConfig{Level: levelName(c.Log.Level)},
 	}
+}
+
+func sandboxStrings(paths []SandboxPath) []string {
+	out := make([]string, 0, len(paths))
+	for _, p := range paths {
+		out = append(out, p.String())
+	}
+	return out
 }
 
 // FromWire parses and validates the string form.
@@ -391,6 +447,15 @@ func FromWire(w wire.Config) (Config, error) {
 			HubURL:   p.url("sync.hub_url", w.Sync.HubURL, true),
 			Interval: p.duration("sync.interval", w.Sync.Interval),
 		},
+		Remote: Remote{
+			Enabled:      w.Remote.Enabled,
+			Port:         w.Remote.Port,
+			Roots:        p.roots("remote.roots", w.Remote.Roots),
+			KeepAwake:    p.enum("remote.keep_awake", w.Remote.KeepAwake, KeepAwakeWorking, KeepAwakeWorkingLid, KeepAwakeNever),
+			Push:         w.Remote.Push,
+			SandboxExtra: p.sandboxPaths("remote.sandbox_extra", w.Remote.SandboxExtra),
+			CoreSocket:   p.dir("remote.core_socket", strings.TrimSpace(w.Remote.CoreSocket)),
+		},
 		Log: Log{Level: p.level("log.level", w.Log.Level)},
 	}
 	if p.err != nil {
@@ -440,6 +505,12 @@ func (c Config) Validate() error {
 	}
 	if len([]rune(c.LLM.Instructions)) > MaxInstructions {
 		return keyErr("llm.instructions", "must be at most %d characters", MaxInstructions)
+	}
+	if c.Remote.Port < 1 || c.Remote.Port > 65535 {
+		return keyErr("remote.port", "must be between 1 and 65535")
+	}
+	if len(c.Remote.Roots) == 0 {
+		return keyErr("remote.roots", "needs at least one folder")
 	}
 	return c.Memory.validate()
 }
@@ -520,6 +591,9 @@ func (c Config) LogValue() slog.Value {
 			"embed_model", w.Memory.EmbedModel, "files_dir", w.Memory.FilesDir, "mem0_url", w.Memory.Mem0URL,
 			"supermemory_url", w.Memory.SupermemoryURL, "privacy", w.Memory.Privacy),
 		slog.Group("sync", "hub_url", w.Sync.HubURL, "interval", w.Sync.Interval),
+		slog.Group("remote", "enabled", w.Remote.Enabled, "port", w.Remote.Port, "roots", w.Remote.Roots,
+			"keep_awake", w.Remote.KeepAwake, "push", w.Remote.Push, "sandbox_extra", w.Remote.SandboxExtra,
+			"core_socket", w.Remote.CoreSocket),
 		slog.Group("log", "level", w.Log.Level),
 	)
 }
@@ -593,6 +667,32 @@ func (p *parser) dir(key, s string) string {
 		p.fail(key, "%q must be an absolute path or start with ~/", s)
 	}
 	return s
+}
+
+// roots accepts folders that are absolute, "~", or under "~/".
+func (p *parser) roots(key string, list []string) []string {
+	out := make([]string, 0, len(list))
+	for _, s := range list {
+		s = strings.TrimSpace(s)
+		if s != "~" && !filepath.IsAbs(s) && !strings.HasPrefix(s, "~/") {
+			p.fail(key, "%q must be an absolute path, ~, or start with ~/", s)
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+// sandboxPaths parses remote.sandbox_extra: a folder, optionally ending ":rw".
+func (p *parser) sandboxPaths(key string, list []string) []SandboxPath {
+	out := make([]SandboxPath, 0, len(list))
+	for _, s := range list {
+		path, write := strings.CutSuffix(strings.TrimSpace(s), ":rw")
+		if !filepath.IsAbs(path) && !strings.HasPrefix(path, "~/") {
+			p.fail(key, "%q must be an absolute path or start with ~/, with :rw to allow writing", s)
+		}
+		out = append(out, SandboxPath{Path: path, Write: write})
+	}
+	return out
 }
 
 // command accepts a bare command name, looked up when used, or an absolute path.

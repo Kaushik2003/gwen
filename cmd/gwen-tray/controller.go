@@ -159,13 +159,14 @@ func (c *controller) switchTo(project *string) {
 	})
 }
 
-func (c *controller) openDashboard() { c.launch("gwen-ui") }
+// openDashboard opens the Gwen window on Today (plan.md 3.15).
+func (c *controller) openDashboard() { c.launch("gwen", "open") }
 
 // openNowCard opens the now card, or closes it when it is open already.
 func (c *controller) openNowCard() { c.launch("gwen-ui", "--now") }
 
-// openScreen opens the dashboard on one screen, such as "assistant".
-func (c *controller) openScreen(screen string) { c.launch("gwen-ui", "--screen", screen) }
+// openScreen opens the Gwen window on one screen, such as "assistant".
+func (c *controller) openScreen(screen string) { c.launch("gwen", "open", screen) }
 
 // logEnergy records an energy check-in, 1 to 5, for biological prime time.
 func (c *controller) logEnergy(level int) {

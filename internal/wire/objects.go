@@ -255,6 +255,7 @@ type Config struct {
 	LLM      LLMConfig      `json:"llm" toml:"llm"`
 	Memory   MemoryConfig   `json:"memory" toml:"memory"`
 	Sync     SyncConfig     `json:"sync" toml:"sync"`
+	Remote   RemoteConfig   `json:"remote" toml:"remote"`
 	Log      LogConfig      `json:"log" toml:"log"`
 }
 
@@ -336,6 +337,22 @@ type MemoryConfig struct {
 type SyncConfig struct {
 	HubURL   string `json:"hub_url" toml:"hub_url"`
 	Interval string `json:"interval" toml:"interval"`
+}
+
+// RemoteConfig is the [remote] section: Gwen on the phone (plan.md 3.14.14).
+type RemoteConfig struct {
+	Enabled bool `json:"enabled" toml:"enabled"`
+	Port    int  `json:"port" toml:"port"`
+	// Roots are the folders a phone may start a session in.
+	Roots []string `json:"roots" toml:"roots"`
+	// KeepAwake is working, working_lid, or never.
+	KeepAwake string `json:"keep_awake" toml:"keep_awake"`
+	Push      bool   `json:"push" toml:"push"`
+	// SandboxExtra are more folders a sandboxed session sees: "~/data" is
+	// read-only and "~/out:rw" may be written.
+	SandboxExtra []string `json:"sandbox_extra" toml:"sandbox_extra"`
+	// CoreSocket is herdr-core's socket, "" for its default.
+	CoreSocket string `json:"core_socket" toml:"core_socket"`
 }
 
 // LogConfig is the [log] section.
@@ -495,4 +512,21 @@ type Reminder struct {
 	DueDay   string `json:"due_day"`
 	DaysLeft int    `json:"days_left"`
 	Message  string `json:"message"`
+}
+
+// Credentials is the reply of GET /v1/credentials: whether each credential
+// file is stored. The values are never sent.
+type Credentials struct {
+	Stored map[string]bool `json:"stored"`
+}
+
+// SetCredential is the body of PUT /v1/credentials/{name}.
+type SetCredential struct {
+	Value string `json:"value"`
+}
+
+// OpenApp is the body of POST /v1/app/open: the Gwen screen to show in the
+// Gwen window, "" for Today.
+type OpenApp struct {
+	Screen string `json:"screen"`
 }

@@ -13,24 +13,36 @@ LDFLAGS := -X main.version=$(VERSION)
 TAGS := webkit2_41
 
 CONFIG_HOME := $(or $(XDG_CONFIG_HOME),$(HOME)/.config)
+DATA_HOME := $(or $(XDG_DATA_HOME),$(HOME)/.local/share)
 
 # Voice input links sherpa-onnx and ONNX Runtime, which ship beside the
 # binaries in lib/gwen: /usr/lib/gwen, or ~/.local/lib/gwen after install-dev.
 SHERPA_LIB = $(shell $(GO) list -m -f '{{.Dir}}' github.com/k2-fsa/sherpa-onnx-go-linux)/lib/x86_64-unknown-linux-gnu
 VOICE_LIBS := libsherpa-onnx-c-api.so libonnxruntime.so
 
-.PHONY: build ui build-hub check docs-check package install-dev clean ui-stub
+.PHONY: build ui build-hub check docs-check package install-dev clean ui-stub term term-update
 
 build: ui-stub
 	@mkdir -p bin
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags '$(LDFLAGS)' -o bin/ ./cmd/gwend ./cmd/gwen ./cmd/gwen-tray
 	cd cmd/gwen-ui && CGO_LDFLAGS='-Wl,-rpath,$$ORIGIN/../lib/gwen' $(GO) tool wails build -tags $(TAGS) -trimpath -ldflags '$(LDFLAGS)' -o gwen-ui
 	cp cmd/gwen-ui/build/bin/gwen-ui bin/gwen-ui
+	CGO_LDFLAGS='-Wl,-rpath,$$ORIGIN/../lib/gwen' $(GO) build -trimpath -ldflags '$(LDFLAGS)' -o bin/gwen-stt ./cmd/gwen-stt
 	@mkdir -p bin/lib
 	cd '$(SHERPA_LIB)' && install -m 0644 $(VOICE_LIBS) $(CURDIR)/bin/lib/
 
 ui:
-	cd ui && npm ci && npm run build
+	cd ui && npm ci && npm run build && npm run build:mobile
+
+# Gwen Terminal: gwen-term, the fork of Herdr's app in its own checkout
+# ($(TERM_DIR), default ~/Documents/coding/gwen-term), and herdr-core at the
+# release in term/core.version. term builds and installs both; term-update
+# rebases the fork on Herdr and runs Herdr's checks (plan.md 3.14.3).
+term:
+	@scripts/term.sh build
+
+term-update:
+	@scripts/term.sh update
 
 build-hub: ui-stub
 	@mkdir -p bin/arm64
@@ -57,11 +69,19 @@ package: build
 
 install-dev: build
 	install -d $(HOME)/.local/bin $(CONFIG_HOME)/systemd/user
-	install -m 0755 bin/gwend bin/gwen bin/gwen-tray bin/gwen-ui $(HOME)/.local/bin/
+	install -m 0755 bin/gwend bin/gwen bin/gwen-tray bin/gwen-ui bin/gwen-stt $(HOME)/.local/bin/
 	install -d $(HOME)/.local/lib/gwen
 	install -m 0644 $(addprefix bin/lib/,$(VOICE_LIBS)) $(HOME)/.local/lib/gwen/
 	sed 's|^ExecStart=.*|ExecStart=%h/.local/bin/gwend|' packaging/gwend.service > $(CONFIG_HOME)/systemd/user/gwend.service
 	systemctl --user daemon-reload
+	@# One "Gwen" in the launcher: it opens the Gwen window on Today (plan.md 3.15). This
+	@# copy also hides an older packaged entry of the same name, which opened the old dashboard.
+	install -d $(DATA_HOME)/applications
+	sed -e 's|^Exec=gwen |Exec=$(HOME)/.local/bin/gwen |' -e 's|^Icon=gwen$$|Icon=gwen-term|' packaging/gwen.desktop > $(DATA_HOME)/applications/gwen.desktop
+	@if [ -f $(DATA_HOME)/applications/gwen-term.desktop ] && ! grep -q '^NoDisplay=true' $(DATA_HOME)/applications/gwen-term.desktop; then \
+		echo "NoDisplay=true" >> $(DATA_HOME)/applications/gwen-term.desktop; \
+	fi
+	-update-desktop-database $(DATA_HOME)/applications 2>/dev/null
 	@if command -v kpackagetool6 >/dev/null; then \
 		kpackagetool6 -t Plasma/Applet -u packaging/plasma/dev.gwen.panel 2>/dev/null || kpackagetool6 -t Plasma/Applet -i packaging/plasma/dev.gwen.panel; \
 	fi
@@ -69,8 +89,8 @@ install-dev: build
 clean:
 	rm -rf bin dist
 
-# Package ui embeds ui/dist, which only `make ui` builds, and ui/dist-hub,
-# which only `make build-hub` builds. Until then placeholder pages let every
+# Package ui embeds ui/dist and ui/dist-mobile, which only `make ui` builds,
+# and ui/dist-hub, which only `make build-hub` builds. Until then placeholder pages let every
 # Go package compile.
 ui-stub:
 	@if [ -f ui/embed.go ] && [ ! -e ui/dist/index.html ]; then \
@@ -80,4 +100,8 @@ ui-stub:
 	@if [ -f ui/embed_hub.go ] && [ ! -e ui/dist-hub/index.html ]; then \
 		mkdir -p ui/dist-hub && \
 		printf '<!doctype html><title>Gwen</title><p>Built without the dashboard. Run make build-hub.</p>\n' > ui/dist-hub/index.html; \
+	fi
+	@if [ -f ui/embed_mobile.go ] && [ ! -e ui/dist-mobile/index.html ]; then \
+		mkdir -p ui/dist-mobile && \
+		printf '<!doctype html><title>Gwen</title><p>Built without the phone app. Run make ui.</p>\n' > ui/dist-mobile/index.html; \
 	fi

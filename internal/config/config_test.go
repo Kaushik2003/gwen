@@ -64,7 +64,9 @@ func TestDefaultsMatchTheSpec(t *testing.T) {
 		Memory: wire.MemoryConfig{Enabled: true, Learn: "assistant", Verify: true, EmbedModel: "nomic-embed-text",
 			Privacy: "local"},
 		Sync: wire.SyncConfig{HubURL: "", Interval: "5m"},
-		Log:  wire.LogConfig{Level: "info"},
+		Remote: wire.RemoteConfig{Enabled: false, Port: 8443, Roots: []string{"~"}, KeepAwake: "working", Push: true,
+			SandboxExtra: []string{}, CoreSocket: ""},
+		Log: wire.LogConfig{Level: "info"},
 	}, w)
 }
 

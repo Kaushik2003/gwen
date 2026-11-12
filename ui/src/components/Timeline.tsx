@@ -24,7 +24,7 @@ export interface FixedBlock {
 
 const kindLabel: Record<string, string> = { work: "Work", break_manual: "Break", break_auto: "Automatic break" };
 const unassigned = "#8a8f98";
-
+ 
 /** Width, as a fraction of the whole span, below which a block's own label would be too
  * cramped to read and starts crowding its neighbours; such blocks show as plain colour,
  * their title still reachable from the tooltip. */

@@ -21,6 +21,10 @@ const (
 	// The optional memory lanes' API keys.
 	CredMem0APIKey        = "mem0_api_key"
 	CredSupermemoryAPIKey = "supermemory_api_key"
+	// CredClaudeSandboxToken is the sign-in sandboxed Claude sessions use: a
+	// token from `claude setup-token`, which can only talk to the model
+	// (plan.md 3.14.8).
+	CredClaudeSandboxToken = "claude_sandbox_token"
 )
 
 // CredentialsDir returns the credentials directory under a data directory.

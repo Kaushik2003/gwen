@@ -254,7 +254,7 @@ func TestControllerCommands(t *testing.T) {
 
 	c.openDashboard()
 	c.startGwen()
-	require.Equal(t, [][]string{{"gwen-ui"}, {"systemctl", "--user", "start", "gwend.service"}}, run.runs)
+	require.Equal(t, [][]string{{"gwen", "open"}, {"systemctl", "--user", "start", "gwend.service"}}, run.runs)
 }
 
 func TestControllerShowsTheDaemonDown(t *testing.T) {

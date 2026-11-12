@@ -1,11 +1,15 @@
-// Command gwen-ui is Gwen's dashboard: a Wails window over the React frontend
-// in ui/, talking to the daemon through the same client as the CLI
-// (docs/08-clients.md#gui). Closing it changes nothing about tracking.
+// Command gwen-ui is Gwen's small windows: the tray's now card (--now) and
+// the Talk window (--talk), Wails windows over the React frontend in ui/,
+// talking to the daemon through the same client as the CLI. Gwen's screens
+// live in the Gwen window (plan.md 3.15): with no flag, gwen-ui opens that
+// on the screen --screen names. `gwen-ui host ...` answers Settings about
+// voice without a window.
 package main
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"net/http"
@@ -40,6 +44,10 @@ func main() {
 }
 
 func run() error {
+	// `gwen-ui host ...` answers Settings › AI about voice without a window.
+	if len(os.Args) > 1 && os.Args[1] == "host" {
+		os.Exit(runHost(os.Args[2:], os.Stdout, os.Stderr))
+	}
 	paths, err := config.DefaultPaths()
 	if err != nil {
 		return err
@@ -59,42 +67,34 @@ func run() error {
 	}}
 	emit := func(name string, data any) { runtime.EventsEmit(app.ctx, name, data) }
 	app.voice = newDictation(filepath.Join(paths.DataDir, "models"), emit)
-	app.speech = newSpeech(filepath.Join(paths.DataDir, "models"), paths.CredentialsDir(), app.host.hasCredential, emit)
+	app.speech = newSpeech(filepath.Join(paths.DataDir, "models"), paths.CredentialsDir(), speechChoices(paths), app.host.hasCredential, emit)
 	if app.nowCard {
 		return wails.Run(nowCardOptions(app, api, assets))
 	}
-	if app.talk {
+	if app.talk || bindingsBuild {
 		return wails.Run(talkOptions(app, api, assets))
 	}
-	return wails.Run(&options.App{
-		Title:     "Gwen",
-		Width:     1100,
-		Height:    720,
-		MinWidth:  900,
-		MinHeight: 600,
-		// The dashboard is always dark (ui/DESIGN.md); the window behind it
-		// matches its canvas, so nothing flashes white while it loads.
-		BackgroundColour: &options.RGBA{R: 1, G: 1, B: 2, A: 255},
-		AssetServer: &assetserver.Options{
-			Assets: assets,
-		},
-		OnStartup: func(ctx context.Context) {
-			app.ctx = ctx
-			go forwardEvents(ctx, api)
-		},
-		Bind: []any{app},
-		SingleInstanceLock: &options.SingleInstanceLock{
-			UniqueId: "dev.gwen.ui",
-			OnSecondInstanceLaunch: func(d options.SecondInstanceData) {
-				runtime.WindowUnminimise(app.ctx)
-				runtime.WindowShow(app.ctx)
-				if screen := screenArg(d.Args); screen != "" {
-					runtime.EventsEmit(app.ctx, "gwen:navigate", screen)
-				}
-			},
-		},
-		Linux: &linux.Options{ProgramName: "gwen-ui", WindowIsTranslucent: false},
-	})
+	// Gwen's screens live in the Gwen window now (plan.md 3.15): with no
+	// flag, gwen-ui shows it on the screen asked for, as `gwen open` does.
+	return openGwen(api, app.screen)
+}
+
+// openGwen shows the Gwen window on a screen, "" for Today: gwend opens it
+// and makes its Gwen space; without gwend the window still starts, and its
+// Gwen tabs offer to start her.
+func openGwen(api client.API, screen string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	err := api.OpenApp(ctx, screen)
+	if !errors.Is(err, client.ErrDaemonNotRunning) {
+		return err
+	}
+	bin, lookErr := exec.LookPath("gwen-term")
+	if lookErr != nil {
+		home, _ := os.UserHomeDir()
+		bin = filepath.Join(home, ".local", "bin", "gwen-term")
+	}
+	return startCommand(bin)
 }
 
 // newDictation is voice input with its models under root. The model is freed
@@ -114,11 +114,12 @@ func newDictation(root string, emit func(name string, data any)) *dictation {
 	}
 }
 
-// newSpeech is Gwen's voice, with models under root and API keys in credDir.
-func newSpeech(root, credDir string, hasKey func(string) bool, emit func(name string, data any)) *speech {
+// newSpeech is Gwen's voice, with models under root, API keys in credDir, and
+// the provider and voices chosen in Settings in the file choices.
+func newSpeech(root, credDir, choices string, hasKey func(string) bool, emit func(name string, data any)) *speech {
 	hc := &http.Client{}
 	return &speech{
-		root: root, lookPath: exec.LookPath, hasKey: hasKey, http: hc, emit: emit,
+		root: root, lookPath: exec.LookPath, hasKey: hasKey, http: hc, emit: emit, choices: choices,
 		providers: speechProviders(root, credDir, hc),
 		play: func() (sink, error) {
 			p, err := voice.Play(voice.Player, voice.SpeechRate)
@@ -128,6 +129,12 @@ func newSpeech(root, credDir string, hasKey func(string) bool, emit func(name st
 			return p, nil
 		},
 	}
+}
+
+// speechChoices is the file that keeps the provider and voices chosen in
+// Settings, beside Gwen's config.
+func speechChoices(paths config.Paths) string {
+	return filepath.Join(filepath.Dir(paths.ConfigFile), "speech.json")
 }
 
 // nowCardOptions is the now card the tray opens on a click: a small frameless

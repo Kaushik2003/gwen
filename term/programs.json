@@ -1,0 +1,5 @@
+{
+  "programs": {
+    "claude-sandbox": { "name": "Claude (sandbox)", "icon": "icons/claude.svg", "run": ["gwen", "sandbox"], "tint": false, "tile": "#1c1d21", "color": "#ffffff" }
+  }
+}

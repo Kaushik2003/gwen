@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"log/slog"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/kzark/gwen/internal/activity"
@@ -54,6 +56,12 @@ type loop struct {
 
 	reqs chan request
 	done chan struct{}
+
+	// idle and locked feed Away: no input for awayIdle, and a locked screen.
+	idle, locked atomic.Bool
+	// watchAway asks the monitor for the away threshold too; the daemon sets
+	// it when the remote runs.
+	watchAway atomic.Bool
 
 	mu   sync.Mutex // guards the copies readers use
 	cfg  config.Config
@@ -132,8 +140,21 @@ func (l *loop) Config() config.Config {
 func (l *loop) now() time.Time { return l.clk.Now().Truncate(time.Millisecond) }
 
 func (l *loop) thresholds() []time.Duration {
-	return timeengine.ConfigFrom(l.Config(), l.loc).Thresholds()
+	ts := timeengine.ConfigFrom(l.Config(), l.loc).Thresholds()
+	if l.watchAway.Load() && !slices.Contains(ts, awayIdle) {
+		ts = append(ts, awayIdle)
+		slices.Sort(ts)
+	}
+	return ts
 }
+
+// awayIdle is how long without input counts as being away from the laptop
+// (plan.md 3.14.7).
+const awayIdle = 2 * time.Minute
+
+// Away reports that the laptop is locked or has had no input for two
+// minutes: a Claude Code permission request then waits for the phone.
+func (l *loop) Away() bool { return l.locked.Load() || l.idle.Load() }
 
 // run processes inputs until ctx ends, then records a clean shutdown.
 func (l *loop) run(ctx context.Context) {
@@ -201,6 +222,23 @@ func (l *loop) arm(t clock.Timer) {
 }
 
 func (l *loop) onActivity(ctx context.Context, ev activity.Event) {
+	switch ev.Kind {
+	case activity.Idle:
+		if ev.Threshold >= awayIdle {
+			l.idle.Store(true)
+		}
+		// The away threshold is the remote's own; the engine never asked for it.
+		if !slices.Contains(timeengine.ConfigFrom(l.Config(), l.loc).Thresholds(), ev.Threshold) {
+			return
+		}
+	case activity.Active:
+		l.idle.Store(false)
+	case activity.Locked:
+		l.locked.Store(true)
+	case activity.Unlocked:
+		l.locked.Store(false)
+		l.idle.Store(false)
+	}
 	var in timeengine.Input
 	switch ev.Kind {
 	case activity.Idle:

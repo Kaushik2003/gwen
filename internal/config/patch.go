@@ -54,6 +54,16 @@ func sameJSONType(old, v any) error {
 			return nil
 		}
 		return fmt.Errorf("must be true or false")
+	case float64:
+		switch n := v.(type) {
+		case int64, int:
+			return nil
+		case float64:
+			if n == float64(int64(n)) {
+				return nil
+			}
+		}
+		return fmt.Errorf("must be a whole number")
 	case []any:
 		list, ok := v.([]any)
 		if !ok {

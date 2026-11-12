@@ -39,7 +39,11 @@ contents:
   - src: bin/gwen-ui
     dst: /usr/bin/gwen-ui
     file_info: {mode: 0755}
-  # Voice input: sherpa-onnx and ONNX Runtime, which gwen-ui finds here.
+  # Speech to text for voice from the phone; gwend starts it when you talk.
+  - src: bin/gwen-stt
+    dst: /usr/bin/gwen-stt
+    file_info: {mode: 0755}
+  # Voice input: sherpa-onnx and ONNX Runtime, which gwen-ui and gwen-stt find here.
   - src: bin/lib/libsherpa-onnx-c-api.so
     dst: /usr/lib/gwen/libsherpa-onnx-c-api.so
     file_info: {mode: 0644}

@@ -125,12 +125,20 @@ func (s *Server) Handler() http.Handler {
 	route("GET /v1/sync/status", s.syncStatusHandler)
 	route("POST /v1/sync/now", s.syncNow)
 
+	s.codeRoutes(route)
+	s.remoteRoutes(route)
+
 	route("GET /v1/config", s.getConfig)
 	route("PATCH /v1/config", s.patchConfig)
 	route("POST /v1/notify/test", s.notifyTest)
 	route("POST /v1/notify/preview", s.notifyPreview)
 	route("GET /v1/nudges", s.listNudges)
 	route("POST /v1/nudges/act", s.actOnNudge)
+
+	route("GET /v1/events/poll", s.poll)
+	route("GET /v1/credentials", s.listCredentials)
+	route("PUT /v1/credentials/{name}", s.setCredential)
+	route("POST /v1/app/open", s.withCode(s.openApp))
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, errNotFoundRoute)

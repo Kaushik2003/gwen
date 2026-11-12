@@ -66,6 +66,10 @@ export function ChooseGoogleClient() {
   return window['go']['main']['App']['ChooseGoogleClient']();
 }
 
+export function ChooseSpeech(arg1, arg2) {
+  return window['go']['main']['App']['ChooseSpeech'](arg1, arg2);
+}
+
 export function ClaudeCode(arg1) {
   return window['go']['main']['App']['ClaudeCode'](arg1);
 }
@@ -76,6 +80,10 @@ export function ClockIn(arg1) {
 
 export function ClockOut() {
   return window['go']['main']['App']['ClockOut']();
+}
+
+export function CodeSessions() {
+  return window['go']['main']['App']['CodeSessions']();
 }
 
 export function CompleteTask(arg1, arg2) {
@@ -314,6 +322,10 @@ export function Nudges(arg1) {
   return window['go']['main']['App']['Nudges'](arg1);
 }
 
+export function OpenApp(arg1) {
+  return window['go']['main']['App']['OpenApp'](arg1);
+}
+
 export function OpenDashboard(arg1) {
   return window['go']['main']['App']['OpenDashboard'](arg1);
 }
@@ -374,6 +386,10 @@ export function PreviewGoal(arg1) {
   return window['go']['main']['App']['PreviewGoal'](arg1);
 }
 
+export function PublishRemote(arg1) {
+  return window['go']['main']['App']['PublishRemote'](arg1);
+}
+
 export function RebuildMemory(arg1) {
   return window['go']['main']['App']['RebuildMemory'](arg1);
 }
@@ -392,6 +408,18 @@ export function RejectLLMRun(arg1) {
 
 export function Remember(arg1, arg2) {
   return window['go']['main']['App']['Remember'](arg1, arg2);
+}
+
+export function RemoteDevices() {
+  return window['go']['main']['App']['RemoteDevices']();
+}
+
+export function RemotePairCode() {
+  return window['go']['main']['App']['RemotePairCode']();
+}
+
+export function RemoteStatus() {
+  return window['go']['main']['App']['RemoteStatus']();
 }
 
 export function RemoveResource(arg1) {
@@ -420,6 +448,10 @@ export function ResolveConflict(arg1, arg2) {
 
 export function Retro(arg1) {
   return window['go']['main']['App']['Retro'](arg1);
+}
+
+export function RevokeRemoteDevice(arg1) {
+  return window['go']['main']['App']['RevokeRemoteDevice'](arg1);
 }
 
 export function SaveMemoryExport() {
@@ -454,6 +486,10 @@ export function SetDayHours(arg1) {
   return window['go']['main']['App']['SetDayHours'](arg1);
 }
 
+export function SetRemoteHooks(arg1) {
+  return window['go']['main']['App']['SetRemoteHooks'](arg1);
+}
+
 export function SleepMemory() {
   return window['go']['main']['App']['SleepMemory']();
 }
@@ -468,6 +504,10 @@ export function SpeechStatus() {
 
 export function SplitSegment(arg1, arg2) {
   return window['go']['main']['App']['SplitSegment'](arg1, arg2);
+}
+
+export function StartCodeSession(arg1) {
+  return window['go']['main']['App']['StartCodeSession'](arg1);
 }
 
 export function StartListening() {

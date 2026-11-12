@@ -653,7 +653,7 @@ Rectangle {
             }
             CardButton {
                 Layout.fillWidth: true
-                text: "Dashboard"
+                text: "Open Gwen"
                 iconName: "window-new"
                 onClicked: card.gwen.openDashboard("")
             }

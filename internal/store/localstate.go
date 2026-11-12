@@ -48,6 +48,9 @@ const (
 	// decimal, this device last pushed to and pulled from the hub with.
 	KeySyncPushSchema = "sync_push_schema"
 	KeySyncPullSchema = "sync_pull_schema"
+	// KeyRemoteOwner is the Tailscale login allowed to use Gwen from a
+	// phone, stored when the remote is first turned on (plan.md 3.14.4).
+	KeyRemoteOwner = "remote_owner"
 )
 
 func knownKey(key string) bool {
@@ -55,7 +58,7 @@ func knownKey(key string) bool {
 	case KeyDeviceID, KeyHeartbeatAt, KeyShutdownAt, KeyGcalCalendarID, KeyGcalSyncToken,
 		KeySyncPushWatermark, KeySyncPullCursor, KeyPlannedDay, KeyAssistantSelf, KeyChatsImported,
 		KeySelfImported, KeyMemoryMsgCursor, KeyMemoryEpCursor, KeyMemoryLastLearned, KeyMemoryLastSlept,
-		KeyMemoryLastInsight, KeyMemoryFilesState, KeySyncPushSchema, KeySyncPullSchema:
+		KeyMemoryLastInsight, KeyMemoryFilesState, KeySyncPushSchema, KeySyncPullSchema, KeyRemoteOwner:
 		return true
 	}
 	return false

@@ -21,9 +21,12 @@ import (
 	"github.com/kzark/gwen/internal/llm"
 	"github.com/kzark/gwen/internal/memory/service"
 	"github.com/kzark/gwen/internal/notify"
+	"github.com/kzark/gwen/internal/remote"
 	"github.com/kzark/gwen/internal/store"
 	gsync "github.com/kzark/gwen/internal/sync"
 	"github.com/kzark/gwen/internal/timeengine"
+	"github.com/kzark/gwen/internal/wire"
+	"github.com/kzark/gwen/term"
 )
 
 // engineEventsKept is how long engine_events rows are kept.
@@ -54,6 +57,17 @@ type options struct {
 	// memory runs Gwen's memory (gwen-harness/harness.md section 4); with it
 	// off the assistant recalls chats by their words alone.
 	memory bool
+	// remote runs Gwen on the phone and the code sessions of Gwen Terminal
+	// (plan.md 3.14).
+	remote bool
+	// app serves the API to Gwen's screens inside Gwen Terminal, on
+	// 127.0.0.1 with a token (plan.md 3.15).
+	app bool
+	// termHome, when set, is Gwen Terminal's folder: gwend puts the mod that
+	// draws Gwen's screens, her themes, and her key there at start.
+	termHome string
+	// remotePeer overrides who may speak on the remote socket; tests use it.
+	remotePeer func(uid int) bool
 	// calendarEndpoint overrides the Calendar API URL; tests point it at a fake.
 	calendarEndpoint string
 	// wrapRepos lets tests make the store fail inside a decision.
@@ -129,7 +143,7 @@ func run(ctx context.Context, o options) (err error) {
 		o.onLoop(l)
 	}
 	srv := &api.Server{DB: db, Repos: repos, Tracker: l, Hub: hub, Notify: n, Clock: o.clk, Loc: o.loc,
-		ConfigPath: o.configPath, Version: o.version, PID: os.Getpid()}
+		ConfigPath: o.configPath, CredDir: config.CredentialsDir(o.dataDir), Version: o.version, PID: os.Getpid()}
 
 	if o.llm {
 		credDir := config.CredentialsDir(o.dataDir)
@@ -159,12 +173,42 @@ func run(ctx context.Context, o options) (err error) {
 		srv.Calendar = cal
 	}
 
+	var code *remote.Service
+	if o.remote {
+		if code, err = newRemote(db, repos, o, l, hub); err != nil {
+			return fmt.Errorf("remote: %w", err)
+		}
+		srv.Code = code
+		l.watchAway.Store(true)
+	}
+
 	ln, err := bindSocket(ctx, o.socketPath)
 	if err != nil {
 		return err
 	}
 	loopCtx, stopLoop := context.WithCancel(context.Background())
 	go l.run(loopCtx)
+	codeDone := make(chan struct{})
+	var sockets *remoteSockets
+	if code != nil {
+		sockets = &remoteSockets{svc: code, srv: srv, cfg: l.Config, runtime: filepath.Dir(o.socketPath), peerOK: o.remotePeer}
+		if sockets.peerOK == nil {
+			sockets.peerOK = func(uid int) bool { return uid == 0 }
+		}
+		sockets.sync()
+		// Turning the remote on or off in Settings opens or closes its socket.
+		hub.OnPublish(func(name string) {
+			if name == wire.EventConfigChanged {
+				go sockets.sync()
+			}
+		})
+		go func() {
+			defer close(codeDone)
+			code.Run(loopCtx)
+		}()
+	} else {
+		close(codeDone)
+	}
 	if cal != nil {
 		go cal.Run(loopCtx)
 	}
@@ -184,6 +228,21 @@ func run(ctx context.Context, o options) (err error) {
 		close(memDone)
 	}
 	httpSrv := &http.Server{Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
+	if o.termHome != "" {
+		if changed, err := term.Install(o.termHome); err != nil {
+			slog.Warn("Gwen's screens could not be put in the Gwen window", "err", err)
+		} else if changed {
+			slog.Info("put Gwen's screens in the Gwen window", "home", o.termHome)
+		}
+	}
+	var appLn *appListener
+	if o.app {
+		// Without it Gwen's screens show "Gwen isn't running"; everything else works.
+		var appErr error
+		if appLn, appErr = startApp(filepath.Dir(o.socketPath), srv.Handler()); appErr != nil {
+			slog.Error("Gwen's screens cannot reach this daemon", "err", appErr)
+		}
+	}
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- httpSrv.Serve(ln) }()
 	slog.Info("listening", "socket", o.socketPath, "activity_backend", mon.Name())
@@ -202,9 +261,16 @@ func run(ctx context.Context, o options) (err error) {
 	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
 		slog.Warn("shutdown", "err", err)
 	}
+	if sockets != nil {
+		sockets.close()
+	}
+	if appLn != nil {
+		appLn.close()
+	}
 	stopLoop()
-	<-l.done  // the loop writes shutdown_at on its way out
-	<-memDone // the memory's worker stops before the database closes
+	<-codeDone // the remote saves its sessions before the database closes
+	<-l.done   // the loop writes shutdown_at on its way out
+	<-memDone  // the memory's worker stops before the database closes
 	os.Remove(o.socketPath)
 	slog.Info("stopped")
 	return nil

@@ -2,12 +2,15 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
 	"math"
 	"net/http"
+	"os"
+	"path/filepath"
 	"slices"
 	"sync"
 	"time"
@@ -28,6 +31,10 @@ type speech struct {
 	emit      func(name string, data any) // to the frontend
 	providers []*speechProvider           // the first is the default
 	play      func() (sink, error)        // starts the player at voice.SpeechRate
+	// choices is the file that keeps the provider and voices chosen in
+	// Settings, so the Talk window and Settings in the Gwen window speak
+	// alike; "" keeps none.
+	choices string
 
 	mu         sync.Mutex
 	installing string // the provider whose model is downloading, "" for none
@@ -170,6 +177,16 @@ type SpeechStatus struct {
 	Player    bool             `json:"player"`
 	Speaking  int              `json:"speaking"`  // the utterance being said, 0 for none
 	Providers []SpeechProvider `json:"providers"` // the first is the default
+	// Provider is the provider chosen in Settings, "" until one is (the first
+	// is used then); Voices the voice chosen for each provider, by its id.
+	Provider string            `json:"provider"`
+	Voices   map[string]string `json:"voices"`
+}
+
+// speechChoice is what the choices file keeps (SpeechStatus.Provider, Voices).
+type speechChoice struct {
+	Provider string            `json:"provider"`
+	Voices   map[string]string `json:"voices"`
 }
 
 // SpeechProvider is a way Gwen can speak, as the frontend sees it.
@@ -226,7 +243,57 @@ func (s *speech) status() SpeechStatus {
 	if s.saying != nil {
 		st.Speaking = s.saying.id
 	}
+	c := s.chosen()
+	st.Provider, st.Voices = c.Provider, c.Voices
 	return st
+}
+
+// chosen is the choice kept in the choices file, empty when there is none.
+func (s *speech) chosen() speechChoice {
+	c := speechChoice{}
+	if s.choices != "" {
+		if b, err := os.ReadFile(s.choices); err == nil {
+			_ = json.Unmarshal(b, &c)
+		}
+	}
+	if c.Voices == nil {
+		c.Voices = map[string]string{}
+	}
+	return c
+}
+
+// choose makes provider the one Gwen speaks with and, unless voiceID is "",
+// voiceID its voice.
+func (s *speech) choose(provider, voiceID string) error {
+	p, err := s.provider(provider)
+	if err != nil {
+		return err
+	}
+	if voiceID != "" && !slices.ContainsFunc(p.Voices, func(v SpeechVoice) bool { return v.ID == voiceID }) {
+		return fmt.Errorf("%s has no voice %q", p.Name, voiceID)
+	}
+	if s.choices == "" {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c := s.chosen()
+	c.Provider = provider
+	if voiceID != "" {
+		c.Voices[provider] = voiceID
+	}
+	b, err := json.MarshalIndent(c, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(s.choices), 0o700); err != nil {
+		return err
+	}
+	tmp := s.choices + ".tmp"
+	if err := os.WriteFile(tmp, append(b, '\n'), 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, s.choices)
 }
 
 // provider is the provider with id.
@@ -471,3 +538,9 @@ func (a *App) Say(text, provider, voice string, speed float64) (int, error) {
 
 // StopSaying cuts off whatever is being said.
 func (a *App) StopSaying() { a.speech.stop() }
+
+// ChooseSpeech makes provider the one Gwen speaks with and, unless voice is
+// "", voice its voice, for Settings and the Talk window alike.
+func (a *App) ChooseSpeech(provider, voice string) error {
+	return wrap(a.speech.choose(provider, voice))
+}

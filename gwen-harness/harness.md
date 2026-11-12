@@ -713,7 +713,10 @@ not fine for rules, approvals and program promotions. v2 changes:
   one change and get approval for another.
 - **ntfy stays the push channel**, but its buttons only open the app. They never approve.
 - **"Open in VS Code"**: code-server on the cloud worktree, exposed only on the tailnet as a Tailscale Service.
-- **Claude Code Remote Control** for steering a live coding session from the Claude app.
+- **Steering live Claude Code sessions on the laptop** from the phone, never through the Claude app or Claude Code
+  Remote Control: `plan.md` W27 builds it first (Gwen Terminal, a thin fork of Herdr, with sessions in herdr-core;
+  Tailscale Serve, Claude Code hooks, device pairing). G4 moves it onto tsnet and passkeys. herdr-core's SSH machines
+  are a cheap first step toward 5.1's nodes (plan.md W30).
 - Telegram or Signal only as a fallback channel, never for approvals.
 
 ### 5.7 Your scenario, end to end
@@ -1095,6 +1098,9 @@ Wave C   G4  |  G4b |  G5  |  G6
 Wave D   G7  |  G8
 stacyvm  changes 1, 2, 4, 7 with G3 · 3, 5, 6, 8 with G4 · 11 with G5 · the rest later      (its own repo)
 ```
+
+Before Wave A, `plan.md` W27 ships a thin phone remote for Claude Code sessions. G4's phone web app grows from it,
+replacing its transport (Tailscale Serve becomes tsnet) and its device pairing (passkeys).
 
 After Wave A, chat is agentic and Gwen runs programs. After B, her context is compiled and cached, she remembers across
 chats, works in your folders inside a sandbox, and triages your email with you. After C, she works from your phone and

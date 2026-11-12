@@ -3,9 +3,15 @@ import { App, apiError, isHub } from "../api";
 import type { main } from "../wailsjs/go/models";
 import { EventsOn } from "../wailsjs/runtime/runtime";
 
-/** Where this viewer's provider, voice for each provider, and read-aloud choice are kept. */
+/**
+ * Where the old dashboard kept this viewer's provider and voice for each
+ * provider. They live in gwen-ui now (SpeechStatus.provider and voices), so
+ * Settings in the Gwen window and this window agree; what is still here is
+ * moved there once.
+ */
 const providerKey = "gwen.speech.provider";
 const voiceKey = (provider: string) => `gwen.speech.voice.${provider}`;
+/** Whether replies are read aloud, which stays this viewer's own. */
 const aloudKey = "gwen.speech.aloud";
 
 function load(key: string): string | null {
@@ -24,11 +30,36 @@ function save(key: string, value: string) {
   }
 }
 
-/** Every useSpeech, told when this viewer picks a provider or voice, so all the speaker buttons follow. */
+function drop(key: string) {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    // storage is a convenience
+  }
+}
+
+/** Moves the old dashboard's choices into gwen-ui, once, when nothing is chosen there yet. */
+let moving: Promise<void> | null = null;
+function moveOldChoices(s: main.SpeechStatus): Promise<void> {
+  moving ??= (async () => {
+    const old = load(providerKey);
+    if (s.provider || !old) return;
+    for (const p of s.providers) {
+      const v = load(voiceKey(p.id));
+      if (v && p.voices.some((x) => x.id === v)) await App.ChooseSpeech(p.id, v).catch(() => {});
+    }
+    if (s.providers.some((p) => p.id === old)) await App.ChooseSpeech(old, "").catch(() => {});
+    drop(providerKey);
+    s.providers.forEach((p) => drop(voiceKey(p.id)));
+  })();
+  return moving;
+}
+
+/** Every useSpeech, told when a provider or voice is picked, so all the speaker buttons follow. */
 const pickers = new Set<() => void>();
 
-function pick(key: string, value: string) {
-  save(key, value);
+async function pick(provider: string, voice: string): Promise<void> {
+  await App.ChooseSpeech(provider, voice);
   pickers.forEach((f) => f());
 }
 
@@ -45,8 +76,8 @@ export function useAloud(): [boolean, (on: boolean) => void] {
 }
 
 /**
- * Gwen's voice (cmd/gwen-ui/speech.go): the provider and voice this viewer
- * chose, whether that provider is ready, and say, which speaks text and
+ * Gwen's voice (cmd/gwen-ui/speech.go): the provider and voice chosen in
+ * Settings, whether that provider is ready, and say, which speaks text and
  * calls back when it is done. Providers describe themselves, so nothing here
  * knows one from another. sounding is the utterance that can be heard now,
  * 0 for none; preparing is one asked for that is not yet heard.
@@ -57,7 +88,6 @@ export function useSpeech() {
   const [sounding, setSounding] = useState(0);
   const [preparing, setPreparing] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [, setPicked] = useState(0); // re-reads the choices when they change
   const live = useRef(true);
   // What to do when each of this hook's utterances ends, and the ends that
   // came before say heard the id, with their error.
@@ -65,13 +95,23 @@ export function useSpeech() {
   const early = useRef(new Map<number, string>());
   const heard = useRef(0); // the utterance sounding now, for say
 
-  const refresh = () => App.SpeechStatus().then((s) => live.current && setStatus(s), () => {});
+  const refresh = () =>
+    App.SpeechStatus().then(
+      async (s) => {
+        if (!s.provider && load(providerKey)) {
+          await moveOldChoices(s);
+          s = await App.SpeechStatus();
+        }
+        if (live.current) setStatus(s);
+      },
+      () => {},
+    );
 
   useEffect(() => {
     if (isHub) return;
     live.current = true;
     refresh();
-    const picked = () => setPicked((n) => n + 1);
+    const picked = () => void refresh();
     pickers.add(picked);
     const offs = [
       EventsOn("speech:changed", refresh),
@@ -107,8 +147,8 @@ export function useSpeech() {
   useEffect(() => () => void (ends.current.size > 0 && App.StopSaying()), []);
 
   const providers = status?.providers ?? [];
-  const provider = providers.find((p) => p.id === load(providerKey)) ?? providers[0] ?? null;
-  const saved = provider && load(voiceKey(provider.id));
+  const provider = providers.find((p) => p.id === status?.provider) ?? providers[0] ?? null;
+  const saved = provider && status?.voices?.[provider.id];
   const voice = provider?.voices.find((v) => v.id === saved)?.id ?? provider?.voices[0]?.id ?? "";
 
   /** Says text, cutting off anything before; onEnd gets "" once it was said or cut off, else why not. Resolves to its id, or 0 when it could not start. */
@@ -136,16 +176,16 @@ export function useSpeech() {
 
   return {
     status,
-    /** The provider this viewer chose, else the default; null until known. */
+    /** The provider chosen in Settings, else the default; null until known. */
     provider,
-    setProvider: (id: string) => pick(providerKey, id),
+    setProvider: (id: string) => pick(id, "").catch((e) => setError(apiError(e).message)),
     progress: provider?.installing ? progress : null,
     ready: !!status?.player && !!provider?.ready,
     sounding,
     preparing,
     error,
     voice,
-    setVoice: (v: string) => provider && pick(voiceKey(provider.id), v),
+    setVoice: (v: string) => provider && pick(provider.id, v).catch((e) => setError(apiError(e).message)),
     say,
     stop: () => App.StopSaying(),
     install: () => App.InstallSpeech(provider?.id ?? ""),

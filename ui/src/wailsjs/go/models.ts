@@ -96,6 +96,8 @@ export namespace main {
 	    player: boolean;
 	    speaking: number;
 	    providers: SpeechProvider[];
+	    provider: string;
+	    voices: Record<string, string>;
 	
 	    static createFrom(source: any = {}) {
 	        return new SpeechStatus(source);
@@ -106,6 +108,8 @@ export namespace main {
 	        this.player = source["player"];
 	        this.speaking = source["speaking"];
 	        this.providers = this.convertValues(source["providers"], SpeechProvider);
+	        this.provider = source["provider"];
+	        this.voices = source["voices"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -868,6 +872,200 @@ export namespace wire {
 	        this.task_id = source["task_id"];
 	    }
 	}
+	export class CodeOption {
+	    key: string;
+	    label: string;
+	    kind: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CodeOption(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.key = source["key"];
+	        this.label = source["label"];
+	        this.kind = source["kind"];
+	    }
+	}
+	export class CodeTerminal {
+	    terminal: string;
+	    name: string;
+	    cwd: string;
+	    status: string;
+	    app: string;
+	    session_id: string;
+	    cols: number;
+	    rows: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new CodeTerminal(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.terminal = source["terminal"];
+	        this.name = source["name"];
+	        this.cwd = source["cwd"];
+	        this.status = source["status"];
+	        this.app = source["app"];
+	        this.session_id = source["session_id"];
+	        this.cols = source["cols"];
+	        this.rows = source["rows"];
+	    }
+	}
+	export class CodeWaiting {
+	    kind: string;
+	    held: boolean;
+	    tool: string;
+	    summary: string;
+	    question: string;
+	    options: CodeOption[];
+	    note: string;
+	    held_until?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new CodeWaiting(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.kind = source["kind"];
+	        this.held = source["held"];
+	        this.tool = source["tool"];
+	        this.summary = source["summary"];
+	        this.question = source["question"];
+	        this.options = this.convertValues(source["options"], CodeOption);
+	        this.note = source["note"];
+	        this.held_until = source["held_until"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class CodeSession {
+	    id: string;
+	    terminal: string;
+	    name: string;
+	    cwd: string;
+	    branch: string;
+	    sandbox: boolean;
+	    state: string;
+	    need: string;
+	    step: string;
+	    last_message: string;
+	    permission_mode: string;
+	    claude_session_id: string;
+	    pinned: boolean;
+	    unread: boolean;
+	    window: boolean;
+	    notice: string;
+	    waiting?: CodeWaiting;
+	    helpers: CodeTerminal[];
+	    started_at: number;
+	    updated_at: number;
+	    ended_at?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new CodeSession(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.terminal = source["terminal"];
+	        this.name = source["name"];
+	        this.cwd = source["cwd"];
+	        this.branch = source["branch"];
+	        this.sandbox = source["sandbox"];
+	        this.state = source["state"];
+	        this.need = source["need"];
+	        this.step = source["step"];
+	        this.last_message = source["last_message"];
+	        this.permission_mode = source["permission_mode"];
+	        this.claude_session_id = source["claude_session_id"];
+	        this.pinned = source["pinned"];
+	        this.unread = source["unread"];
+	        this.window = source["window"];
+	        this.notice = source["notice"];
+	        this.waiting = this.convertValues(source["waiting"], CodeWaiting);
+	        this.helpers = this.convertValues(source["helpers"], CodeTerminal);
+	        this.started_at = source["started_at"];
+	        this.updated_at = source["updated_at"];
+	        this.ended_at = source["ended_at"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class CodeSessionList {
+	    sessions: CodeSession[];
+	    core: string;
+	    message: string;
+	    machine: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CodeSessionList(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sessions = this.convertValues(source["sessions"], CodeSession);
+	        this.core = source["core"];
+	        this.message = source["message"];
+	        this.machine = source["machine"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
 	export class Commitment {
 	    id: string;
 	    title: string;
@@ -954,6 +1152,30 @@ export namespace wire {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.level = source["level"];
+	    }
+	}
+	export class RemoteConfig {
+	    enabled: boolean;
+	    port: number;
+	    roots: string[];
+	    keep_awake: string;
+	    push: boolean;
+	    sandbox_extra: string[];
+	    core_socket: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new RemoteConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.port = source["port"];
+	        this.roots = source["roots"];
+	        this.keep_awake = source["keep_awake"];
+	        this.push = source["push"];
+	        this.sandbox_extra = source["sandbox_extra"];
+	        this.core_socket = source["core_socket"];
 	    }
 	}
 	export class SyncConfig {
@@ -1111,6 +1333,7 @@ export namespace wire {
 	    llm: LLMConfig;
 	    memory: MemoryConfig;
 	    sync: SyncConfig;
+	    remote: RemoteConfig;
 	    log: LogConfig;
 	
 	    static createFrom(source: any = {}) {
@@ -1127,6 +1350,7 @@ export namespace wire {
 	        this.llm = this.convertValues(source["llm"], LLMConfig);
 	        this.memory = this.convertValues(source["memory"], MemoryConfig);
 	        this.sync = this.convertValues(source["sync"], SyncConfig);
+	        this.remote = this.convertValues(source["remote"], RemoteConfig);
 	        this.log = this.convertValues(source["log"], LogConfig);
 	    }
 	
@@ -3039,6 +3263,117 @@ export namespace wire {
 	    }
 	}
 	
+	
+	export class RemoteDevice {
+	    id: string;
+	    name: string;
+	    created_at: number;
+	    last_seen_at?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new RemoteDevice(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.created_at = source["created_at"];
+	        this.last_seen_at = source["last_seen_at"];
+	    }
+	}
+	export class RemoteDevices {
+	    devices: RemoteDevice[];
+	
+	    static createFrom(source: any = {}) {
+	        return new RemoteDevices(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.devices = this.convertValues(source["devices"], RemoteDevice);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class RemotePairCode {
+	    code: string;
+	    url: string;
+	    expires_at: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new RemotePairCode(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.code = source["code"];
+	        this.url = source["url"];
+	        this.expires_at = source["expires_at"];
+	    }
+	}
+	export class RemoteStatus {
+	    enabled: boolean;
+	    tailscale: string;
+	    host: string;
+	    certificates: boolean;
+	    published: boolean;
+	    port: number;
+	    url: string;
+	    owner: string;
+	    socket: string;
+	    hooks: boolean;
+	    hooks_note: string;
+	    core: string;
+	    core_version: string;
+	    terminal: boolean;
+	    voice: boolean;
+	    sandbox: boolean;
+	    sandbox_signed_in: boolean;
+	    devices: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new RemoteStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.tailscale = source["tailscale"];
+	        this.host = source["host"];
+	        this.certificates = source["certificates"];
+	        this.published = source["published"];
+	        this.port = source["port"];
+	        this.url = source["url"];
+	        this.owner = source["owner"];
+	        this.socket = source["socket"];
+	        this.hooks = source["hooks"];
+	        this.hooks_note = source["hooks_note"];
+	        this.core = source["core"];
+	        this.core_version = source["core_version"];
+	        this.terminal = source["terminal"];
+	        this.voice = source["voice"];
+	        this.sandbox = source["sandbox"];
+	        this.sandbox_signed_in = source["sandbox_signed_in"];
+	        this.devices = source["devices"];
+	    }
+	}
 	export class ResolveConflictRequest {
 	    resolution: string;
 	
@@ -3239,6 +3574,30 @@ export namespace wire {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.at = source["at"];
+	    }
+	}
+	export class StartCodeSession {
+	    dir: string;
+	    create?: boolean;
+	    git_init?: boolean;
+	    sandbox?: boolean;
+	    prompt?: string;
+	    window?: boolean;
+	    resume?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new StartCodeSession(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.dir = source["dir"];
+	        this.create = source["create"];
+	        this.git_init = source["git_init"];
+	        this.sandbox = source["sandbox"];
+	        this.prompt = source["prompt"];
+	        this.window = source["window"];
+	        this.resume = source["resume"];
 	    }
 	}
 	export class StatsSummary {

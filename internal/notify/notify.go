@@ -28,6 +28,8 @@ type Notification struct {
 	StartedAt         time.Time
 	Expires           time.Time
 	Preview           bool
+	// Click is the address a phone opens when the push is tapped, "" for none.
+	Click string
 }
 
 // Action is a notification button.

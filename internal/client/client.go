@@ -126,6 +126,17 @@ type API interface {
 	SyncStatus(ctx context.Context) (*wire.SyncStatus, error)
 	SyncNow(ctx context.Context) (*wire.SyncStatus, error)
 
+	// Gwen on the phone and code sessions (plan.md 3.14).
+	CodeSessions(ctx context.Context) (*wire.CodeSessionList, error)
+	StartCodeSession(ctx context.Context, req wire.StartCodeSession) (*wire.CodeSession, error)
+	RemoteStatus(ctx context.Context) (*wire.RemoteStatus, error)
+	RemotePairCode(ctx context.Context) (*wire.RemotePairCode, error)
+	RemoteDevices(ctx context.Context) (*wire.RemoteDevices, error)
+	RevokeRemoteDevice(ctx context.Context, id string) error
+	SetRemoteHooks(ctx context.Context, on bool) (*wire.RemoteStatus, error)
+	// OpenApp shows a Gwen screen in the Gwen window (plan.md 3.15).
+	OpenApp(ctx context.Context, screen string) error
+
 	// Memory (memory.go): each answers unavailable while memory is off.
 	MemoryStatus(ctx context.Context) (*wire.MemoryStatus, error)
 	ListClaims(ctx context.Context, q wire.MemoryClaimQuery) (*wire.MemoryClaimList, error)

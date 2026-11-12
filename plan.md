@@ -1,6 +1,9 @@
 # Gwen plan: from tracker to assistant
 
-Status: ready for W15 to W23. Last updated 2026-10-10.
+Status: W27 (Gwen Terminal and the phone), W16, and W16b (one Gwen app: Gwen's screens inside Gwen Terminal, the
+old dashboard window removed) are built on branch `w27-gwen-mobile` and checked live on the laptop in a throwaway
+window. Still to do: W27's check on a real phone over Tailscale and its test batch (6.3, W27). W15 and W17 to W23 are
+ready; their screens are built as Gwen mods (6.2). Last updated 2026-11-13.
 
 This file is the single plan for Gwen's next phase. It replaces `wish.md` and the `docs/` folder that was
 deleted in commit `6879749` (still readable with `git show 6879749^:docs/<file>`). Work packages edit this
@@ -25,6 +28,8 @@ Contents: [1 Goals](#1-what-you-asked-for) · [2 Today's code](#2-where-gwen-is-
 | Read my last 5 emails, suggest replies, I send or Gwen sends | **Email review** run with Gmail, drafts, and send-on-click | W22 |
 | Coding tasks: discuss the plan, file paths, which folder is which project | **Coding run** with Claude Code, project folders, and a git worktree per run | W23 |
 | Connect more apps later without redesigning | **Connectors** with typed capabilities, and MCP for the long tail | W19, W24 |
+| From my phone, by chat or voice: see my Claude Code sessions on the laptop, review their changes, give the next task, or start one in a folder; over my Wi-Fi or tailnet, not the Claude app | **Gwen Terminal and the phone**: Gwen Terminal (a thin fork of Herdr) on the laptop, and a phone app on your tailnet that sees its Claude sessions, types into them, shows their live terminal, and reviews their changes | W27 |
+| Read Slack, find the actionable points, and hand them to an agent (Slack may be a cloud service) | **Slack inbox** | W28 (later) |
 
 The idea that ties these together: Gwen should not only remind you. She should know what is next, help you
 start it, prepare what you need, and later do parts of the work with your OK. One timeline feeds one
@@ -207,7 +212,7 @@ A cue is a reminder tied to an entry's start time. Three kinds:
 - Do Not Disturb comes from the `Inhibited` property of `org.freedesktop.Notifications`. Where the
   notification server does not offer that property, Gwen treats Do Not Disturb as off.
 - At most one spoken cue every 10 minutes. Extra cues inside that window are shown, not spoken.
-- **Who opens the card.** `gwend` never launches windows. It runs as a systemd service and also runs headless on
+- **Who opens the card.** `gwend` never launches windows (one exception: it opens Gwen Terminal for a session you start from the phone, 3.14.5). It runs as a systemd service and also runs headless on
   the Pi. Instead, `gwen panel` output gets a `cue` field, and the KDE panel widget (or `gwen-tray`, on other
   desktops) runs `gwen-ui --cue <id>` once per new cue. Without either, you still get the notification.
 - **The cue card** (`gwen-ui --cue`): a 360 by 200 frameless window at the bottom right, always on top, never
@@ -312,7 +317,7 @@ envelope (`id`, `created_at`, `updated_at`, `deleted_at`, `device_id`, `rev`) an
 `store.SyncTables`.
 
 ```sql
--- 00009_agenda.sql (W17)
+-- 00012_agenda.sql (W17)
 ALTER TABLE calendar_busy RENAME TO calendar_events;
 DROP INDEX calendar_busy_range;
 CREATE INDEX calendar_events_range ON calendar_events (start_at, end_at);
@@ -351,7 +356,26 @@ CREATE TABLE memory_links (id TEXT PRIMARY KEY, from_kind TEXT NOT NULL, from_id
 -- `memory_jobs`, `memory_backends`, `memory_usage`, `resources`, and the
 -- ledger are device-local. `index.db` holds the rebuildable vector index.
 
--- 00011_cues.sql (W18)
+-- 00011_remote.sql (W27); both tables are device-local and never synced
+CREATE TABLE remote_devices (
+    id TEXT PRIMARY KEY CHECK (length(id) = 36), name TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE,
+    created_at INTEGER NOT NULL, last_seen_at INTEGER, revoked_at INTEGER
+) STRICT;
+CREATE TABLE code_sessions (
+    id TEXT PRIMARY KEY CHECK (length(id) = 13), terminal TEXT NOT NULL DEFAULT '',
+    claude_session_id TEXT NOT NULL DEFAULT '', cwd TEXT NOT NULL, sandbox INTEGER NOT NULL DEFAULT 0 CHECK (sandbox IN (0, 1)),
+    args TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(args)), pid INTEGER, transcript_path TEXT NOT NULL DEFAULT '',
+    state TEXT NOT NULL CHECK (state IN ('starting', 'working', 'needs_you', 'done', 'idle', 'error', 'ended')),
+    need TEXT NOT NULL DEFAULT '' CHECK (need IN ('', 'permission', 'question', 'other')),
+    step TEXT NOT NULL DEFAULT '', last_message TEXT NOT NULL DEFAULT '', permission_mode TEXT NOT NULL DEFAULT '',
+    start_status TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(start_status)), touched TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(touched)),
+    pinned INTEGER NOT NULL DEFAULT 0 CHECK (pinned IN (0, 1)), seen_at INTEGER,
+    started_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, ended_at INTEGER
+) STRICT;
+CREATE INDEX code_sessions_claude ON code_sessions (claude_session_id);
+CREATE INDEX code_sessions_terminal ON code_sessions (terminal);
+
+-- 00013_cues.sql (W18)
 CREATE TABLE cue_rules (  -- synced; NULL means "use the default", 0 means "off"
     id TEXT PRIMARY KEY CHECK (length(id) = 36), subject TEXT NOT NULL,
     lead_minutes INTEGER CHECK (lead_minutes BETWEEN 0 AND 1440), at_start INTEGER CHECK (at_start IN (0, 1)),
@@ -366,7 +390,7 @@ CREATE TABLE cue_log (  -- device-local
     action TEXT NOT NULL DEFAULT '', snoozed_until INTEGER, channels TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(channels))
 ) STRICT;
 
--- 00012_runs.sql (W19)
+-- 00014_runs.sql (W19)
 CREATE TABLE subject_resources (  -- synced; links and folders attached to a subject
     id TEXT PRIMARY KEY CHECK (length(id) = 36), subject TEXT NOT NULL,
     kind TEXT NOT NULL CHECK (kind IN ('url', 'folder', 'file', 'note')), title TEXT NOT NULL DEFAULT '',
@@ -431,9 +455,12 @@ error codes. Every endpoint gets a `client.API` method and a `clienttest.Fake` e
 | Runs | `GET /v1/runs`, `POST /v1/runs`, `GET /v1/runs/{id}` (with steps and log), `POST /v1/runs/{id}/start`, `/cancel`, `/resume`, `/message` | W19 |
 | Approvals | `GET /v1/approvals?status=pending`, `POST /v1/approvals/{id}` (decision, optional edited payload), `GET /v1/approvals/{id}/wait` | W19, wait in W23 |
 | Connections | `GET /v1/connections`, `POST /v1/connections/{id}/connect`, `DELETE /v1/connections/{id}` | W19, Gmail in W22 |
+| Code sessions | `GET/POST /v1/code/sessions`, `GET /v1/code/sessions/{id}`, `GET .../transcript`, `GET .../changes`, `GET .../changes/diff?path=`, `POST .../prompt`, `/control`, `/answer`, `/mark`; `GET /v1/code/spaces`, `POST /v1/code/spaces/{id}/terminal`, `GET /v1/code/terminals/{t}/view` (WebSocket), `POST /v1/code/terminals/{t}/send`, `/put`; `GET /v1/code/folders?path=`, `GET /v1/code/recent-folders`, `GET /v1/code/conversations?dir=`, `POST /v1/code/transcribe`; `POST /v1/code/hook` (hook socket only); `GET /v1/code/events` (remote socket only) | W27 |
+| Remote | `GET /v1/remote/status` (Tailscale, Serve, URL, certificates), `POST /v1/remote/pair-code`, `GET /v1/remote/devices`, `DELETE /v1/remote/devices/{id}`, `POST /v1/remote/hooks` (main socket only) | W27 |
 
 New SSE events: `agenda_changed`, `cue_fired`, `cue_updated`, `run_changed` (run id and status),
-`approval_requested`, `approval_decided`, `connection_changed`, `memory_changed`.
+`approval_requested`, `approval_decided`, `connection_changed`, `memory_changed`, `code_session_changed` (session id
+and state), `remote_changed`.
 
 ### 3.11 The three workflows, end to end
 
@@ -566,11 +593,522 @@ shows a measurable improvement.
 | Process | When it runs | Change |
 |---|---|---|
 | `gwend` | always | adds the cue loop, the run executor, connector clients, and the memory worker; models load only for a memory job |
-| `gwen-ui` dashboard | when you open it | new screens |
+| `gwen-ui` | the now card, the cue card, and Talk; `gwen-ui host` while Settings asks about voice | the dashboard window moved into Gwen Terminal in W16b (3.15) |
 | `gwen-ui --cue` | a few seconds to 2 minutes per cue | new |
 | `gwen-ui --talk` | when you talk | can start from a cue |
 | `claude` and `gwen mcp` | only during a coding run | new |
 | panel widget or `gwen-tray` | always (already) | launches the cue card |
+| herdr-core (`hc server`) | while Gwen Terminal is open or any session runs | new (W27), built from upstream source |
+| `gwen-term` (Gwen Terminal) | while its window is open | new (W27) |
+| `gwen hook` | a few milliseconds per Claude Code event | new (W27) |
+| `gwen-stt` | while you talk from the phone, and 3 minutes after | new (W27), loads Parakeet |
+
+### 3.14 Gwen Terminal and Gwen on the phone (W27)
+
+You start and drive Claude Code sessions on this laptop from your phone, by text or voice, watch their live
+terminal, and review what they changed. On the laptop they run in **Gwen Terminal**, a thin fork of the open-source
+Herdr app that keeps Herdr's whole interface, so every Claude you start there can be reached from the phone, and when
+you sit down you keep going in the same tab. The phone app follows Herdr's phone app screen for screen (Inbox,
+Terminal, Compose, Spaces) and adds what Gwen brings: Chat, Changes, permission answers, New session, and voice. The terminals live in **herdr-core**, which keeps them running when the window closes. Everything
+travels over your tailnet. Nothing goes through Claude Code Remote Control, the Claude app, or any Herdr service
+(Claude Code itself still talks to Anthropic's API, as it does today). Ghostty stays your personal terminal; Gwen
+ignores it. Mockups: the "Gwen Phone Remote" canvas, `https://claude.ai/artifact/DVWYtw3MvBaGxjoTpBpvda` (private to
+you). The text below decides; the canvas only shows it.
+
+**3.14.1 Names**
+
+Every app is called **Gwen** wherever you see it. Internal names keep the parts apart in code, folders, branches,
+and this file:
+
+| Internal name | What it is | What you see |
+|---|---|---|
+| `gwend` | the daemon | nothing |
+| `gwen` | the CLI | `gwen` |
+| `gwen-ui` | the now card, the cue card, and Talk windows; with no flag, it opens the Gwen window as `gwen open` does | the now card and Talk |
+| `gwen-tray`, the panel widget | the tray | "Gwen tray" |
+| `gwen-term` | **the Gwen app**: a thin fork of `herdr-app` (3.14.3) holding Gwen's screens (3.15) and your terminals | window title "Gwen"; the only "Gwen" in the launcher (its own entry is hidden; the launcher's runs `gwen open`) |
+| `gwen-mobile` | the phone app | "Gwen" on the phone's home screen |
+| `herdr-core` (`hc`) | the terminal server, built from upstream unchanged | nothing |
+| `gwen-stt` | the speech-to-text helper | nothing |
+
+**3.14.2 How the pieces fit**
+
+```text
+phone: gwen-mobile ── tailnet HTTPS ──▶ Tailscale Serve ──▶ gwend remote.sock
+                                                              │
+                                                              ▼
+laptop: gwen-term (window) ◀── attach ──▶ herdr-core ◀── JSON-RPC ── gwend (sessions, transcripts, changes, voice)
+                                            │ terminals: claude, shells                ▲
+                                            └── Claude Code hooks (gwen hook) ── hook.sock
+```
+
+- herdr-core runs the terminals, `gwen-term` draws them, and `gwend` is one more client of herdr-core. `gwend` never
+  draws a terminal.
+- **The phone never reaches herdr-core.** Anyone who can use its socket effectively has a shell (herdr-core
+  `docs/security.md`), so `gwend` exposes only the operations of 3.14.7, each with its own checks.
+- Claude Code reports its own status (working, blocked, idle, done, error) to herdr-core through OSC 7501; 2.1.322
+  checks for it at start. Hooks add what a status cannot carry: the Claude session id, permission details, the last
+  message, and edited files.
+
+**3.14.3 `gwen-term`: the thin fork**
+
+- **Repository.** A separate repo, `~/Documents/coding/gwen-term`, cloned from `github.com/herdrdev/herdr-app` with
+  that remote named `upstream`, and a branch `gwen` on top of `upstream/master`. A GitHub fork under your account (as
+  `origin`) is made only when you ask. Gwen's repo never vendors it.
+- **The patch stays small.** Each item is its own small commit, so a rebase conflict names its reason:
+  1. App id, launcher entry, and installed command `gwen-term` (`Name=Gwen`, `GenericName=Terminal`), with the Gwen
+     icon from `packaging/icons`. `Cargo.toml` is left exactly as upstream has it (Herdr's licence-notice test
+     hashes it), so Cargo still names the binary `herdr-app`; `scripts/install-linux` installs it as `gwen-term`.
+  2. App home `~/.config/gwen-term` (the `HERDR_APP_HOME` override still works).
+  3. No calls to herdr.dev: update checks, the core download and update, update-notes media, feedback, and usage
+     reports are all off behind one constant, `gwen::UPSTREAM_SERVICES` in `src/gwen.rs`.
+  4. `LICENSE`, `THIRD-PARTY-NOTICES`, and `licenses/` stay, and the README's first lines say this is a modified
+     Herdr (Apache-2.0 section 4).
+  5. `scripts/gwen-rename`, and the one large commit it **generates**: user-visible "Herdr" becomes "Gwen" and the
+     command in help and docs becomes `gwen-term` (about 330 lines in 46 files). Because it is generated, it never
+     needs a conflict resolved: `make term-update` drops it, rebases the small commits, and runs the script again.
+- **Kept unchanged, so community layouts and mods keep working:** the JavaScript module name `herdr`, the core
+  document `herdr-app`, the `herdr.space` and `herdr.tab` labels, the `HERDR_*` environment variables, the layout and
+  mod formats, and the generated `AGENTS.md` (its paths follow the new home).
+- **Everything else is Herdr's** (3.14.12). Gwen's own files live in Gwen's repo under `term/` and are never patched
+  into the fork: `core.version`, the `programs.json` entry of 3.14.12, and `themes.json` (Herdr's built-in theme
+  colors, for the phone's terminal).
+- **herdr-core is not forked, and Gwen has her own.** Gwen builds it from source at the newest release tag that
+  `gwen-term` accepts, pins that tag in `term/core.version`, and installs it as `~/.local/lib/gwen/herdr-core`, never
+  in `~/.local/bin`. It runs as the core **session `gwen`** (`HC_SESSION=gwen`): its own socket
+  (`$XDG_RUNTIME_DIR/herdr-core/gwen.sock`), state, terminals, and `herdr-app` document. `gwen-term` sets both at
+  startup (`gwen::own_core`). So Gwen Terminal and a Herdr you run for yourself never share terminals, spaces, or a
+  core restart, and `make term` never touches your Herdr. `hc update` is never used.
+- **Building** needs Rust (installed), Zig 0.16, and `just` (setup.md adds them). `make term` builds both and
+  installs `gwen-term`, its desktop entry and icon, `hc`, and merges the `programs.json` entry (3.14.12). It refuses when the
+  `gwen-term` checkout has uncommitted changes. `make term-update` fetches upstream, drops the generated commit, rebases the
+  small ones, regenerates it, runs `just check` (Herdr's 78 script tests, 411 unit tests, and its notice check all
+  pass on the `gwen` branch), and stops on any conflict for you to resolve. Both targets run `scripts/term.sh`. Updating while terminals run is safe: herdr-core keeps them.
+
+**3.14.4 How the phone reaches the laptop**
+
+- With `[remote] enabled = true`, `gwend` listens on a second Unix socket, `$XDG_RUNTIME_DIR/gwen/remote.sock`
+  (mode 0600). Tailscale Serve publishes it to the tailnet only: `tailscale serve --bg --https=8443
+  unix:<socket>`. The phone opens `https://<machine>.<tailnet>.ts.net:8443`. Port 8443 leaves anything you serve on
+  443 alone. No Funnel, no TCP listener.
+- **Turning it on** is a button in Settings › Phone. `gwen-ui` runs that command through `pkexec` (one password
+  prompt; Tailscale needs root to serve a Unix socket); `gwen remote on` does the same from a terminal with `sudo`. Off runs `pkexec tailscale serve --https=8443 off`. `gwend`
+  never runs `tailscale` as root; it only reads `tailscale status --json` and `tailscale serve status --json`.
+- **HTTPS certificates** must be on in the tailnet (`CertDomains` in `tailscale status --json` is not empty). If
+  not, the setup row says so and its button opens `https://login.tailscale.com/admin/dns`. The row also says that
+  the laptop's name appears in public certificate transparency logs.
+- **Who may call.** Every request on the remote socket passes all four checks, or gets 401 (fail closed):
+  1. The peer of the connection (`SO_PEERCRED`) is uid 0, which is `tailscaled`. Any other peer is closed.
+  2. `Tailscale-User-Login` equals the owner login, stored once when you first turn the remote on (from
+     `Self.UserID` → `User[id].LoginName` in `tailscale status --json`) under the new local state key
+     `remote_owner`. Serve strips copies of this header sent by the client and sends none for tagged devices.
+  3. A `gwen_device` cookie whose SHA-256 matches a `remote_devices` row that is not revoked. The cookie is
+     `Secure`, `HttpOnly`, `SameSite=Strict`, `Max-Age` 400 days. `last_seen_at` updates at most once a minute.
+  4. Every POST, PUT, and DELETE carries the header `X-Gwen: 1`.
+  `/pair` (the page and its POST) skips check 3 only.
+- **Pairing.** Settings › Phone shows a QR code for `https://<host>:8443/pair#<code>`: 128 random bits in base32,
+  single use, valid 10 minutes, one live code at a time. The phone posts the code with a device name (taken from the
+  user agent, editable). `gwend` stores the SHA-256 of a new 256-bit token and sets the token as the cookie.
+  **Revoke** deletes the row; that phone's next request gets 401 and shows the pair page.
+- **Route lists.** The remote socket serves only the phone app (`ui/dist-mobile`), `/pair`, `/v1/code/*` except
+  `/v1/code/hook`, and `GET /v1/code/events`. Everything else is 404. The main socket serves the same `/v1/code/*`
+  routes for the dashboard and CLI (local owner) plus `/v1/remote/*`. The hook socket serves only
+  `POST /v1/code/hook` (3.14.6).
+- **Later.** No passkeys in W27. Harness G4 moves the transport to tsnet and replaces the device cookie with passkeys
+  (`gwen-harness/harness.md` 5.2 and 5.6).
+
+**3.14.5 Sessions on herdr-core**
+
+- **Connection.** `internal/herdr` speaks herdr-core's JSON-RPC 2.0 on the socket of Gwen's own core
+  (`$XDG_RUNTIME_DIR/herdr-core/gwen.sock`, or `[remote] core_socket`), in framed mode. It never connects to the
+  default core, which belongs to a Herdr of your own. `hello` must report
+  protocol generation 1 and a version at least the one in `term/core.version`; otherwise Settings › Phone says
+  "Gwen Terminal's core is out of date. Run make term." `gwend` reconnects after 1, 2, 5, then every 10 seconds and
+  takes a fresh snapshot after each reconnect. When a session is needed and no core runs, `gwend` starts one with
+  `systemd-run --user --collect -p Type=oneshot -p RemainAfterExit=yes -- env HC_SESSION=gwen
+  ~/.local/lib/gwen/herdr-core server start`, so it gets your desktop session's environment, not the service's, and
+  the core it leaves in the background outlives the command and every window.
+- **What a code session is.** Any live herdr-core terminal on this laptop whose status record reports `app:
+  "claude-code"`, or whose foreground program's `argv[0]` base name is `claude`. `gwend` follows an unfiltered
+  `events.subscribe`, gives each one a `cs_` id, writes `code_sessions`, and labels the terminal
+  `gwen.session=<id>` (`terminal.label`), so it keeps the same card after `gwend` restarts. Claude running in
+  Ghostty, or in any terminal outside herdr-core, is not seen.
+- **States**, kept in memory and written to `code_sessions` on every change:
+
+  | State | Set by |
+  |---|---|
+  | `starting` | the terminal was started for a session and has no status yet |
+  | `working` | status `working` |
+  | `needs_you` | status `blocked`. `need` says why: `permission` (a held or shown `PermissionRequest`), `question` (`AskUserQuestion`), or `other` |
+  | `done` | status `done`, or `working` → `idle` while nobody looked. Becomes `idle` when you open it on the phone or send it a message |
+  | `idle` | status `idle` |
+  | `error` | status `error` |
+  | `ended` | Claude's process is gone (status cleared and the foreground is no longer Claude), or the terminal finished or was removed |
+
+  `step` is a short line from the last `PreToolUse`: `Running <command, first 80 characters>`, `Editing <path>`,
+  `Reading <path>`, `Searching`, otherwise the tool name. `last_message` is the first 300 characters of `Stop`'s
+  `last_assistant_message`. `/clear`, `/resume`, and compaction bring a `SessionStart` with a new Claude session id
+  in the same terminal; the card stays and follows the new id.
+- **Starting a session** (from the phone or the dashboard), with **Open a window on the laptop** on (the default):
+  `gwend` runs `gwen-term do tab.new` with `folder`, `name` (the folder's name), `argv` (3.14.8's command for a
+  sandbox, then `claude`, the arguments, `--session-id <new uuid>` unless resuming, and `-n <folder name>`), and
+  `task` (the first message, if any), in the space whose folder is `dir` (from `gwen-term ls`), else through
+  `space.new` with the same fields. The reply names the terminal. When `gwen-term` is not running, `gwend` starts it
+  with `systemd-run --user --collect --unit gwen-term gwen-term` and waits up to 10 seconds for `gwen-term status`;
+  if that fails, the session starts without a window and its card says "Couldn't open Gwen Terminal". This is the one
+  exception to "`gwend` never launches windows" (3.6).
+- **Claude's own first question.** In a folder Claude Code has not been told to trust, it asks before it reports any
+  status. A new session that is still silent after 4 seconds becomes `needs_you` (`other`) with "Answer in the
+  Terminal tab or on the laptop", so it never sits at Starting.
+- **Without a window** (the switch off): `terminal.run {argv, cwd, labels: {"gwen.session": <id>}}` in herdr-core.
+  **Open on laptop** (the phone's ⋯ menu and the dashboard card) runs `gwen-term do terminal.keep --terminal <t>`,
+  which gives it a tab, or `pane.focus --terminal <t>` when it already has one.
+- **Ending.** The `end` control presses Escape when working, then sends `/exit`. If Claude's process is still alive
+  10 seconds later, `gwend` sends it SIGTERM. The tab and its shell stay; closing the tab is yours.
+- **Closing the window** leaves every terminal running. Closing a tab ends its terminals (Herdr's rule). Nothing ends
+  a session on a timer.
+- **Ended** sessions stay listed for 24 hours. **Resume** starts a new session in the same folder with the original
+  flags, the same Normal or Sandbox (the Resume sheet can switch it), and `--resume <Claude session id>`. When a new
+  session reports a Claude session id that an ended row already has, that ended row is dropped from the lists, so one
+  conversation keeps one card.
+- **One Claude per conversation.** Resume or Continue (3.14.7) for a conversation that is running in any session is
+  refused with `running` and its session id, and the phone opens that card instead.
+- **Restart.** After `gwend` restarts, the snapshot brings back every terminal labelled `gwen.session` under its old
+  row; other Claude terminals get new rows. After a reboot, herdr-core gives kept tabs a fresh shell but never restarts
+  their programs, so those sessions are `ended` and offer Resume.
+
+**3.14.6 Hooks**
+
+- Settings › Phone, **Let Gwen see my Claude sessions** (`POST /v1/remote/hooks {on}`, or `gwen remote hooks on`),
+  adds one entry per event to the `hooks` of
+  `~/.claude/settings.json`: `SessionStart`, `PreToolUse`, `PostToolUse` (matcher
+  `Edit|Write|MultiEdit|NotebookEdit`), `PermissionRequest`, `Stop`, `SessionEnd`. Each entry is `{"type":
+  "command", "command": "<absolute path of gwen> hook", "async": true}`, except `PermissionRequest`, which is
+  synchronous with `"timeout": 900`.
+- **Merging.** Read the file; keep every other top-level key in its order and every other hook entry unchanged;
+  rewrite only `hooks`; skip an event that already has Gwen's exact command; write to a temporary file and rename.
+  The first write keeps a copy at `settings.json.gwen-backup`. Off removes only entries whose command is
+  `<gwen path> hook`. If the file is not valid JSON, change nothing and say so. If `disableAllHooks` is true, the
+  switch shows "Claude Code hooks are turned off in your settings". The switch shows the file's real state and
+  re-reads it whenever Settings › Phone opens.
+- **`gwen hook`** exits 0 at once unless `HC_TERMINAL_ID` is set and `HC_TERMINAL_SOCKET` is Gwen's own core, so
+  Claude outside Gwen Terminal, including in a Herdr of your own, costs nothing and is never reported. It reads
+  the event from stdin (at most 1 MiB) and keeps only what Gwen uses: event name, session id, transcript path, cwd,
+  permission mode, tool name, a summary of the tool input (command, first 200 characters, or file path),
+  `last_assistant_message` (first 300 characters), `source`, `reason`, and, for `PermissionRequest` and
+  `AskUserQuestion`, the full tool input up to 8 KiB and `permission_suggestions`. It never sends prompt text. It adds
+  `HC_TERMINAL_ID` and its parent pid (Claude's pid), and posts to the hook socket with a 500 ms timeout. It prints
+  nothing and exits 0, always, including when `gwend` is down. The one exception is `PermissionRequest` (3.14.7).
+- **The hook socket**, `$XDG_RUNTIME_DIR/gwen/hook.sock` (mode 0600), is separate so that a sandbox can be given it
+  without the main API (3.14.8).
+- **Trust.** An event is accepted for terminal `t` only if the sending process (`SO_PEERCRED` pid) descends from the
+  pid of `t`'s program in herdr-core's terminal record. Otherwise it is dropped. Each sending pid may post at most 50
+  events per second; extra events are dropped.
+
+**3.14.7 Driving a session from the phone**
+
+- **Prompt**: `POST /v1/code/sessions/{id}/prompt {text, idem}`, text up to 32 KiB, becomes `terminal.send`.
+  herdr-core pastes it and presses Enter only after you send or clear anything you are typing in that terminal at the
+  laptop (at most 60 seconds after your last key), otherwise after about 3 seconds of quiet, and holds keys you press
+  meanwhile. While it waits, the phone shows "Waiting for you to finish typing on the laptop".
+  - Refused with `conflict` ("Answer Claude first") in `needs_you`. Gwen never forces a prompt into a blocked Claude.
+  - The same `idem` (a client UUID) within 10 minutes returns the first result without sending again.
+  - The answer is `sent` when the state was `idle` or `done`, or `queued` when it was `working` (Claude Code queues
+    it).
+- **Any terminal, as in Herdr's phone app.** The phone works on every terminal in Gwen Terminal, not only Claude:
+  - `GET /v1/code/spaces` lists Gwen Terminal's spaces, their tabs, and each tab's panes with their terminals,
+    names, and statuses. `gwend` reads them from herdr-core's `herdr-app` document (`doc.get`, then `doc` events).
+    The format belongs to Herdr, so the parser is tested against a recorded document and skips what it doesn't know.
+  - `POST /v1/code/spaces/{space}/terminal` opens a new shell tab there (`gwen-term do tab.new --space <id>`).
+  - `POST /v1/code/terminals/{t}/send {text, idem}` is Compose: the same `terminal.send` as a prompt, with the same
+    `idem` rule, for any terminal.
+  - `POST /v1/code/terminals/{t}/put?name=` (one file as the body, at most 8 MB, herdr-core's limit) is a photo or
+    screenshot from Compose:
+    `terminal.put` saves it beside the terminal and returns where it landed, and the phone adds that path to the text.
+- **Controls**: `POST /v1/code/sessions/{id}/control {action}` with `interrupt` (`terminal.interrupt`), `cycle_mode`
+  (Shift+Tab; the phone shows the mode from the last hook's `permission_mode` in words: Ask before edits, Accept
+  edits, Plan, Auto), `compact` (sends `/compact`), `clear` (sends `/clear`; the phone confirms first), `end`
+  (3.14.5), and `open_on_laptop` (3.14.5).
+- **Inbox marks**: `POST /v1/code/sessions/{id}/mark {pinned, seen}` sets `pinned`, and `seen_at` to now.
+- **Away** means the laptop is locked or has had no input for 2 minutes, from the activity monitor `gwend` already
+  runs.
+- **Permissions while you are away.** The `PermissionRequest` hook call stays open: `gwend` holds the request. (Claude
+  Code shows its own dialog on the laptop at the same time; whichever answers first wins, and an answer at the laptop
+  ends the held call.) The phone's answer becomes the hook's output, wrapped as `{"hookSpecificOutput":
+  {"hookEventName": "PermissionRequest", "decision": …}}`: Allow once is `{"behavior": "allow"}`; Always allow adds
+  `"updatedPermissions": [<the suggestion you picked>]`, with each entry of `permission_suggestions` shown in words;
+  Deny is `{"behavior": "deny", "message": <your text, or "Denied from your phone">}`. If you come back to the
+  laptop first, or 10 minutes pass, `gwend` answers the hook with no decision, so Claude Code shows its own dialog on
+  the laptop, and the phone shows "Moved back to the laptop".
+- **Permissions while you are at the laptop.** The hook returns at once with no decision and the dialog shows on the
+  laptop. The phone can still answer: `gwend` reads the screen with `terminal.read`, builds the phone's buttons from
+  the numbered option lines it finds (`1.`, `2.`, …), and presses the number you pick with `terminal.keys`. It reads
+  again 2 seconds later; if the dialog is still there, the phone says "Didn't go through. Answer on the laptop."
+- **Questions** (`AskUserQuestion`): for a single question with single choice, the phone lists the options from the
+  tool input and presses the chosen option's number, checked the same way. Multi-select or several questions show
+  "Answer in the Terminal tab or on the laptop".
+- **Terminal view**: `GET /v1/code/terminals/{t}/view` upgrades to a WebSocket. `gwend` opens `terminal.attach
+  {observe: true, resize_notifications: true, history: 1000, cols, rows}` and relays the stream: output bytes as
+  binary messages, a resize as the text message `{"cols": c, "rows": r}`, and the end as `{"closed": reason}`. It
+  returns credit to herdr-core as it writes to the phone; a phone more than 4 MiB behind gets a fresh paint from
+  herdr-core instead of the backlog. The phone draws it with xterm.js at the laptop's grid size, fitted to the
+  screen's width, with pinch to zoom, in Gwen Terminal's colors (3.14.13).
+  - **Typing.** Tapping the view opens the phone's keyboard. What you type goes back over the same WebSocket as
+    `{"text": "…"}` (at most 4 KiB a message and 50 messages a second) and is typed as it is, symbols and all.
+    herdr-core takes typed bytes only from a viewer that may type, so on the first typed character `gwend` opens a
+    second, typing attach whose size is the terminal's own grid (kept in step with the grid the observer is told):
+    a viewer that asks for the size the terminal already has changes nothing, so the laptop's tab is never squeezed
+    to phone width. `{"keys": [...]}` (at most 32 names) still presses named keys through `terminal.keys`.
+  - **Key bar** above the keyboard: Ctrl (held for the next key), Esc, Tab, ⇧Tab, the four arrows, and Enter. Its
+    keys go the same way as typed text, in order with it, encoded on the phone from the modes xterm.js follows:
+    herdr-core holds keys pressed through its API until 3 seconds after anyone stops typing in that terminal, which
+    would make Enter after a typed command wait. Reordering the bar comes with W29.
+  - Each paired phone may hold 2 views open. If the first live check shows that Serve does not pass WebSocket
+    upgrades, output goes over SSE with base64 chunks and keys over POST.
+- **New session**: `POST /v1/code/sessions {dir, create, git_init, sandbox, prompt, window, resume}`. `dir` must
+  resolve (after symlinks) inside one of `[remote] roots` (default `["~"]`), not inside a hidden folder or Gwen's own
+  config or data folders. `create` makes only the last path element, and `git_init` runs `git init` in it. `prompt`
+  becomes Claude's first message.
+- **Continue a conversation**: `GET /v1/code/conversations?dir=` lists the newest 15 conversations in that folder:
+  the transcripts in the `~/.claude/projects` folder whose first lines name `dir` as their `cwd` (found the same
+  way as recent folders), each with its Claude session id, its name (the newest custom title in the transcript)
+  or else its first message (first 120 characters), last active time, whether it last ran sandboxed (from
+  `code_sessions`), and the session id when it is running now. `POST /v1/code/sessions` with `resume: <Claude
+  session id>` starts it with `--resume`, in the mode it last ran in unless `sandbox` is given.
+- **Folders**: `GET /v1/code/folders?path=` lists subfolders (no files, no hidden folders) with `git` and `branch`.
+  `GET /v1/code/recent-folders` returns the working folder of the newest transcript in each `~/.claude/projects/*`
+  folder (read from its first lines), the newest 12 that still exist inside a root.
+
+**3.14.8 Sandbox (bubblewrap)**
+
+Chosen per session: "How it runs" on New session (Normal is the default), or **Claude in a sandbox** in Gwen
+Terminal's + menu, which runs `gwen sandbox [claude arguments]` in the new tab. **Normal** is exactly your own
+`claude` with your own permission rules. **Sandbox** runs Claude under this command, then the arguments of 3.14.5:
+
+```sh
+bwrap --die-with-parent --unshare-pid --unshare-ipc --unshare-uts \
+  --ro-bind /usr /usr --symlink usr/bin /bin --symlink usr/sbin /sbin --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
+  --ro-bind /etc /etc --ro-bind-try /opt /opt --proc /proc --dev /dev --tmpfs /tmp --tmpfs /var/tmp \
+  --tmpfs /run --ro-bind-try /run/systemd/resolve /run/systemd/resolve \
+  --tmpfs "$HOME" --bind "$DIR" "$DIR" \
+  --bind "$STATE/claude" "$HOME/.claude" --setenv CLAUDE_CONFIG_DIR "$HOME/.claude" \
+  <read-only from your real ~/.claude, each that exists: settings.json CLAUDE.md commands agents skills plugins keybindings.json output-styles rules> \
+  --bind "$HOME/.claude/projects/<this folder>" "$HOME/.claude/projects/<this folder>" \
+  --ro-bind "$DIR/.git/config" "$DIR/.git/config" --ro-bind "$DIR/.git/hooks" "$DIR/.git/hooks" \
+  --ro-bind "$GWEN_BIN" "$GWEN_BIN" --dir "$XDG_RUNTIME_DIR/gwen" --bind "$HOOK_SOCK" "$HOOK_SOCK" \
+  <read-only, each --ro-bind-try: ~/.local/bin ~/.local/share/claude ~/go ~/.cargo/bin ~/.rustup ~/.nvm ~/.bun ~/.deno ~/.gitconfig ~/.config/git> \
+  <caches, each --overlay-src <yours> --overlay "$STATE/cache/<name>/upper" "$STATE/cache/<name>/work" <yours>:
+     ~/go/pkg/mod ~/.cache/go-build ~/.npm ~/.cache/pip ~/.cargo/registry ~/.local/share/pnpm> \
+  <each [remote] sandbox_extra entry, --ro-bind or --bind> \
+  --unsetenv SSH_AUTH_SOCK --unsetenv DBUS_SESSION_BUS_ADDRESS --unsetenv WAYLAND_DISPLAY --unsetenv DISPLAY \
+  --unsetenv HC_SOCKET --unsetenv HC_SESSION --setenv GWEN_SANDBOX 1 --chdir "$DIR" -- "$CLAUDE"
+```
+
+- The network stays on, because Claude Code needs Anthropic's API. Egress limits come with harness G3's proxy.
+- The sandbox cannot reach herdr-core's socket (`/run` is empty inside, so `hc` there could only start a separate core
+  of its own), the main API, SSH keys, the keyring, other folders, or your desktop. It can push no git commits over
+  SSH, and image paste does not work in it.
+- **Nothing a sandboxed session writes takes effect outside by itself.** `$STATE` is
+  `~/.local/share/gwen/sandbox/<folder name>-<hash>`, private to that project folder.
+  - **Claude's own folder** inside the sandbox is `$STATE/claude`, never your real `~/.claude`. Your settings,
+    instructions, commands, agents, skills and plugins show read-only, so your hooks (Gwen's among them) still run,
+    but a sandboxed Claude cannot add a hook, a command or an MCP server to your own Claude, cannot read your other
+    conversations, and never sees your sign-in. Its `~/.claude.json` is a copy of yours made at each start, without
+    your other projects, MCP servers and account, plus what earlier sandboxed sessions of this project stored; it
+    never flows back. Only this folder's conversations live in your real `~/.claude/projects`, so the phone's Chat
+    and Resume work across Normal and Sandbox.
+  - **Sign-in is separate.** Claude Code rewrites its sign-in file by renaming, which cannot be shared file by file
+    without sharing the whole folder, so a sandbox has its own: the token from `claude setup-token`, stored once as
+    the credential `claude_sandbox_token` (`gwen sandbox-login`, or Settings › Phone) and passed in the environment,
+    never on a command line. That token can only talk to the model, so the sandbox has no Claude connectors.
+    Without it, each sandboxed project asks for `/login` once.
+  - **Tool caches** are yours underneath, read-only, with a private writable layer on top (bubblewrap 0.11 or newer;
+    older versions get a private empty cache), so nothing a session leaves there reaches your own builds.
+  - **The project's `.git/config` and `.git/hooks`** are read-only: git runs them by itself the next time you use
+    the repository, and Changes would not show them. `git commit` works; `git config` and `git remote add` do not.
+  - What Claude writes in the project itself (code, scripts, build files) is yours to review in Changes before you
+    run it; no sandbox can vouch for that.
+- **Starting.** `gwend` starts a sandboxed session as `gwen sandbox <claude arguments>` in the folder, the same
+  command the agent menu runs. `gwen sandbox` prepares `$STATE`, reads the sign-in, and replaces itself with the
+  `bwrap` command above. Settings › Phone says all of this under the Sandbox option.
+
+**3.14.9 Transcript and changes**
+
+- **Transcript.** `gwend` reads the session's transcript file (the path from its hooks) and turns its lines into
+  events: `you` (prompt text, images as "[image]"), `claude` (Markdown), `tool` (name, a one-line summary, ok or
+  error, +/− counts for edits, and for a failed Bash call its last 40 output lines), and `notice` (compaction,
+  interruption, error). Thinking and other tool output are left out. Unknown line types are skipped: the format
+  belongs to Claude Code, so the parser is tested against recorded fixtures from 2.1.322.
+  `GET /v1/code/sessions/{id}/transcript?before=<cursor>&limit=50` pages back, and `?after=<cursor>` gets new
+  events; a cursor is a line's byte offset. `gwend` follows the file only while a phone or dashboard stream is open
+  (it checks the size every second).
+- **Changes.** In a git folder, `GET /v1/code/sessions/{id}/changes` lists each changed file against `HEAD` (or the
+  empty tree before the first commit): path, status (added, modified, deleted, renamed, untracked), +/−, binary, and
+  `before_session`, true when the file was already changed in the `git status` snapshot taken at `SessionStart`.
+  `GET .../changes/diff?path=` returns the unified diff (`git diff --no-index /dev/null <path>` for untracked files),
+  cut at 2,000 lines with `truncated: true`; binary files return their size only. Git runs with
+  `GIT_OPTIONAL_LOCKS=0` and a 10 s timeout, so it never competes with Claude's own git calls. Outside git, the list
+  is the files from `PostToolUse` edit events, without diffs.
+
+**3.14.10 Voice**
+
+- The phone records while you hold the mic button (`getUserMedia` and an AudioWorklet), converts to 16 kHz mono
+  16-bit PCM in the browser, stops at 60 s, and posts it raw to `POST /v1/code/transcribe`.
+- `gwend` hands it to `gwen-stt`, a new small cgo binary that uses `internal/voice` (Parakeet through sherpa-onnx, the
+  same models folder as `gwen-ui`). Requests on its stdin are a 4-byte little-endian length plus the PCM; each reply
+  is one JSON line, `{"text": "…"}` or `{"error": "…"}`. `gwend` starts it on first use and closes it after 3 minutes
+  unused, so the model takes memory only while you talk, and `gwend` stays CGO-free.
+- The text lands in a review sheet, editable. Voice never sends, approves, or answers anything by itself (section 7,
+  rule 3). Without models: "Voice isn't set up on the laptop. Open Gwen › Settings › Voice."
+
+**3.14.11 Alerts and keeping awake**
+
+- When a session goes to `needs_you`, `error`, or `done`, and you are away, `gwend` sends one ntfy push through the
+  existing `[ntfy]` settings. Title: the folder name. Message: "needs permission", "has a question", "needs you",
+  "stopped with an error", or "finished". Click URL: `https://<host>:8443/s/<id>`. A push never contains a prompt,
+  command, path, or code, because `ntfy.sh` is a public server. At most one push per session every 30 s. Switch:
+  **Push to my phone when I'm away**.
+- `[remote] keep_awake = "working"` (default; also `"working_lid"` and `"never"`): while any session is `working` or
+  `needs_you`, `gwend` holds a logind `sleep:idle` block inhibitor, plus `handle-lid-switch` for `"working_lid"`. It
+  releases it when no session needs it, or when UPower reports the battery discharging below 15%.
+- **Offline.** The service worker serves the app shell. The app shows "Can't reach <machine>. It may be asleep, or
+  Tailscale is off on this phone." with the last list it saw and when.
+
+**3.14.12 Herdr's interface, and making it yours**
+
+- **Gwen Terminal keeps Herdr's whole interface**: its default layout, themes, agents sidebar, spaces, tabs and panes,
+  command palette, Settings window, welcome, and shipped mods. Gwen changes none of them, so Herdr's improvements to
+  them arrive with `make term-update`. Gwen adds one entry to the personal `programs.json`, which puts **Claude
+  (sandbox)** in Herdr's own agent menus (3.14.8): `"claude-sandbox": {"name": "Claude (sandbox)", "icon":
+  "icons/claude.svg", "run": ["gwen", "sandbox"]}`. `make term` merges it in and keeps your other entries.
+- **Customising works exactly like Herdr**, with plain files in `~/.config/gwen-term` that reload when saved:
+  **layouts** (one JSON file per window: a tree of rows, columns, stacks, and blocks, where a block holds a terminal,
+  the active tab's panes, or a mod), **mods** (a folder with `main.js` and `mod.json`: JavaScript that describes
+  panels, menus, and dialogs, drawn natively by the app; it reads live data such as spaces, agents, and terminals,
+  runs app commands, and can run programs and fetch), **themes**, **keys**, and **settings**. A broken edit keeps the
+  last good version and reports the error. The generated `AGENTS.md` in that folder explains all of it, so you can
+  ask an agent in Gwen Terminal to change the window for you.
+- **Community layouts and mods work unchanged** (about 300 layouts and 560 mods in Herdr's gallery), because the fork
+  keeps the `herdr` module and the file formats (3.14.3). To add one, ask an agent in Gwen Terminal: "Read
+  ~/.config/gwen-term/AGENTS.md, then add this mod: <its gallery link>". **A mod runs with your full access, and
+  nobody reviews gallery code**: add only mods you or an agent have read first.
+- **Gwen's own panels come later, as mods opened in a tab** (`tab.new {mod}`) or an overlay, never by editing Herdr's
+  layouts: a personal copy of a layout stops receiving Herdr's updates (Herdr's rule), so Gwen never makes one.
+- **Layouts, themes, keys, and mods are set in Gwen Terminal's own Settings window and command palette.** The
+  dashboard does not duplicate them.
+- **On the phone**, W27's screens are fixed. W29 brings layouts, mods, and themes to `gwen-mobile` in the same style
+  (6.3, Later packages). So that it can, each W27 phone screen is a self-contained component that takes its data as
+  props: Inbox, Terminal, Spaces, Chat, Changes, New session.
+
+**3.14.13 Screens**
+
+The phone app follows Herdr's phone app screen for screen, then adds Gwen's own. It is a second Vite entry,
+`ui/mobile.html` → `ui/dist-mobile`, embedded by `ui/embed_mobile.go`, and installable to the home screen (manifest and
+icons from `packaging/icons`). It looks like Gwen Terminal: its chrome follows `ui/DESIGN.md`, which W27 rewrites to
+Herdr's look (5.1), and both chrome and terminal use Gwen Terminal's active theme: the theme named in `~/.config/gwen-term/settings.json`, read from `themes/<name>.json` there or from
+`term/themes.json` for Herdr's built-in ones.
+
+1. **Inbox** (home, as in Herdr): every agent in Gwen Terminal, sorted Needs you, Done, Working, Idle, with Ended (24
+   hours) last. A blue dot marks one you haven't read. Helpers an agent started sit under it. Swipe right to pin or
+   mark read; swipe left to press Esc. Pull down, or tap search, to find any terminal. Gwen adds to each Claude card
+   the step or last message, changed files with +/−, and Allow once and Deny on permission cards. A + button opens
+   New session. While the app is open, a banner appears when an agent needs you or finishes.
+2. **Terminal** (as in Herdr): the live terminal, typed into directly, with the key bar (3.14.7). Swiping the header
+   moves to the next pane in the same tab; the tab map shows all of its panes live. **Compose** opens a sheet for
+   longer input: type, paste text or a screenshot, attach photos, or hold the mic; it is sent as one paste plus
+   Enter.
+3. **Spaces** (as in Herdr): Gwen Terminal's spaces, each tab drawn as a small map of its panes. Open one to watch its
+   panes, or start a new terminal there.
+4. **A Claude session** has three tabs: **Terminal** (first, as in Herdr), **Chat**, and **Changes**; the phone
+   remembers the tab you used last. Its header shows the folder, path, branch, and Normal or Sandbox, and a ⋯ menu
+   has Interrupt, Change mode, Compact, Clear, Open on laptop, and End session. **Chat** shows the transcript, the
+   permission or question card inline, and a composer with the mode chip, mic, and send. **Changes** shows the
+   before-session banner, totals against the short `HEAD` hash, files with expandable diffs, and chips "Run the
+   tests", "Explain this diff", "Commit it" that only fill the composer.
+5. **New session**: recent folders, Browse folders…, New folder…; once a folder is picked, **Conversation** lists New
+   conversation and its recent conversations (name or first message, last active, a Sandbox tag; one running now
+   shows Open); How it runs (Normal or Sandbox, one line each); a first message with mic; the switch Open a window on
+   the laptop; and Start session or Continue conversation.
+6. **Voice sheet**: the heard text to edit, Discard, Send to <folder>, and the hold-to-talk button.
+7. **Pair**: a name for this phone and Pair.
+
+Side-by-side sidebar and terminal on large screens comes later. On the laptop: Gwen Terminal is Herdr's interface
+(3.14.12), and the dashboard has **Settings › Phone** (setup checklist: Gwen Terminal installed, hooks on, HTTPS
+certificates, published, a phone paired; the QR code; the switches and pickers of 3.14.14; paired devices with
+Revoke).
+
+**3.14.14 Configuration**
+
+```toml
+[remote]
+enabled = false
+port = 8443
+roots = ["~"]
+keep_awake = "working"      # working | working_lid | never
+push = true
+sandbox_extra = []          # ["~/data", "~/out:rw"]: read-only, or writable with :rw
+core_socket = ""            # "" = herdr-core's default socket
+```
+
+Every key except `core_socket` has a control in Settings › Phone. The owner login and paired devices live in the
+database, not here.
+
+**3.15 One Gwen app: the dashboard moves into Gwen Terminal (W16, W16b)**
+
+Gwen's dashboard uses Herdr's interface too, so on the laptop there is **one app, called Gwen**: Herdr's window, with
+Gwen's screens living in it the way terminals do.
+
+- **The Gwen space.** Gwen Terminal's sidebar gets a space named **Gwen**, first in the list. Its tabs are Gwen's
+  screens: **Today**, **Gwen** (the companion chat), **Tasks**, **Plan**, **Work**, **Review**, **Connections**,
+  **Memory**, and **Settings**. Each tab is a mod pane (`tab.new {space, name, mod: "gwen", props: {screen}}`), so,
+  like any Herdr tab, it can be split beside a terminal, moved, zoomed, or peeked. Sub-screens (Inbox, Board, and
+  Projects under Tasks; Day plan and Goals under Plan; Weekly, Stats, and History under Review) are tabs inside the
+  panel. Every other space is your code. `gwend` creates the Gwen space on first run with `space.new` and one
+  `tab.new` per screen (closing the shell tab `space.new` makes), and recreates a screen's tab if you close it and
+  open it again from the tray, the panel widget, or Ctrl+Shift+G (a `keys.json` entry `make term` merges in).
+  It decides from the core's copy of the window's layout only once that copy has exactly the spaces and tabs the
+  window lists (`ls`): the window saves it a moment after each change, and a core that has just started holds none,
+  so deciding earlier made a second Gwen space after a reboot. Until they match it waits, and makes nothing.
+  `gwen open [screen]` asks `gwend` for a screen (`POST /v1/app/open`); the tray, the panel widget, the launcher
+  entry, and `gwen-ui` with no flag all run it, and without `gwend` it starts the window, whose Gwen tabs offer to
+  start her.
+- **Herdr's look, end to end.** Gwen's screens use Herdr's components (gpui-kit: buttons, inputs, tabs, tables,
+  calendar and date pickers, charts, Markdown, lists, sheets, toasts) and Herdr's theme, fonts (Geist for the
+  interface, Geist Mono for terminals), and spacing, so nothing marks where Herdr ends and Gwen begins. Herdr's
+  default theme stays the default. Gwen's three palettes (5.2) ship as extra Herdr themes in `term/themes/` for the
+  theme picker. Tracking colours stay fixed because they match the tray icons. Herdr's status bar stays as it is;
+  Gwen's status line (tracking, next cue, approvals, voice) sits at the top of each Gwen tab.
+- **One mod, `gwen`.** `term/mods/gwen/` holds `main.js`, `mod.json`, `screens/*.js`, `lib/kit.js` (Gwen's shared
+  pieces built from gpui-kit), and `lib/gwen.js` (the only code that talks to `gwend`). One mod keeps one connection
+  and shared state for every Gwen tab. `make term` installs it into the app home as a personal mod; it never edits
+  Herdr's layouts or mods.
+- **How the mod reaches `gwend`.** Mods can `fetch` over HTTP but cannot open a Unix socket, so `gwend` gets an **app
+  listener** on `127.0.0.1` at a random free port, written with a per-start random 256-bit token to
+  `$XDG_RUNTIME_DIR/gwen/app.json` (mode 0600). Every request needs `Authorization: Bearer <token>` and `Host:
+  127.0.0.1:<port>` (against DNS rebinding); there are no CORS headers, so a web page can neither read nor forge a
+  call. It serves the main socket's route list and nothing else, plus `GET /v1/events/poll?after=<seq>`, which waits
+  up to 25 s and returns the hub's events after `seq` (a long poll that works with any `fetch`). `lib/gwen.js` reads
+  the file, retries when `gwend` restarts, and shows "Gwen isn't running" with a Start button (`systemctl --user
+  start gwend` through `exec`). Not chosen: running `gwen` per call (slow, no live updates), and a Unix-socket patch
+  to the fork (not thin).
+- **What stays outside the window.** The cue card and Talk (`gwen-ui --cue`, `gwen-ui --talk`, W18 and W20) stay
+  small Wails windows, because they must appear when Gwen Terminal is closed and must not take focus. The tray and the
+  KDE panel widget stay; their "Open Gwen" opens Gwen Terminal on the Gwen space. The Gwen chat's voice button starts
+  Talk. Voice lives in `gwen-ui`, which links the speech models: Settings reaches it through `gwen-ui host`
+  (status, download, remove, say, and the choice), and the provider and voice chosen there are kept in
+  `~/.config/gwen/speech.json`, which Talk reads too.
+- **What changed in moving.** Mods have no drag and drop, so Board cards move with arrow buttons and a "Move to"
+  menu, and the Day plan reorders with up and down buttons. The Stats pie became a bar of shares. A mod cannot
+  record, so Settings tests the microphone by opening Talk ("Test it in Talk"). Everything else the old screens did,
+  the new ones do.
+- **Retiring the old window.** W16 moves Today, Gwen, and Settings; W16b moves the rest. When W16b merges, the
+  dashboard window (`gwen-ui` with no flags) and its screens are deleted, and the launcher entry "Gwen" opens Gwen
+  Terminal, so there is one Gwen in the launcher. Until then both exist and show the same data.
+- **On the phone.** Gwen's mod screens use only the portable part of the builder API (W29), and reach `gwend` only
+  through `lib/gwen.js`, so W29's DOM renderer can show the same screens on the phone. Until W29, the phone has W27's
+  screens.
+- **Risk.** gpui-kit is an early API that Herdr changes. `make term-update` runs `gwen-term check` on the `gwen` mod
+  and stops when it no longer loads, so a Herdr update never breaks Gwen silently.
 
 ---
 
@@ -590,9 +1128,19 @@ shows a measurable improvement.
 | Voice | unchanged: Fish Audio by default, Kokoro offline, Parakeet for speech to text | | |
 | LLM | unchanged providers. Email triage works on all of them. Coding needs Claude Code | | |
 | Run engine | SQLite tables and Go code in `gwend` | one user, one machine | Temporal, queues, LangChain, n8n, Pipedream |
+| Phone access (W27) | Tailscale Serve on the system `tailscaled`, publishing a Unix socket on port 8443 | tailnet-only HTTPS with a real certificate (the microphone needs one), the caller's identity in a header, nothing new running inside `gwend` | tsnet inside `gwend` (harness G4, a whole Tailscale node in the always-on daemon); Funnel; Claude Code Remote Control and the Claude app (you ruled them out) |
+| Session host (W27) | herdr-core, built from upstream source at a pinned release | terminals outlive their window; an API to send, press keys, read, attach, and follow status; it waits for your unfinished typing before sending; Claude Code reports its status to it by itself | Gwen's own tmux (screen scraping and typing detection by hand); typing into Ghostty tabs (impossible: Linux blocks `TIOCSTI` and Ghostty has no input API) |
+| Desktop terminal (W27) | `gwen-term`, a thin fork of herdr-app (Apache-2.0; Rust, GPUI, libghostty) | every Claude started in it is reachable from the phone; Herdr's community layouts and mods; upstream fixes arrive by rebase | Ghostty (no input API); writing a terminal of our own |
+| Sandbox (W27) | bubblewrap, already installed | unprivileged, starts instantly, the first cut of harness G3's bubblewrap provider | Docker, stacyvm (later) |
+| Desktop interface (W16) | Gwen's screens as one Herdr mod (`gwen`) inside Gwen Terminal, drawn with Herdr's gpui-kit | one app with Herdr's interface; a screen can sit beside a terminal; Herdr's themes and customising apply to Gwen too | keeping the Wails and React dashboard (two apps, two looks); a webview inside the fork (not thin) |
+| Phone app (W27) | `gwen-mobile`, a web app built from `ui/`, installable to the home screen, following Herdr's phone app screen for screen | one codebase and design system with the dashboard; an Android wrapper can come later (W29) | Herdr's phone app (its source isn't published, and it only does terminals); a native app first |
+| Terminal on the phone (W27) | npm `@xterm/xterm` 5.5.0 | draws herdr-core's stream as the laptop shows it; MIT | a terminal of our own |
+| QR code (W27) | npm `qrcode` 1.5.4 in the dashboard | small, MIT | a Go module |
+| Fonts on the phone (W27) | npm `@fontsource-variable/geist` and `@fontsource-variable/geist-mono` 5.3.0 | Herdr's fonts, shipped inside the app so nothing loads from the network; OFL-1.1 | system fonts (the phone would not look like the laptop) |
+| Terminal WebSocket (W27) | `github.com/gorilla/websocket` 1.5.3, already in the module graph through Wails | no new module to download | a hand-written upgrade |
 
 New Go modules for this phase: `github.com/modelcontextprotocol/go-sdk` (W23) and
-`github.com/zalando/go-keyring` (W22). Nothing else.
+`github.com/zalando/go-keyring` (W22). Nothing else; W27 adds none (it uses `gorilla/websocket` directly, which was already an indirect requirement).
 
 Before connecting Gmail, turn on 2-Step Verification for that Google account, because Gwen will be able to
 read your mail.
@@ -601,25 +1149,27 @@ read your mail.
 
 ## 5. UI and UX
 
-### 5.1 What we take from `ui/design.md`
+### 5.1 Herdr's interface is the base
 
-| Keep | Change | Drop |
-|---|---|---|
-| explicit UI states from real app state (runtime, audio, character, task) | the palette (see 5.2) | "Lab" as a main screen; diagnostics move to Settings |
-| character stage rules: fixed bounds, still frame when idle, state from the real pipeline | modes become Gwen, Today and Tasks, Work | code editor and terminal panels (Claude Code edits code; Gwen shows summaries) |
-| task and activity panel rules: real states only, no fake progress | | telemetry charts for models we don't run |
-| approvals before side effects, event rows for tool activity | | |
-| 24 px status bar, compact panel headers, Inter plus JetBrains Mono for paths and times | | |
-| accessibility, reduced motion, no fake data | | |
+Gwen uses Herdr's interface everywhere on the laptop (3.14, 3.15) and follows Herdr's phone app on the phone
+(3.14.13). What Gwen adds keeps these rules from the old `ui/design.md`:
 
-It does not cover what an assistant needs most, so `ui/DESIGN.md` gains sections for the agenda, the cue card,
-the approval card, the run view, the Connections screen, and the subject drawer. The merged file replaces both
-current files (W16).
+| Keep | Drop |
+|---|---|
+| explicit UI states from real app state (runtime, audio, character, task) | Gwen's own app shell, navigation rail, and status bar (Herdr's sidebar, tabs, palette, and status bar replace them) |
+| character stage rules: fixed bounds, still frame when idle, state from the real pipeline | "Lab" as a main screen; diagnostics move to Settings |
+| task and activity panel rules: real states only, no fake progress | telemetry charts for models we don't run |
+| approvals before side effects, event rows for tool activity | |
+| accessibility, reduced motion, no fake data | |
+
+`ui/DESIGN.md` is rewritten in W27 to describe Herdr's look (its theme colours, Geist and Geist Mono, its spacing and
+components) for the phone app, and gains sections for the agenda, the cue card, the approval card, the run view, the
+Connections screen, and the subject drawer as they are built.
 
 ### 5.2 Palette
 
-Three dark themes. Tokens keep their current names in `ui/src/index.css`, and each theme overrides them under
-`[data-theme="..."]`. You switch in **Settings, Appearance** (stored as `[ui] theme`). Tracking colours
+Herdr's default theme is the default. These three palettes ship as extra Herdr themes (`term/themes/ghost.json`,
+`tide.json`, `ember.json`) and appear in Gwen Terminal's theme picker; the phone follows whichever is active. Tracking colours
 (working, idle, break, off) stay the same in every theme because they match the tray icons. Project colours are
 data and stay as they are.
 
@@ -656,21 +1206,23 @@ of a second warm accent. If you want the cooler Tide or warmer Ember palette ins
 
 ### 5.3 Navigation
 
-Eleven items become eight. Screens that belong together become tabs.
+Herdr's sidebar, spaces, tabs, and command palette are the navigation. Gwen's screens are the tabs of the Gwen space
+(3.15):
 
-| Nav item | Contains | Package |
+| Gwen tab | Contains | Package |
 |---|---|---|
-| **Today** | agenda list, timeline, now and next, to-dos, Gwen's latest line | W17, then W21 |
-| **Gwen** | the companion chat (renamed from Assistant in the nav), character stage, Talk button | W16 |
-| **Tasks** | tabs: Inbox, Board, Projects | W16 |
-| **Plan** | tabs: Day plan, Goals | W16 |
+| **Today** | agenda list, timeline, now and next, to-dos, Gwen's latest line | W16, then W17, W21 |
+| **Gwen** | the companion chat, character stage, Talk button | W16 |
+| **Tasks** | tabs: Inbox, Board, Projects | W16b |
+| **Plan** | tabs: Day plan, Goals | W16b |
 | **Work** | runs (needs you, running, finished) and approvals, with a badge count | W21 |
-| **Review** | tabs: Weekly, Stats, History | W16 |
-| **Connections** | Google Calendar, Gmail, Claude Code, phone, sync hub; later MCP servers | W16, then W22, W23 |
-| **Settings** | General, Reminders, Voice, AI, Personality, Appearance, Diagnostics | W16, W18 |
+| **Review** | tabs: Weekly, Stats, History | W16b |
+| **Connections** | Google Calendar, Gmail, Claude Code, phone, sync hub; later MCP servers | W16b, then W22, W23 |
+| **Memory** | what Gwen remembers, with sources | W16b |
+| **Settings** | General, Reminders, Voice, AI, Personality, Phone, Diagnostics | W16, W18, W27 |
 
-The status bar (24 px) shows: tracking state and time, the next cue ("DSA at 19:00"), approvals waiting, voice
-state, and the daemon connection.
+The status line at the top of each Gwen tab shows tracking state and time, the next cue ("DSA at 19:00"),
+approvals waiting, voice state, and the daemon connection.
 
 ### 5.4 Key screens
 
@@ -746,19 +1298,26 @@ Work › Email review · 5 messages · waiting for you
 ### 6.2 Order
 
 ```text
-Wave 0   W15 housekeeping
-Wave 1   W16 design system and shell      |  W17 agenda
-Wave 2   W18 cues                         |  W19 harness core
-Wave 3   W20 presence (needs W18)         |  W21 subject drawer and Work screen (needs W16, W19)
-Wave 4   W22 Gmail review                 |  W23 coding runner           (both need W21)
-Later    W24 MCP connectors · W25 notes folder · W26 browser automation
+Now      W27 Gwen Terminal and the phone (needs no other package; merges first)
+Wave 0   W15 housekeeping                 |  W16 Gwen inside Gwen Terminal (needs W27)
+Wave 1   W16b the rest of the dashboard   |  W17 agenda (needs W16)   |  W19 harness core
+Wave 2   W18 cues                         |  W21 subject drawer and Work screen (needs W16, W19)
+Wave 3   W20 presence (needs W18)         |  W22 Gmail review         |  W23 coding runner (both need W21)
+Later    W24 MCP connectors · W25 notes folder · W26 browser automation · W28 Slack inbox · W29 phone layouts
+         and mods · W30 devices · W31 home
 ```
 
+**Screens are Gwen mods from W16 on (3.15).** Where a W17 to W23 Owns line names a view in `ui/src/screens/`,
+`ui/src/components/`, or `ui/src/settings/`, the package builds that view in `term/mods/gwen/` (a screen file, or
+a piece of `lib/kit.js`) instead, and `ui/src/*.ts` data helpers become `term/mods/gwen/lib/`. The exceptions are
+the cue card and Talk (W18, W20), which stay in `gwen-ui`. Each package's Owns line is rewritten in place when it
+starts.
+
 Packages in the same wave run in parallel on their own branches (`w17-agenda` and so on). Merge in the order
-listed. After Wave 1 your appointments are on Today. After Wave 2 you get the 5 minute reminder. After Wave 3
-Gwen speaks first and the DSA routine opens your browser. After Wave 4 she can review email and take coding
-tasks. The memory layer already owns migration `00010`; later packages begin at `00011` and use its cited claims
-and episodes instead of adding another memory store.
+listed. After Wave 0 Gwen's Today, chat, and Settings live in Gwen Terminal. After Wave 1 every screen does, and
+your appointments are on Today. After Wave 2 you get the 5 minute reminder, and the DSA routine opens your browser.
+After Wave 3 Gwen speaks first, reviews email, and takes coding tasks. The memory layer already owns migration `00010`, and W27 takes `00011`. W17, W18, and W19 take `00012` to
+`00014`, and use the memory layer's cited claims and episodes instead of adding another memory store.
 
 ### 6.3 Work packages
 
@@ -771,25 +1330,39 @@ Each package is one prompt (template in 6.4).
   this file; link `plan.md` from the README's Development section.
 - **Acceptance:** `make check` passes on a clean checkout.
 
-#### W16: Design system and app shell
+#### W16: Gwen inside Gwen Terminal
 
-- **Owns:** `ui/DESIGN.md`, `ui/design.md` (deleted after the merge), `ui/src/index.css`, `ui/src/App.tsx`,
-  `ui/src/nav.ts`, `ui/src/components/ui.tsx`, new `ui/src/components/StatusBar.tsx`, new
-  `ui/src/screens/Connections.tsx`, new `ui/src/settings/Appearance.tsx`, the hard-coded colours in `ui/src/components/{tags,BrandMark,Heatmap}.tsx`,
-  `ui/src/components/{chart,color}.ts`, `ui/src/screens/{Board,History,Settings}.tsx`, and a `[ui]` section in
-  `internal/config` with its wire and patch fields.
-- **Delivers:** the merged design file (5.1); three themes (5.2) with `ghost` as default; the 8 item navigation with
-  tabs (5.3) except Work, which W21 adds; the status bar with tracking, voice, and connection state; a Connections
-  screen showing Google Calendar, phone, sync hub, and AI provider status (it reuses the existing settings parts);
-  Settings, Appearance and Settings, Diagnostics (new `ui/src/settings/Diagnostics.tsx`: daemon health from
-  `GET /v1/health` and integration status); Assistant renamed to Gwen in the nav.
-- **Acceptance:** `tsc` passes; no hex colours outside `index.css` except project colour data (grep check);
-  offscreen WebKitGTK snapshots of Today, Gwen, and Settings in all three themes; tab state survives switching
-  screens.
+Needs W27 (Gwen Terminal exists).
+
+- **Owns:** `term/mods/gwen/` (new: `main.js`, `mod.json`, `lib/gwen.js`, `lib/kit.js`, `screens/{today,gwen,settings}.js`);
+  `term/themes/{ghost,tide,ember}.json`; the Ctrl+Shift+G entry `make term` merges into `keys.json`; the app listener
+  in `cmd/gwend/app.go` (new) and `internal/api/poll.go` (new); the "Open Gwen" actions of `cmd/gwen-tray` and
+  `packaging/plasma/dev.gwen.panel`; `Makefile` (`make term` installs the mod and themes).
+- **Delivers:** section 3.15 except the screens W16b moves: the Gwen space and its tabs, the app listener with its
+  token, Host check, and long poll, `lib/gwen.js`, the shared kit, and the Today, Gwen (chat and character stage), and
+  Settings screens with everything they do today, including Settings › Phone from W27.
+- **Acceptance:** tests for the app listener (no token, a wrong token, a wrong `Host`, a route outside the list, the
+  long poll returning at once with events and after 25 s without); `gwen-term check` loads the `gwen` mod (it draws
+  the first state only, since it cannot pass props, so each screen is also drawn live once in a hidden window);
+  manual: open Gwen from the tray, split Today beside a Claude terminal, switch to each of Herdr's themes and Ghost,
+  restart `gwend` and watch the tabs reconnect.
+
+#### W16b: The rest of the dashboard
+
+Needs W16.
+
+- **Owns:** `term/mods/gwen/screens/{tasks,plan,review,connections,memory}.js`; deleting the dashboard window's
+  screens in `ui/src/` and the no-flag mode of `cmd/gwen-ui`; `packaging/gwen.desktop` (opens Gwen Terminal on the
+  Gwen space).
+- **Delivers:** Tasks (Inbox, Board, Projects), Plan (Day plan, Goals), Review (Weekly, Stats, History),
+  Connections, and Memory as Gwen tabs with everything they do today; the old dashboard window removed, leaving
+  `gwen-ui --cue` and `gwen-ui --talk`.
+- **Acceptance:** each screen renders once in `gwen-term check`; manual: every action of the old screens works in
+  the new ones (a checklist written from the old screens before they are deleted); the launcher shows one Gwen.
 
 #### W17: Agenda
 
-- **Owns:** migration `00009_agenda.sql`; `internal/subject` (new); `internal/agenda` (new);
+- **Owns:** migration `00012_agenda.sql`; `internal/subject` (new); `internal/agenda` (new);
   `internal/store/{calendar,agenda}.go`; `internal/gcal/sync.go`; `internal/api/agenda.go`;
   `internal/wire/agenda.go`; `internal/client/agenda.go`; `cmd/gwen/{agenda,panel}.go`; `ui/src/agenda.ts`;
   `ui/src/plan.ts`; `ui/src/screens/{Today,NowCard,DayDetail}.tsx`; `ui/src/components/Timeline.tsx`;
@@ -806,7 +1379,7 @@ Each package is one prompt (template in 6.4).
 
 #### W18: Cues
 
-- **Owns:** `internal/cue` (new); migration `00011_cues.sql`; `internal/store/cues.go`; `cmd/gwend/cues.go`;
+- **Owns:** `internal/cue` (new); migration `00013_cues.sql`; `internal/store/cues.go`; `cmd/gwend/cues.go`;
   `internal/notify` (the `Inhibited` check, cue kinds, their buttons, and phone routing); the `[cues]` section in
   `internal/config`; `internal/api/cues.go`; `internal/wire/cues.go`; `internal/client/cues.go`;
   `ui/src/settings/Reminders.tsx`; `cmd/gwen/cues.go`.
@@ -837,7 +1410,7 @@ Each package is one prompt (template in 6.4).
 
 - **Owns:** `internal/harness` (new); `internal/connect` (new: registry, policy, the desktop connector with
   `browser.open`, `folder.open`, `tracking.start`, and the calendar connector with `calendar.read`); migration
-  `00012_runs.sql`; `internal/store/{runs,resources,routines,projectdirs}.go`;
+  `00014_runs.sql`; `internal/store/{runs,resources,routines,projectdirs}.go`;
   `internal/api/{runs,approvals,resources,routines,connections}.go`; matching `internal/wire` and
   `internal/client` files; `cmd/gwen/runs.go`.
 - **Delivers:** sections 3.7 and 3.8, the routine run kind, the start hook (Start runs the subject's routine),
@@ -899,12 +1472,85 @@ Each package is one prompt (template in 6.4).
   round trip through `gwen mcp`; worktree create and cleanup on a temp repo; Gwen's own test run decides the
   reported result. Manual: a small change in a scratch repo, from brief to branch.
 
+#### W27: Gwen Terminal and the phone
+
+Built first, before Wave 0. It needs no other package. It spans two repos: Gwen's, and `gwen-term` (3.14.3).
+
+- **Owns:** in `gwen-term`, the `gwen` branch and its five commits (3.14.3). In Gwen: `internal/herdr` (new: the
+  herdr-core client, with plain and framed JSON-RPC, events with snapshots and `missed`, the attach relay with
+  credit, and a fake core for tests); `internal/remote` (new: code sessions and their states, the hook event
+  handling, the `settings.json` merge, `gwen-term` control, the transcript parser, changes, the bubblewrap command,
+  pairing, away detection, the inhibitor, and the `gwen-stt` client); `cmd/gwend/remote.go` (the remote and hook
+  sockets, their route lists and auth, the terminal WebSocket, wiring); `internal/api/{code,remote}.go`;
+  `internal/wire/code.go`; `internal/client/code.go` and its `clienttest` entries; migration `00011_remote.sql`;
+  `internal/store/{code_sessions,remote_devices}.go`; the local state key `remote_owner` in
+  `internal/store/localstate.go`; the `[remote]` section in `internal/config`; `cmd/gwen/{hook,remote,sandbox}.go`
+  (the hidden `gwen hook`, `gwen remote status|on|off|pair|devices|revoke|ls`, and `gwen sandbox`); `cmd/gwen-stt`
+  (new); `cmd/gwen-ui/remote.go` (host methods: publish on and off through `pkexec`, hooks on and off); `term/`
+  (new: `core.version`, the `programs.json` entry, `themes.json`); `ui/DESIGN.md` (rewritten to Herdr's look, 5.1); `ui/mobile.html`, `ui/src/mobile/` (the phone app), `ui/embed_mobile.go`, the second
+  entry in `ui/vite.config.ts`, `build:mobile`, `qrcode`, and `@xterm/xterm` in `ui/package.json`;
+  `ui/src/settings/Phone.tsx`; the `Makefile` (`term`, `term-update`, `gwen-stt` with the voice libraries,
+  `build:mobile`, a `ui-stub` placeholder for `ui/dist-mobile`); `packaging/nfpm.yaml` (`gwen-stt`); the Phone and
+  Gwen Terminal sections of `setup.md`.
+- **Delivers:** section 3.14, and the W27 rows of 3.9, 3.10, 3.13, 4, and rule 12 of section 7.
+- **Acceptance:** tests for: each socket's route list (everything outside it is 404); the auth table (no login
+  header, another login, no cookie, a revoked cookie, a peer that is not uid 0, a POST without `X-Gwen`); a pairing
+  code used twice and one used after 10 minutes; the herdr-core client against the fake core (the generation and
+  version check, reconnecting with a fresh snapshot, `missed`, stream credit and the 4 MiB repaint, close reasons);
+  which terminals count as code sessions (OSC 7501 `app`, foreground `argv[0]`, neither) and the state table from
+  recorded event sequences, including `done` becoming `idle` when opened; the `gwen-term do` arguments (window on
+  and off, an existing space, a new space, a sandbox, a resume) against a fake `gwen-term`; one conversation keeps
+  one card after Resume, and resuming a running conversation is refused; the conversations list on recorded
+  transcripts (custom title, first message, sandbox tag, running); the `settings.json` merge (foreign hooks and key
+  order kept, only Gwen's entries removed, invalid JSON untouched); `gwen hook` exits at once without
+  `HC_TERMINAL_ID`; the transcript parser on recorded 2.1.322 fixtures, including unknown line types; the held
+  permission (away and the phone decides; you return and it is released without a decision; 10 minutes pass);
+  prompt `idem` and the `conflict` refusal; key messages capped at 32 names and 50 a second; the spaces list on a
+  recorded `herdr-app` document; `put` with a photo; the hook pid check; changes on temporary repos
+  (untracked, binary, no commits yet, before-session, not git); a golden test of the bubblewrap argument list;
+  `gwen-stt` framing with a fake helper. Tests use `clock.NewFake` and never sleep. In `gwen-term`, upstream's `just
+  check` passes on the `gwen` branch. Manual, with a throwaway `gwend` (6.1 rule 8, with `core_socket` set to your
+  herdr-core; Serve pointed at its socket for the check and back afterwards) and a phone on the tailnet: `make term`,
+  then check that it looks and works like Herdr apart from its name, its files are in `~/.config/gwen-term`, Claude
+  (sandbox) is in its agent menu, and it opens no connection to herdr.dev (`ss -tp` while it runs); add one community mod and one community layout and see them work; pair; start
+  a session in a scratch folder with a window and one without; `hc get <terminal>` shows Claude's status; send a
+  prompt by text, one by voice, and one while typing at the laptop (it waits for you); type in the phone's Terminal tab and
+  check that the laptop's tab keeps its size; swipe between panes; open Spaces and start a terminal in one; attach a
+  photo in Compose; answer a permission by phone while at the laptop and one while the screen is locked;
+  review Changes; close the window, reopen Gwen Terminal, and keep going in the same tab; `/exit`, then Continue it
+  from the phone's New session; in a sandboxed session `go build` works, `ls ~/Documents` shows nothing, `hc ls`
+  shows none of your terminals, and `ssh -T git@github.com` fails.
+- **Done so far (2026-11-12):** everything in Owns is built, except that the tests of Acceptance are not written yet
+  (they come in one batch) and the view's SSE fallback is left out (the WebSocket works; it has not yet been tried
+  through Tailscale Serve). Checked live with a throwaway `gwend` and herdr-core, real Claude Code 2.1.322, and a
+  phone-sized browser behind a stand-in for Serve: `make term` and the fork's `just check`; the app looks like Herdr
+  under Gwen's name and opens no network connection; a session with a window and one without; status, prompt and
+  `idem`; a permission answered at the laptop's dialog and one held while away; Chat and Changes; typing and the key
+  bar with the laptop's grid unchanged; Open on laptop and a new terminal in a space; the card kept across a `gwend`
+  restart; the route lists and the auth checks; the sandbox (Go builds, no `~/Documents`, no SSH keys, no terminals
+  of yours, SSH to GitHub fails). **Not yet checked:** a real phone over Tailscale (HTTPS certificates are off in the
+  tailnet and the phone has been offline), voice from the phone, a photo in Compose, pushes, keep-awake, and a
+  community mod and layout.
+- **Branch:** `w27-gwen-mobile` in Gwen, `gwen` in `gwen-term`.
+
 #### Later packages
 
 These get their full sections here when they start: **W24 MCP connectors** (add an MCP server by command or URL
 on Connections; its tools become capabilities with risk `write` or higher until you lower them), **W25 notes
 folder** (read and write Markdown in a chosen folder, for DSA notes and run summaries), **W26 browser automation**
-(Playwright MCP, opt-in).
+(Playwright MCP, opt-in), **W28 Slack inbox** (read the channels and DMs you pick, pull out actionable points, and
+hand one to a Claude session from W27 or a run from W19; Slack is a cloud service, which is fine here), **W29 Make
+the phone yours** (layouts, mods, and themes for `gwen-mobile` in Herdr's style: a layout is a JSON tree; a mod is
+`main.js` plus `mod.json` and describes its view with a portable subset of Herdr's builder API (`div`, `h_flex`,
+`v_flex`, text, `svg`, `image`, `Button`, `Switch`, `Input`, and the flex and style methods), which Gwen draws as
+DOM; `mod.json` names its targets, so one mod can run in Gwen Terminal, on the phone, or both; phone mods get no
+`exec` and no files, only Gwen capabilities through `gwend`, each declared in `mod.json` and approved when added; a
+guide like Herdr's `AGENTS.md`, so you ask Gwen to change the phone; an Android wrapper of the same app if device
+features need one), **W30 Devices** (your other computers join as herdr-core machines over SSH on the tailnet: their
+terminals and agents appear in the same Inbox, and "pull these files from the Pi to my phone" copies them between
+machines with rsync over SSH, and to the phone as a download; it grows into harness G4's fabric), **W31 Home**
+(proposed: smart devices on your Wi-Fi, such as a bulb, by chat or voice, through a local Home Assistant on the Pi,
+which supports most brands and Matter without a cloud; each device action is a Gwen capability with its own risk).
 
 ### 6.4 How to write each prompt
 
@@ -956,3 +1602,10 @@ These bind every package.
 11. **Optional memory services stay optional.** Mem0, Supermemory, vector search, and memory files are derived
     lanes. They run locally and loopback-only by default, with telemetry disabled. Rebuilding or removing a lane
     cannot erase Gwen's source episodes or claims.
+12. **Gwen on the phone.** Only your tailnet identity on a paired device gets in. Each socket serves a fixed route
+    list and fails closed. The phone never reaches herdr-core; `gwend` exposes only the operations of 3.14.7. Gwen never
+    answers a Claude Code permission by herself: every answer comes from your tap or from the laptop. Pushes carry no
+    code, commands, paths, or prompts. Prompt text, transcripts, terminal output, and diffs are never logged.
+    Sandboxed sessions get the hook socket only. Gwen Terminal makes no connection to herdr.dev. A paired phone can
+    type into any terminal in Gwen Terminal, as if you sat at the laptop, so pairing a phone is as strong as handing
+    over the unlocked laptop: Revoke is one tap in Settings › Phone.

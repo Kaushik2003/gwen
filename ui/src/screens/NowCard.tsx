@@ -157,7 +157,7 @@ export default function NowCard() {
           </Button>
         )}
         <Button icon={ArrowUpRight} onClick={() => App.OpenDashboard("").then(Quit, () => {})}>
-          Dashboard
+          Open Gwen
         </Button>
       </div>
     </Shell>

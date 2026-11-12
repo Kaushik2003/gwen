@@ -91,6 +91,9 @@ func (p *Ntfy) post(ctx context.Context, server, topic, token string, n Notifica
 	if t := tags[n.Kind]; t != "" {
 		req.Header.Set("Tags", t)
 	}
+	if n.Click != "" {
+		req.Header.Set("Click", n.Click)
+	}
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}

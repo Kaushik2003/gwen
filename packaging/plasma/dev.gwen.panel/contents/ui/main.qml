@@ -92,10 +92,10 @@ PlasmoidItem {
     function refresh() { exec.connectSource(panelCommand); }
     // Runs a command, then shows what it changed.
     function run(command) { exec.connectSource(command); }
-    // Opens the dashboard, on a screen such as "inbox", or on Today for "".
+    // Opens the Gwen window, on a screen such as "inbox", or on Today for "".
     function openDashboard(screen) {
         root.expanded = false;
-        exec.connectSource(screen ? "gwen-ui --screen " + screen : "gwen-ui");
+        exec.connectSource(screen ? "gwen open " + screen : "gwen open");
     }
     // Opens a spoken conversation with Gwen, listening at once.
     function talk() {
@@ -226,7 +226,7 @@ PlasmoidItem {
             onTriggered: root.openDashboard("board")
         },
         PlasmaCore.Action {
-            text: "Open dashboard"
+            text: "Open Gwen"
             icon.name: "window-new"
             onTriggered: root.openDashboard("")
         }

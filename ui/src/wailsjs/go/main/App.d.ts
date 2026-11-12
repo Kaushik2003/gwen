@@ -35,11 +35,15 @@ export function CancelListening():Promise<void>;
 
 export function ChooseGoogleClient():Promise<boolean>;
 
+export function ChooseSpeech(arg1:string,arg2:string):Promise<void>;
+
 export function ClaudeCode(arg1:string):Promise<main.ClaudeCodeStatus>;
 
 export function ClockIn(arg1:wire.ClockInRequest):Promise<wire.Status>;
 
 export function ClockOut():Promise<wire.Status>;
+
+export function CodeSessions():Promise<wire.CodeSessionList>;
 
 export function CompleteTask(arg1:string,arg2:wire.CompleteTaskRequest):Promise<wire.Task>;
 
@@ -159,6 +163,8 @@ export function NotifyTest():Promise<wire.NotifyTestResult>;
 
 export function Nudges(arg1:boolean):Promise<wire.NudgeList>;
 
+export function OpenApp(arg1:string):Promise<void>;
+
 export function OpenDashboard(arg1:string):Promise<void>;
 
 export function OpenMemoryFolder():Promise<void>;
@@ -189,6 +195,8 @@ export function PlanChat(arg1:wire.PlanChatRequest):Promise<wire.LlmRun>;
 
 export function PreviewGoal(arg1:wire.GoalPreviewRequest):Promise<wire.GoalProgress>;
 
+export function PublishRemote(arg1:boolean):Promise<wire.RemoteStatus>;
+
 export function RebuildMemory(arg1:wire.RebuildRequest):Promise<void>;
 
 export function RecallMemory(arg1:wire.RecallRequest):Promise<wire.RecallResult>;
@@ -198,6 +206,12 @@ export function RejectClaim(arg1:string):Promise<wire.MemoryClaim>;
 export function RejectLLMRun(arg1:string):Promise<wire.LlmRun>;
 
 export function Remember(arg1:wire.RememberRequest,arg2:string):Promise<wire.MemoryClaimsResult>;
+
+export function RemoteDevices():Promise<wire.RemoteDevices>;
+
+export function RemotePairCode():Promise<wire.RemotePairCode>;
+
+export function RemoteStatus():Promise<wire.RemoteStatus>;
 
 export function RemoveResource(arg1:string):Promise<wire.ForgetReceipt>;
 
@@ -212,6 +226,8 @@ export function ResetAssistantSelf():Promise<void>;
 export function ResolveConflict(arg1:string,arg2:wire.ResolveConflictRequest):Promise<wire.MemoryConflict>;
 
 export function Retro(arg1:wire.RetroRequest):Promise<wire.LlmRun>;
+
+export function RevokeRemoteDevice(arg1:string):Promise<void>;
 
 export function SaveMemoryExport():Promise<string>;
 
@@ -229,6 +245,8 @@ export function SetCredential(arg1:string,arg2:string):Promise<void>;
 
 export function SetDayHours(arg1:wire.SetDayHoursRequest):Promise<wire.Plan>;
 
+export function SetRemoteHooks(arg1:boolean):Promise<wire.RemoteStatus>;
+
 export function SleepMemory():Promise<wire.SleepReport>;
 
 export function Snooze():Promise<wire.Status>;
@@ -236,6 +254,8 @@ export function Snooze():Promise<wire.Status>;
 export function SpeechStatus():Promise<main.SpeechStatus>;
 
 export function SplitSegment(arg1:string,arg2:wire.SplitSegmentRequest):Promise<wire.SegmentList>;
+
+export function StartCodeSession(arg1:wire.StartCodeSession):Promise<wire.CodeSession>;
 
 export function StartListening():Promise<void>;
 

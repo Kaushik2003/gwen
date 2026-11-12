@@ -29,6 +29,10 @@ type Hub struct {
 	subs      map[chan []byte]struct{}
 	closed    bool
 	observers []func(name string)
+	// recent and wake serve the long poll (poll.go): the last published
+	// events, and a channel closed by the next one.
+	recent []wire.Event
+	wake   chan struct{}
 }
 
 // OnPublish makes fn see the name of every event published from now on, in
@@ -57,6 +61,7 @@ func (h *Hub) Publish(name string, data any) {
 		slog.Error("encode event", "event", name, "err", err)
 		return
 	}
+	h.record(name, data)
 	for ch := range h.subs {
 		select {
 		case ch <- frame:
@@ -108,6 +113,10 @@ func (h *Hub) Close() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.closed = true
+	if h.wake != nil {
+		close(h.wake)
+		h.wake = nil
+	}
 	for ch := range h.subs {
 		delete(h.subs, ch)
 		close(ch)

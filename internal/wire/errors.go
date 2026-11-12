@@ -8,6 +8,9 @@ const (
 	CodeInvalidState   = "invalid_state"
 	CodeUnavailable    = "unavailable"
 	CodeInternal       = "internal"
+	// CodeUnauthorized is a phone that is not paired, or not the owner
+	// (the remote socket only).
+	CodeUnauthorized = "unauthorized"
 )
 
 // ErrorResponse is the body of every non-2xx response.

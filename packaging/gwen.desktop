@@ -1,10 +1,10 @@
 [Desktop Entry]
 Type=Application
 Name=Gwen
-GenericName=Time tracker
-Comment=Track your working day and plan your study goals
-Exec=gwen-ui
+GenericName=Planner and terminals
+Comment=Your day, your plan, your terminals and coding agents, in one window
+Exec=gwen open
 Icon=gwen
 Terminal=false
-Categories=Utility;Office;
-StartupWMClass=gwen-ui
+Categories=Utility;Office;Development;
+StartupWMClass=gwen-term

@@ -202,19 +202,13 @@ func (a *App) IsNowCard() bool { return a.nowCard }
 // conversation with Gwen opened from the panel widget.
 func (a *App) IsTalk() bool { return a.talk }
 
-// OpenDashboard opens the dashboard on a screen, or "" for Today; a running
-// dashboard comes to the front instead.
-func (a *App) OpenDashboard(screen string) error {
-	exe, err := os.Executable()
-	if err != nil {
-		exe = "gwen-ui"
-	}
-	var args []string
-	if screen != "" {
-		args = []string{"--screen", screen}
-	}
-	return wrap(a.host.start(exe, args...))
-}
+// OpenDashboard shows the Gwen window on a screen, or "" for Today
+// (plan.md 3.15).
+func (a *App) OpenDashboard(screen string) error { return wrap(openGwen(a.api, screen)) }
+
+// OpenApp is the client's OpenApp: it fails while gwend is down, where
+// OpenDashboard starts the window anyway.
+func (a *App) OpenApp(screen string) error { return wrap(a.api.OpenApp(a.ctx, screen)) }
 
 // Version is the GUI's own version.
 func (a *App) Version() string { return version }

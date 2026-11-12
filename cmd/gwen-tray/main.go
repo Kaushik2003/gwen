@@ -131,7 +131,7 @@ func (v *systrayView) build(c *controller, quit context.CancelFunc) {
 	capture := systray.AddMenuItem("Capture to inbox…", "Jot down a task to sort out later")
 	board := systray.AddMenuItem("Task board", "Your tasks by stage")
 	nowCard := systray.AddMenuItem("Now card", "The day at a glance; a left click on the icon opens it too")
-	open := systray.AddMenuItem("Open dashboard", "")
+	open := systray.AddMenuItem("Open Gwen", "")
 	v.startGwen = addItem("Start Gwen", "Start the Gwen daemon")
 	quitItem := systray.AddMenuItem("Quit tray", "Close the tray; tracking goes on")
 

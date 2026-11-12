@@ -1,0 +1,22 @@
+{
+  "graphite": {
+    "background": "#17191d", "foreground": "#d2d4d9", "selection": "#394454",
+    "ansi": ["#45484f", "#dc8c95", "#a6bd91", "#d8be87", "#96b2d7", "#b5a2ce", "#8cbdc3", "#d2d4d9",
+             "#818793", "#f0a5ad", "#bad5a2", "#ead2a1", "#b0cbef", "#cbb7e6", "#a4d5db", "#f0f0f2"]
+  },
+  "ink": {
+    "background": "#111720", "foreground": "#cdd6e4", "selection": "#344861",
+    "ansi": ["#414b5a", "#e58c9a", "#89c5aa", "#d9be82", "#91b6ee", "#b9a0e2", "#85c4d0", "#cdd6e4",
+             "#7f91a7", "#f5a5b2", "#a5dec3", "#edd39c", "#accbfa", "#d0b7f4", "#a0dce5", "#f0f5fc"]
+  },
+  "moss": {
+    "background": "#151c19", "foreground": "#cdd7ce", "selection": "#354a40",
+    "ansi": ["#435248", "#df978d", "#a0c4a2", "#d4bc8b", "#99b9cd", "#bba4c8", "#8bbdb5", "#cdd7ce",
+             "#82968a", "#f1afa3", "#b8dab9", "#e9d2a5", "#b1d0e2", "#d1bddc", "#a4d6ca", "#eff5ee"]
+  },
+  "paper": {
+    "background": "#ffffff", "foreground": "#25272c", "selection": "#cfdcf5", "cursor": "#25272c",
+    "ansi": ["#25272c", "#c62a2a", "#1a7f37", "#8f5d00", "#1f62d0", "#7a45c8", "#0f6f74", "#5f6068",
+             "#7b7e87", "#d1242f", "#1f883d", "#9a6700", "#0969da", "#8250df", "#1b7c83", "#111214"]
+  }
+}

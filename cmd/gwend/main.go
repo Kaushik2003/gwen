@@ -19,6 +19,8 @@ import (
 	"github.com/kzark/gwen/internal/activity"
 	"github.com/kzark/gwen/internal/clock"
 	"github.com/kzark/gwen/internal/config"
+	"github.com/kzark/gwen/internal/remote"
+	"github.com/kzark/gwen/term"
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
@@ -35,9 +37,22 @@ func mainErr(args []string, stderr io.Writer) int {
 	dataDir := fs.String("data-dir", "", "database and credentials location (default $XDG_DATA_HOME/gwen)")
 	configPath := fs.String("config", "", "config file (default $XDG_CONFIG_HOME/gwen/config.toml)")
 	hub := fs.Bool("hub", false, "run as the sync hub")
+	installTerm := fs.Bool("install-term", false, "put Gwen's screens, themes and key in the Gwen window's folder, then exit")
 	listen := fs.String("listen", ":7777", "hub listen address; only with --hub")
 	if err := fs.Parse(args); err != nil {
 		return 2
+	}
+	if *installTerm {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			fmt.Fprintln(stderr, "gwend:", err)
+			return 1
+		}
+		if _, err := term.Install(remote.TermHome(home)); err != nil {
+			fmt.Fprintln(stderr, "gwend:", err)
+			return 1
+		}
+		return 0
 	}
 	listenSet := false
 	fs.Visit(func(f *flag.Flag) { listenSet = listenSet || f.Name == "listen" })
@@ -86,6 +101,9 @@ func mainErr(args []string, stderr io.Writer) int {
 		sync:       true,
 		keeper:     true,
 		memory:     true,
+		remote:     true,
+		app:        true,
+		termHome:   gwenTermHome(),
 	})
 	if err != nil {
 		slog.Error("gwend failed", "err", err)
@@ -128,4 +146,14 @@ func localZone() *time.Location {
 	}
 	slog.Warn("cannot tell the local time zone; using UTC")
 	return time.UTC
+}
+
+// gwenTermHome is Gwen Terminal's folder when Gwen Terminal is installed,
+// else "": there is nowhere to put Gwen's screens yet.
+func gwenTermHome() string {
+	home, err := os.UserHomeDir()
+	if err != nil || !remote.TermInstalled(home) {
+		return ""
+	}
+	return remote.TermHome(home)
 }

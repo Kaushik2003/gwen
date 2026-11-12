@@ -97,6 +97,9 @@ type Repos struct {
 	Memory      MemoryRepo
 	MemoryState MemoryStateRepo
 	Self        SelfRepo
+	// RemoteDevices and CodeSessions are Gwen on the phone (plan.md 3.14).
+	RemoteDevices RemoteDeviceRepo
+	CodeSessions  CodeSessionRepo
 }
 
 // NewRepos returns the SQLite repositories over db.
@@ -120,5 +123,8 @@ func NewRepos(db *DB) Repos {
 		Memory:      NewMemoryRepo(db),
 		MemoryState: NewMemoryStateRepo(db),
 		Self:        NewSelfRepo(db),
+
+		RemoteDevices: NewRemoteDeviceRepo(db),
+		CodeSessions:  NewCodeSessionRepo(db),
 	}
 }

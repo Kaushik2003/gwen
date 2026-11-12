@@ -359,7 +359,7 @@ func TestAnOldHubIsSentOnlyWhatItKnows(t *testing.T) {
 	require.Zero(t, count(t, hub.db, `SELECT count(*) FROM claims`))
 	_, err = store.GetLocal(ctx, laptop.db.SQL(), store.KeySyncPushSchema)
 	require.ErrorIs(t, err, store.ErrNotFound, "the hub's schema is the one assumed")
-	require.Equal(t, "10", g.pulls[0].Get("schema_version"), "every pull says the client's schema")
+	require.Equal(t, "11", g.pulls[0].Get("schema_version"), "every pull says the client's schema")
 
 	advance()
 	st, err = c.Sync(ctx)
@@ -530,7 +530,7 @@ func TestAClientWhoseSchemaRoseStartsItsPullOver(t *testing.T) {
 	require.Equal(t, 1, count(t, phone.db, `SELECT count(*) FROM chat_messages`))
 	pulled, err := store.GetLocal(ctx, phone.db.SQL(), store.KeySyncPullSchema)
 	require.NoError(t, err)
-	require.Equal(t, "10", pulled)
+	require.Equal(t, "11", pulled)
 
 	applied = nil
 	st, err = p.Sync(ctx)

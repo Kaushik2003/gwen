@@ -342,3 +342,33 @@ func TestSpeechLevelsFollowTheVoiceUntilItEnds(t *testing.T) {
 	case <-time.After(3 * levelEvery):
 	}
 }
+
+// The provider and voices chosen in Settings are kept in one file, so
+// Settings in the Gwen window and the Talk window speak alike.
+func TestSpeechChoiceIsShared(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "gwen", "speech.json")
+	settings, _, _, _ := newTestSpeech(t, true)
+	talk, _, _, _ := newTestSpeech(t, true)
+	settings.choices, talk.choices = file, file
+
+	st := talk.status()
+	require.Equal(t, "", st.Provider, "nothing chosen yet: the first provider is used")
+	require.Equal(t, map[string]string{}, st.Voices)
+
+	require.NoError(t, settings.choose("kokoro", "bf_emma"))
+	require.NoError(t, settings.choose("fish", ""))
+	st = talk.status()
+	require.Equal(t, "fish", st.Provider)
+	require.Equal(t, map[string]string{"kokoro": "bf_emma"}, st.Voices, "a provider's voice stays when another is chosen")
+
+	require.NoError(t, talk.choose("fish", "gwen"))
+	st = settings.status()
+	require.Equal(t, "fish", st.Provider)
+	require.Equal(t, map[string]string{"kokoro": "bf_emma", "fish": "gwen"}, st.Voices)
+
+	require.ErrorContains(t, settings.choose("nobody", ""), "no voice provider")
+	require.ErrorContains(t, settings.choose("kokoro", "af_nobody"), "no voice")
+	st = talk.status()
+	require.Equal(t, "fish", st.Provider, "a refused choice changes nothing")
+	require.Equal(t, map[string]string{"kokoro": "bf_emma", "fish": "gwen"}, st.Voices)
+}

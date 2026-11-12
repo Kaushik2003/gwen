@@ -15,6 +15,8 @@ ntfy, Calendar, LLM, sync hub).
 | Everything | Go 1.26.4 or newer, GNU make, git | `sudo dnf install golang make git` | `sudo apt install golang make git` |
 | The GUI (`gwen-ui`) | Node.js 24 with npm | `sudo dnf install nodejs npm` | from nodejs.org or NodeSource |
 | The GUI (`gwen-ui`) | GTK 3 and WebKitGTK 4.1 headers | `sudo dnf install gtk3-devel webkit2gtk4.1-devel` | `sudo apt install libgtk-3-dev libwebkit2gtk-4.1-dev` |
+| Gwen Terminal ([step 8](#8-gwen-terminal)) | Rust (rustup), Zig 0.16, `just`, a Vulkan driver | see step 8 | see step 8 |
+| Gwen on your phone ([step 9](#9-gwen-on-your-phone)) | Tailscale on the laptop and the phone; `bubblewrap` for sandboxed sessions | `sudo dnf install bubblewrap` | `sudo apt install bubblewrap` |
 
 - If your distro's Go is older than `go.mod` asks for, `go` downloads the right toolchain on first
   use, provided `GOTOOLCHAIN` is left at its default, `auto`. That needs Go 1.21 or newer to start
@@ -56,8 +58,10 @@ is built from the working tree, so uncommitted changes go into it.
 make install-dev
 ```
 
-This builds everything into `bin/`, copies `gwend`, `gwen`, `gwen-tray` and `gwen-ui` to
+This builds everything into `bin/`, copies `gwend`, `gwen`, `gwen-tray`, `gwen-ui` and `gwen-stt` to
 `~/.local/bin`, writes the user unit to `~/.config/systemd/user/gwend.service`, and reloads systemd.
+It also writes the app menu's one **Gwen** entry, `~/.local/share/applications/gwen.desktop`, which
+opens the Gwen window ([step 8](#8-gwen-terminal)) on Today, and hides the window's own entry.
 On KDE Plasma it also installs the Gwen panel widget (see [the panel widget](#kde-panel-widget)).
 `~/.local/bin` must be on your `PATH`. Fedora's default `~/.bashrc` already adds it.
 
@@ -96,7 +100,7 @@ to move.
 
 ### Updating a package install
 
-Installing the package does not restart anything, so the daemon, the tray and an open dashboard keep
+Installing the package does not restart anything, so the daemon, the tray, and an open Talk window or now card keep
 running the old build until you restart them. Give the build a version higher than the installed
 one, which `rpm -q gwen` shows:
 
@@ -105,12 +109,12 @@ make check
 make package VERSION=0.1.3                         # higher than the installed version
 sudo dnf install ./dist/gwen-*.x86_64.rpm          # make package clears dist/ first, so this is the new build
 systemctl --user restart gwend
-pkill -x gwen-ui                                   # a second launch would only focus the old window
+pkill -x gwen-ui                                   # closes Talk or the now card, so they reopen as the new build
 pkill -x gwen-tray; setsid gwen-tray >/dev/null 2>&1 &
 ```
 
-On Debian or Ubuntu, install with `sudo apt install ./dist/gwen_*_amd64.deb` instead. Reopen the
-dashboard from the tray.
+On Debian or Ubuntu, install with `sudo apt install ./dist/gwen_*_amd64.deb` instead. Then open Gwen
+again from the tray.
 
 ## 3. First run
 
@@ -138,7 +142,11 @@ gwen status
 gwen out                         # clock out
 ```
 
-Open the dashboard from the app menu (**Gwen**) or run `gwen-ui`.
+Open Gwen from the app menu (**Gwen**), or run `gwen open`. Gwen's screens live in the Gwen window,
+which [step 8](#8-gwen-terminal) builds; until it is installed, `gwen open` says so. `gwen open SCREEN`
+opens one screen: `today`, `gwen` (the chat), `tasks`, `inbox`, `board`, `projects`, `plan`, `goals`,
+`review`, `weekly`, `stats`, `history`, `connections`, `memory`, or `settings`. In the window,
+**Ctrl+Shift+G** goes back to Gwen's screens from your terminals.
 
 ## 4. Phone push (ntfy)
 
@@ -151,7 +159,7 @@ Nudges reach your phone through [ntfy](https://ntfy.sh).
 3. In the app, subscribe to every URL it prints, such as `https://ntfy.sh/gwen-abc…`.
 4. It sends a test notification. Send another any time with `gwen notify test`.
 
-The dashboard does the same under **Settings → Phone**: scan its QR code with the ntfy app, press
+Gwen does the same under **Settings → Phone**: scan its QR code with the ntfy app, press
 **Send test**, and paste an access token there if your server needs one.
 
 The topic is effectively a password: anyone who knows it can read your nudges. Do not share it.
@@ -167,7 +175,7 @@ Google requires you to create your own OAuth client once:
    the app to production**. It stays unverified, which is fine for personal use. If you skip
    publishing, Google signs you out every 7 days.
 3. Create an **OAuth client** of type **Desktop app** and download its JSON.
-4. Install the client file and sign in. In the dashboard: **Settings → Google Calendar →
+4. Install the client file and sign in. In Gwen: **Settings → Google Calendar →
    Choose client file**, then **Connect**. Or from a terminal:
 
    ```sh
@@ -215,7 +223,7 @@ gwen plan chat "start at 14:00, 3 hours, DSA first"
 gwen retro
 ```
 
-The same settings are in the dashboard under **Settings → AI**, which checks the Claude Code
+The same settings are in Gwen under **Settings → AI**, which checks the Claude Code
 sign-in as soon as you pick it and, when the command is not Claude Code, offers the `claude` it
 finds. Breakdowns and retros then run from the **Assistant** screen, or from a goal's card, and
 the day-planning chat from **Plan with AI** on the Plan or Today screen.
@@ -366,7 +374,7 @@ gwen setup sync --hub http://PI_ADDRESS:7777 --token <token>
 gwen sync status
 ```
 
-Or enter the hub address and token in the dashboard under **Settings → Sync**, and press **Sync
+Or enter the hub address and token in Gwen under **Settings → Sync**, and press **Sync
 now**. The first sync copies everything to the hub; after that the laptop syncs every 5 minutes.
 
 The phone dashboard is at `http://PI_ADDRESS:7777/` (`http`, not `https`). With Tailscale switched on
@@ -406,6 +414,141 @@ Tailscale address (`tailscale ip -4`), or its Wi-Fi address (`ip -4 addr`) on th
 Press **Ctrl+C** to stop it, then `rm -r /tmp/gwen-hub`. The copy does not update; repeat the
 `sqlite3` line and restart it to see newer data.
 
+## 8. Gwen Terminal
+
+Gwen Terminal is the Gwen window, Gwen's one desktop app. Its first space, **Gwen**, holds her
+screens as tabs (Today, Gwen, Tasks, Plan, Review, Connections, Memory, Settings); every other space
+holds your terminals and Claude Code sessions. It is Herdr's app ([herdr.dev](https://herdr.dev))
+under Gwen's name: a thin fork kept in its own folder, next to **herdr-core**, the small background
+program that keeps your terminals running when the window closes. Every Claude you start in it can be
+seen and driven from your phone (step 9).
+
+### Tools
+
+```sh
+# Rust, if you don't have it (rustup picks the exact version Herdr builds with by itself)
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+# Zig 0.16 exactly (newer versions don't build Herdr), into ~/.local
+curl -fsSL https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz | tar -xJ -C ~/.local/share
+ln -sfn ~/.local/share/zig-x86_64-linux-0.16.0/zig ~/.local/bin/zig
+
+# just
+sudo dnf install just          # Fedora; or: brew install just; or: cargo install just
+```
+
+Check with `zig version` (must say `0.16.0`) and `just --version`. Herdr's own tests also use
+[bun](https://bun.sh), which `make term-update` needs.
+
+### The fork
+
+Once, get the fork and put Gwen's patch on it. If the folder already exists (it does on the machine
+this was first built on), skip this.
+
+```sh
+git clone -o upstream https://github.com/herdrdev/herdr-app ~/Documents/coding/gwen-term
+cd ~/Documents/coding/gwen-term
+git submodule update --init --recursive --depth 1
+git switch gwen        # the branch with Gwen's patch; it comes from wherever you keep the fork
+```
+
+The patch is a handful of small commits (Gwen's name and icon, its own settings folder
+`~/.config/gwen-term`, and no calls to herdr.dev) plus one generated commit that writes "Gwen" over
+"Herdr" in what you read. Everything else is Herdr, unchanged: layouts, mods, themes, and keys work
+exactly as Herdr's do, and mods and layouts from Herdr's community gallery work as they are.
+
+### Build and install
+
+```sh
+make term
+```
+
+This builds herdr-core at the release named in `term/core.version` and the fork, then installs
+`gwen-term` in `~/.local/bin` and Gwen's own core as `~/.local/lib/gwen/herdr-core`, and adds
+**Claude (sandbox)** to Gwen Terminal's agent menu. It puts Gwen's screens (the `gwen` mod) and her
+three themes (Ghost, Tide, and Ember, in the theme picker beside Herdr's) in `~/.config/gwen-term`, and
+adds **Ctrl+Shift+G** to its keys. The window's own app menu entry is hidden: **Gwen** in the app menu
+(from `make install-dev` or the package) opens it. The first build takes about 20 minutes; later ones
+a minute. If Gwen's core is running, it is restarted onto the new build and its terminals keep running.
+
+`gwend` also puts the screens in place each time it starts, so a newer `gwend` brings its matching
+screens without `make term`. The first time it sees the window open, it makes the **Gwen** space with
+one tab per screen. Close a screen's tab and it comes back, in its place, when you open that screen
+from the tray, the panel widget, or `gwen open`. When `gwend` is stopped, Gwen's tabs say so and offer
+to start it; they reconnect by themselves when it is back. A Gwen tab splits beside a terminal like
+any other tab.
+
+Gwen Terminal is separate from a Herdr you run yourself. It has its own core (the session `gwen`), so
+it shows none of your Herdr's spaces or terminals, your Herdr shows none of Gwen's, and `make term`
+never touches your Herdr's `herdr-core` or `hc`. Your phone sees the sessions in Gwen Terminal only.
+To look at Gwen's core from a shell: `HC_SESSION=gwen ~/.local/lib/gwen/herdr-core ls`. A folder other than `~/Documents/coding/gwen-term` is `make term TERM_DIR=/path`.
+
+To take Herdr's newer fixes:
+
+```sh
+make term-update     # rebases the patch on Herdr, regenerates the wording, runs Herdr's own checks
+make term            # builds and installs the result
+```
+
+If Herdr changed a line the patch touches, `make term-update` stops and says where; resolve it in the
+fork's folder, then run it again. Nothing is installed until the checks pass.
+
+Gwen Terminal never contacts herdr.dev: it has no update checks, downloads, feedback, or usage reports.
+A mod you add from Herdr's gallery runs with your full access and nobody reviews gallery code, so add
+only mods that you or an agent have read.
+
+## 9. Gwen on your phone
+
+From your phone you can see every Claude session and terminal in Gwen Terminal, type into them, answer
+Claude's permission requests, review what changed, start new sessions, and talk instead of typing. It
+travels over your tailnet only. A paired phone can type into any terminal on the laptop, so treat it
+like the laptop itself, unlocked.
+
+1. **Tailscale** runs on the laptop and on the phone, signed in to the same account.
+2. **HTTPS certificates** are on for your tailnet: open
+   [login.tailscale.com/admin/dns](https://login.tailscale.com/admin/dns) and turn on **HTTPS
+   Certificates**. Without them the phone's browser refuses the page and the microphone. The laptop's
+   tailnet name then appears in the public certificate logs, as with any HTTPS certificate.
+3. Open **Gwen › Settings › Phone** and turn on **Use Gwen from my phone**. It asks for your password
+   once, because Tailscale needs root to publish. From a terminal the same is `gwen remote on`.
+4. Turn on **Let Gwen see my Claude sessions**. This adds Gwen's hooks to `~/.claude/settings.json`,
+   keeps everything else in the file, and saves the original once as `settings.json.gwen-backup`.
+   (`gwen remote hooks on`.)
+5. Press **Pair a phone** and scan the QR code with the phone's camera. The code works once, for ten
+   minutes. On the phone, use the browser's **Add to Home screen** to keep Gwen as an app.
+
+`gwen remote status` shows each of these and what is missing. `gwen remote devices` lists paired
+phones and `gwen remote revoke <id>` unpairs one.
+
+**Sandbox.** A session started as *Sandbox* (from the phone, or **Claude (sandbox)** in Gwen Terminal,
+or `gwen sandbox` in a project folder) only sees its own folder and your toolchains. It cannot see
+the rest of your home folder, your SSH keys, your keyring, your desktop, your other terminals, or
+your other Claude conversations, so it cannot push over SSH. Nothing it writes takes effect outside
+by itself:
+
+- It has a private Claude folder of its own, per project, under `~/.local/share/gwen/sandbox/`.
+  Of your real `~/.claude` it sees only your settings, instructions, commands, agents, skills and
+  plugins, read-only, so it cannot add a hook, a command or an MCP server to your own Claude.
+- It signs in separately. Run `gwen sandbox-login` once (or paste the token from `claude setup-token`
+  into **Settings › Phone › Sandbox sign-in**). That token can only talk to the model, so a sandboxed
+  Claude has none of your Claude connectors either. Without it, each sandboxed project asks you to
+  `/login` the first time.
+- Your tool caches (Go modules, npm, pip, cargo) are used read-only with a private layer on top, so
+  it cannot leave something in a cache that your own builds would later trust.
+- The project's own git hooks and git config are read-only in the sandbox, because git runs them by
+  itself the next time you use the repository. So `git commit` works there, but `git config` and
+  `git remote add` do not.
+
+The one thing a sandbox cannot do for you is vouch for what Claude wrote *inside* the project: its
+code, scripts and build files run with your access when you run them later. Review Changes first.
+
+**Voice** uses the speech model from **Settings › AI › Voice**; install it there first. The phone
+records while you hold the mic, the laptop turns it into text, and the text waits in the message box
+for you to send.
+
+**Pushes** when a session needs you use the ntfy setup of [step 4](#4-phone-push-ntfy). They name the
+folder only.
+
 ## Where things live
 
 | What | Path |
@@ -415,6 +558,9 @@ Press **Ctrl+C** to stop it, then `rm -r /tmp/gwen-hub`. The copy does not updat
 | Secrets | `~/.local/share/gwen/credentials/` (mode `0700`; never in the config file) |
 | Daemon log | `~/.local/state/gwen/gwend.log`, and `journalctl --user -u gwend` |
 | API socket | `$XDG_RUNTIME_DIR/gwen/gwend.sock` |
+| Phone and hook sockets | `$XDG_RUNTIME_DIR/gwen/remote.sock` (published by Tailscale Serve while the phone remote is on) and `hook.sock` (Claude Code's hooks) |
+| Gwen Terminal | `~/.config/gwen-term/` (settings, keys, layouts, mods, themes; Gwen's screens are `mods/gwen`, which `gwend` replaces with its own copy at start); the fork in `~/Documents/coding/gwen-term`; herdr-core's source in `~/.cache/gwen/herdr-core` |
+| Gwen's voice | `~/.config/gwen/speech.json`: the provider and voice chosen in **Settings → AI**, which the Talk window uses too |
 | User unit | `/usr/lib/systemd/user/gwend.service` (package) or `~/.config/systemd/user/gwend.service` (dev) |
 | Tray autostart | `~/.config/autostart/gwen-tray.desktop` |
 | Now card placement (KDE) | Window rule `gwen-now-card` in `~/.config/kwinrulesrc`, and a KWin script the tray loads from `$XDG_RUNTIME_DIR/gwen/now-card.js` |
@@ -425,7 +571,7 @@ Press **Ctrl+C** to stop it, then `rm -r /tmp/gwen-hub`. The copy does not updat
 KDE's tray shows only an icon, so the timer lives in a panel widget: a dot in the state's colour, the
 day's worked time ticking, and the task (or project) being tracked. Clicking it drops down the now
 card, Plasma's own popup: the timer, the time, progress to the target, the current stretch, the next
-plan block, an energy check-in, and Break, Clock out and Dashboard. Click the project under the timer
+plan block, an energy check-in, and Break, Clock out, Talk, and Open Gwen. Click the project under the timer
 to switch project. A right click has the rest of the tray's commands.
 
 The widget does everything the tray does, so while it is on a panel the tray stays out (`gwen-tray`
@@ -444,6 +590,11 @@ make docs-check     # the spec's change protocol only
 gwend --foreground  # run the daemon in a terminal with readable logs on stderr
 make clean          # remove bin/ and dist/
 ```
+
+Gwen's screens are `term/mods/gwen/`. After changing them, `go run ./cmd/gwend --install-term` copies
+them into `~/.config/gwen-term/mods/gwen`, and an open Gwen window reloads them. `gwen-term check
+~/.config/gwen-term/mods/gwen` loads the installed copy once and reports what's wrong. Check the
+installed copy, not `term/mods/gwen`: the check writes editor type files into the folder it checks.
 
 To run a fresh daemon from `bin/` in a terminal, stop the service first so the two do not fight
 over the socket: `systemctl --user stop gwend`. After changing code, `make install-dev` and
@@ -466,7 +617,10 @@ Node 24.
 | No tray icon on GNOME | Install the AppIndicator and KStatusNotifierItem Support extension, then `gwen setup autostart`. |
 | `make build` fails on `webkit2gtk-4.1` or `gtk+-3.0` | Install the GUI headers from [step 1](#1-requirements). |
 | Calendar disconnects every 7 days | The OAuth consent screen is still in testing. Publish it to production ([step 5](#5-google-calendar-optional)), then `gwen cal connect`. |
-| `claude_code` provider is unavailable | Open **Settings → AI** in the dashboard and press **Use it** on the `claude` it finds, or re-run `gwen setup llm` and give the full path to `claude`. Check `claude auth status`. |
+| `claude_code` provider is unavailable | Open **Settings → AI** in Gwen and press **Use it** on the `claude` it finds, or re-run `gwen setup llm` and give the full path to `claude`. Check `claude auth status`. |
+| `gwen open`: "the Gwen window isn't installed" | Build it: [step 8](#8-gwen-terminal). |
+| Gwen's tabs say "Gwen isn't running" | Press **Start Gwen** there, or `systemctl --user start gwend`. The tabs reconnect by themselves. |
+| No **Gwen** space in the Gwen window | Run `gwen open`: it makes the space again. |
 | AI requests fail with "timed out" | Raise the wait under **Settings → AI**, or `gwen config set llm.timeout 2m`. |
 | Phone gets nothing | `gwen notify test`. Check the app is subscribed to the exact topic URL, and that the phone can reach the server. |
 | Phone cannot open the hub dashboard | Switch the Tailscale app on. Use `http://`, not `https://`. If the name fails, use the Pi's `100.x.y.z` address from the app. |
