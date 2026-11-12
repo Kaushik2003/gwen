@@ -116,6 +116,12 @@ type Service struct {
 	byTerminal map[string]*session
 	idem       map[string]idemEntry
 	views      map[string]int // open terminal views by device
+	// phones are the cancel funcs of each phone's open connections, by
+	// device and then by number; ended are the phones unpaired since
+	// gwend started (phones.go).
+	phones     map[string]map[int]context.CancelFunc
+	phoneN     int
+	ended      map[string]bool
 	hookRate   map[int]*rate
 	spacesDirt bool
 	kick       chan struct{}
@@ -161,6 +167,7 @@ func New(o Options) (*Service, error) {
 	s := &Service{opts: o, db: o.DB, repos: o.Repos, clk: o.Clock, cfg: o.Config, home: o.Home,
 		coreState: "down", terms: map[string]herdr.Terminal{}, sessions: map[string]*session{},
 		byTerminal: map[string]*session{}, idem: map[string]idemEntry{}, views: map[string]int{},
+		phones: map[string]map[int]context.CancelFunc{}, ended: map[string]bool{},
 		hookRate: map[int]*rate{}, kick: make(chan struct{}, 1)}
 	for _, d := range o.OwnDirs {
 		if real, err := filepath.EvalSymlinks(d); err == nil {

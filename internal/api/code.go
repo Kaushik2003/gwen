@@ -423,6 +423,9 @@ func (s *Server) codeEvents(w http.ResponseWriter, r *http.Request) error {
 	if !ok {
 		return fmt.Errorf("events: response cannot stream")
 	}
+	// A phone's stream ends the moment it is unpaired or the remote is turned off.
+	ctx, cancel := s.Code.PhoneContext(r.Context(), deviceOf(r))
+	defer cancel()
 	ch, err := s.Hub.subscribe(wire.EventCodeSpaces, wire.CodeSpacesChanged{})
 	if err != nil {
 		return err
@@ -437,7 +440,7 @@ func (s *Server) codeEvents(w http.ResponseWriter, r *http.Request) error {
 	defer ping.Stop()
 	for {
 		select {
-		case <-r.Context().Done():
+		case <-ctx.Done():
 			return nil
 		case frame, ok := <-ch:
 			if !ok {
@@ -490,7 +493,11 @@ type viewMessage struct {
 // messages, the grid as {"cols", "rows"}, the end as {"closed"}; the phone
 // sends viewMessage.
 func (s *Server) codeView(w http.ResponseWriter, r *http.Request) error {
-	view, err := s.Code.OpenView(r.Context(), deviceOf(r), r.PathValue("t"))
+	// The view ends the moment the phone is unpaired or the remote is turned
+	// off: a WebSocket is never refused like a new request would be.
+	phone, endPhone := s.Code.PhoneContext(r.Context(), deviceOf(r))
+	defer endPhone()
+	view, err := s.Code.OpenView(phone, deviceOf(r), r.PathValue("t"))
 	if err != nil {
 		return err
 	}
@@ -500,7 +507,7 @@ func (s *Server) codeView(w http.ResponseWriter, r *http.Request) error {
 		return nil // Upgrade already answered
 	}
 	defer conn.Close()
-	ctx, cancel := context.WithCancel(r.Context())
+	ctx, cancel := context.WithCancel(phone)
 	defer cancel()
 	conn.SetReadLimit(64 << 10)
 	go func() {
@@ -538,6 +545,9 @@ func (s *Server) codeView(w http.ResponseWriter, r *http.Request) error {
 	for {
 		f, err := view.Next(ctx)
 		if err != nil {
+			if phone.Err() != nil && r.Context().Err() == nil {
+				_ = write(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "this phone can no longer use Gwen"))
+			}
 			return nil
 		}
 		switch {

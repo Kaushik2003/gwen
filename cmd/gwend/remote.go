@@ -152,6 +152,8 @@ func (rs *remoteSockets) sync() {
 		slog.Info("phone remote on", "socket", path)
 	case !enabled && rs.remote != nil:
 		rs.remote.Close()
+		// Closing the server never reaches a terminal view's WebSocket.
+		rs.svc.EndPhones()
 		rs.remote = nil
 		os.Remove(path)
 		slog.Info("phone remote off")
@@ -166,6 +168,7 @@ func (rs *remoteSockets) close() {
 			srv.Close()
 		}
 	}
+	rs.svc.EndPhones()
 	rs.remote, rs.hook = nil, nil
 	os.Remove(filepath.Join(rs.runtime, remoteSocketName))
 	os.Remove(filepath.Join(rs.runtime, hookSocketName))

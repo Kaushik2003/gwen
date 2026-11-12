@@ -78,14 +78,6 @@ func (s *Service) viewDone(device string) {
 	s.mu.Unlock()
 }
 
-// dropViews forgets a revoked device's views; their sockets close when the
-// next request on them is refused.
-func (s *Service) dropViews(device string) {
-	s.mu.Lock()
-	delete(s.views, device)
-	s.mu.Unlock()
-}
-
 // Size is the terminal's grid as last announced.
 func (v *View) Size() (cols, rows int) {
 	v.mu.Lock()
@@ -124,6 +116,12 @@ func (v *View) allow() bool {
 // Messages over the limits are dropped.
 func (v *View) Keys(ctx context.Context, keys []string) error {
 	if len(keys) == 0 || len(keys) > maxKeysPerMsg || !v.allow() {
+		return nil
+	}
+	v.mu.Lock()
+	closed := v.closed
+	v.mu.Unlock()
+	if closed {
 		return nil
 	}
 	return v.core.Keys(ctx, v.terminal, keys)

@@ -115,12 +115,13 @@ func (s *Service) Devices(ctx context.Context) ([]store.RemoteDevice, error) {
 	return s.repos.RemoteDevices.List(ctx)
 }
 
-// Revoke unpairs a phone: its next request is refused.
+// Revoke unpairs a phone: its next request is refused, and its open terminal
+// views and event stream end at once.
 func (s *Service) Revoke(ctx context.Context, id string) error {
 	if err := s.repos.RemoteDevices.Delete(ctx, id); err != nil {
 		return err
 	}
-	s.dropViews(id)
+	s.unpaired(id)
 	s.remoteChanged()
 	return nil
 }
