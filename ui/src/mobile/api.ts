@@ -124,6 +124,11 @@ export function setOnUnpaired(fn: () => void) {
   onUnpaired = fn;
 }
 
+/** How long a call may take before the laptop is taken as unreachable: reads, writes, and uploads (photos, voice). */
+const READ_MS = 15_000;
+const WRITE_MS = 30_000;
+const UPLOAD_MS = 120_000;
+
 async function request<T>(method: string, path: string, body?: unknown, raw?: BodyInit, signal?: AbortSignal): Promise<T> {
   const headers: Record<string, string> = {};
   if (method !== "GET") headers["X-Gwen"] = "1";
@@ -134,12 +139,25 @@ async function request<T>(method: string, path: string, body?: unknown, raw?: Bo
   } else if (raw !== undefined) {
     headers["Content-Type"] = "application/octet-stream";
   }
+  // A call that never answers (a connection that died without saying so) must fail, or the screen waiting on it stays on "loading".
+  const timeout = new AbortController();
+  let timedOut = false;
+  const limit = window.setTimeout(() => {
+    timedOut = true;
+    timeout.abort();
+  }, raw !== undefined ? UPLOAD_MS : method === "GET" ? READ_MS : WRITE_MS);
+  const onCallerAbort = () => timeout.abort();
+  if (signal?.aborted) timeout.abort();
+  else signal?.addEventListener("abort", onCallerAbort, { once: true });
   let res: Response;
   try {
-    res = await fetch(path, { method, headers, body: payload, credentials: "same-origin", signal });
+    res = await fetch(path, { method, headers, body: payload, credentials: "same-origin", signal: timeout.signal });
   } catch (e) {
-    if ((e as Error).name === "AbortError") throw e;
+    if ((e as Error).name === "AbortError" && !timedOut) throw e;
     throw new ApiError("offline", "Can't reach the laptop.");
+  } finally {
+    window.clearTimeout(limit);
+    signal?.removeEventListener("abort", onCallerAbort);
   }
   if (res.status === 204) return undefined as T;
   let data: any = null;
