@@ -20,6 +20,19 @@ function keyBytes(key: string): Uint8Array<ArrayBuffer> {
   return Uint8Array.from(s, (c) => c.charCodeAt(0));
 }
 
+// What to try when the browser refuses to subscribe, in the order that fixes it most often.
+function subscribeHelp(e: unknown): string {
+  const name = e instanceof DOMException ? e.name : "";
+  if (name === "NotAllowedError") return "Notifications are blocked for this site. Allow them in the browser's site settings, then try again.";
+  if (name === "NotSupportedError") return "This browser can't do push notifications. Use Chrome, or add Gwen to the Home Screen.";
+  const brave = (navigator as { brave?: unknown }).brave !== undefined;
+  return (
+    "Your phone couldn't reach Google's push service. " +
+    (brave ? "In Brave, turn on Settings > Privacy > Use Google services for push messaging. " : "") +
+    "Check that Play Services is up to date, that the phone is online without a VPN or Private DNS filter other than Tailscale, then try again."
+  );
+}
+
 function dismissed(): boolean {
   try {
     return localStorage.getItem(DISMISSED) === "1";
@@ -75,7 +88,12 @@ export function PushCard() {
           sub = null;
         }
       }
-      sub ??= await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+      try {
+        sub ??= await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+      } catch (e) {
+        // Chrome says only "Registration failed - push service error": the phone could not reach Google's push service (FCM).
+        throw new Error(subscribeHelp(e));
+      }
       await api.pushSubscribe(sub.toJSON());
       await api.pushTest();
       setPhase("hidden");
