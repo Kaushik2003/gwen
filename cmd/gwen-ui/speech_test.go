@@ -189,7 +189,9 @@ func TestSpeechStopCutsItOff(t *testing.T) {
 	require.Equal(t, event{"speech:end", speechEnd{ID: id}}, next(t, events), "cut off is no failure")
 	written, _, stopped := players.at(0).state()
 	require.True(t, stopped)
-	require.Equal(t, []float32{0}, written, "nothing more is played")
+	// "speech:start" comes as the first chunk goes to the player, so a stop
+	// at once may cut off that chunk too; nothing after it is played.
+	require.Subset(t, []float32{0}, written, "nothing more is played")
 }
 
 func TestSpeechNewTextCutsOffTheOld(t *testing.T) {

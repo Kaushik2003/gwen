@@ -209,6 +209,39 @@ func (f *Fake) CreateTask(_ context.Context, req wire.CreateTaskRequest) (*wire.
 	return result[*wire.Task](f, "CreateTask", req)
 }
 
+func (f *Fake) ListAttachments(_ context.Context, taskID string) (*wire.AttachmentList, error) {
+	return result[*wire.AttachmentList](f, "ListAttachments", taskID)
+}
+
+func (f *Fake) CreateAttachment(_ context.Context, taskID string, req wire.CreateAttachmentRequest) (*wire.Attachment, error) {
+	return result[*wire.Attachment](f, "CreateAttachment", taskID, req)
+}
+
+func (f *Fake) PatchAttachment(_ context.Context, id string, req wire.PatchAttachmentRequest) (*wire.Attachment, error) {
+	return result[*wire.Attachment](f, "PatchAttachment", id, req)
+}
+
+func (f *Fake) DeleteAttachment(_ context.Context, id string) error {
+	_, err := f.invoke("DeleteAttachment", id)
+	return err
+}
+
+func (f *Fake) RefreshAttachment(_ context.Context, id string) (*wire.Attachment, error) {
+	return result[*wire.Attachment](f, "RefreshAttachment", id)
+}
+
+func (f *Fake) ListConnectors(_ context.Context) (*wire.ConnectorList, error) {
+	return result[*wire.ConnectorList](f, "ListConnectors")
+}
+
+func (f *Fake) SearchConnector(_ context.Context, app, q string) (*wire.ConnectorItems, error) {
+	return result[*wire.ConnectorItems](f, "SearchConnector", app, q)
+}
+
+func (f *Fake) LinkConnector(_ context.Context, app string) (*wire.ConnectorLink, error) {
+	return result[*wire.ConnectorLink](f, "LinkConnector", app)
+}
+
 func (f *Fake) GetTask(_ context.Context, id string) (*wire.Task, error) {
 	return result[*wire.Task](f, "GetTask", id)
 }
@@ -260,6 +293,11 @@ func (f *Fake) NotifyPreview(context.Context) (*wire.NotifyPreview, error) {
 
 func (f *Fake) Nudges(_ context.Context, card bool) (*wire.NudgeList, error) {
 	return result[*wire.NudgeList](f, "Nudges", card)
+}
+
+func (f *Fake) WindowFocus(_ context.Context, focused bool) error {
+	_, err := f.invoke("WindowFocus", focused)
+	return err
 }
 
 func (f *Fake) ActOnNudge(_ context.Context, kind, action string) error {

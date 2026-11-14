@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -25,6 +27,15 @@ const (
 	// in that terminal at the laptop: herdr-core waits up to 60 seconds.
 	sendWait = 75 * time.Second
 )
+
+// idemKey is once's key for a request's idempotency key: "" without one,
+// so a request that names none always runs.
+func idemKey(scope, idem string) string {
+	if idem == "" {
+		return ""
+	}
+	return scope + ":" + idem
+}
 
 // once runs fn for an idempotency key: the same key within ten minutes
 // returns the first result without running again (plan.md 3.14.7).
@@ -73,7 +84,7 @@ func (s *Service) Prompt(ctx context.Context, id string, p wire.CodePrompt) (wir
 	if err := checkPrompt(p.Text); err != nil {
 		return wire.CodePromptResult{}, err
 	}
-	result, err := s.once("p:"+id+":"+p.Idem, func() (string, error) {
+	result, err := s.once(idemKey("p:"+id, p.Idem), func() (string, error) {
 		s.mu.Lock()
 		sess, c, err := s.live(id)
 		if err != nil {
@@ -111,7 +122,7 @@ func (s *Service) SendTerminal(ctx context.Context, terminal string, p wire.Code
 	if err := checkPrompt(p.Text); err != nil {
 		return wire.CodePromptResult{}, err
 	}
-	result, err := s.once("t:"+terminal+":"+p.Idem, func() (string, error) {
+	result, err := s.once(idemKey("t:"+terminal, p.Idem), func() (string, error) {
 		s.mu.Lock()
 		t, c, err := s.terminal(terminal)
 		s.mu.Unlock()
@@ -218,8 +229,8 @@ func (s *Service) terminate(id string, pid int) {
 	}
 }
 
-// openOnLaptop shows a session's terminal in Gwen Terminal: it gets a tab if
-// it has none, else its pane is focused.
+// openOnLaptop shows a session's terminal in its tab of the Gwen window
+// (plan.md 3.15), opening the window when it is closed.
 func (s *Service) openOnLaptop(ctx context.Context, id string) error {
 	s.mu.Lock()
 	sess, _, err := s.live(id)
@@ -228,23 +239,36 @@ func (s *Service) openOnLaptop(ctx context.Context, id string) error {
 		return err
 	}
 	terminal := sess.Terminal
-	hasTab := s.terms[terminal].Labels["herdr.tab"] != ""
 	s.mu.Unlock()
-	if err := s.ensureWindow(ctx); err != nil {
-		return fail(wire.CodeUnavailable, "Couldn't open Gwen Terminal")
-	}
-	command := "terminal.keep"
-	if hasTab {
-		command = "pane.focus"
-	}
-	if _, err := s.termDo(ctx, command, map[string]any{"terminal": terminal}); err != nil {
-		return fail(wire.CodeConflict, "%s", err.Error())
+	if err := s.openWindow(ctx, "terminal:"+terminal); err != nil {
+		return fail(wire.CodeUnavailable, "Couldn't open the Gwen window")
 	}
 	return nil
 }
 
-// NewTerminal opens a shell tab in a space of Gwen Terminal.
+// NewTerminal opens a shell in a space: in a project's folder when the
+// space is a project (plan.md 3.15), else as a tab of Gwen Terminal.
 func (s *Service) NewTerminal(ctx context.Context, space string) (wire.CodeNewTerminal, error) {
+	for _, p := range s.projectSpaces(ctx) {
+		if p.ID != space {
+			continue
+		}
+		c, err := s.ensureCore(ctx)
+		if err != nil {
+			return wire.CodeNewTerminal{}, err
+		}
+		shell := os.Getenv("SHELL")
+		if shell == "" {
+			shell = "/bin/bash"
+		}
+		t, err := runFree(ctx, c, herdr.RunParams{Argv: []string{shell}, Cwd: p.Folder, Name: filepath.Base(p.Folder), Keep: true, NoParent: true,
+			Labels: map[string]string{ProjectLabel: p.ID},
+			Env:    map[string]string{"TERM": "xterm-256color", "COLORTERM": "truecolor"}})
+		if err != nil {
+			return wire.CodeNewTerminal{}, coreError(err)
+		}
+		return wire.CodeNewTerminal{Terminal: t.Address}, nil
+	}
 	found, folder := false, ""
 	for _, sp := range s.spacesDoc() {
 		if sp.ID == space {
@@ -341,12 +365,25 @@ func (s *Service) running(claudeID string) *session {
 }
 
 // Start starts a Claude Code session in a folder, in a tab of Gwen Terminal
-// unless the request says otherwise (plan.md 3.14.5, 3.14.7).
+// unless the request says otherwise (plan.md 3.14.5, 3.14.7). The folder
+// must be inside remote.roots, as a phone's request must.
 func (s *Service) Start(ctx context.Context, req wire.StartCodeSession) (wire.CodeSession, error) {
+	return s.start(ctx, req, false)
+}
+
+// StartInProject starts a session in a project's folder, which you chose on
+// this laptop, so remote.roots (the phone's limit) does not apply. Gwen's
+// agent hands its jobs over through it (plan.md 3.16); no phone route does.
+func (s *Service) StartInProject(ctx context.Context, req wire.StartCodeSession) (wire.CodeSession, error) {
+	req.Create, req.GitInit = false, false
+	return s.start(ctx, req, true)
+}
+
+func (s *Service) start(ctx context.Context, req wire.StartCodeSession, project bool) (wire.CodeSession, error) {
 	if len(req.Prompt) > maxPrompt {
 		return wire.CodeSession{}, fail(wire.CodeInvalidRequest, "that message is too long; 32 KB at most")
 	}
-	dir, err := s.startDir(ctx, req)
+	dir, err := s.startDir(ctx, req, project)
 	if err != nil {
 		return wire.CodeSession{}, err
 	}
@@ -377,7 +414,20 @@ func (s *Service) Start(ctx context.Context, req wire.StartCodeSession) (wire.Co
 			return wire.CodeSession{}, fail(wire.CodeUnavailable, "the sandbox needs bubblewrap, which isn't installed")
 		}
 	}
+	switch req.PermissionMode {
+	case "":
+	case "acceptEdits", "auto", "plan":
+		// Kept in the session's args, so a resume runs in the same mode.
+		if !slices.Contains(args, "--permission-mode") {
+			args = append(args, "--permission-mode", req.PermissionMode)
+		}
+	default:
+		return wire.CodeSession{}, fail(wire.CodeInvalidRequest, "%q isn't a permission mode Gwen starts sessions in", req.PermissionMode)
+	}
 	name := filepath.Base(dir)
+	if n := terminalSlug(req.Name); n != "" {
+		name = n
+	}
 	claude := FindClaude(s.home)
 	argv := []string{claude}
 	if sandbox {
@@ -387,6 +437,10 @@ func (s *Service) Start(ctx context.Context, req wire.StartCodeSession) (wire.Co
 		argv = []string{s.opts.GwenBin, "sandbox"}
 	}
 	argv = append(argv, args...)
+	if line := s.statusLineSettings(dir); line != "" {
+		// Not kept in the session's args: a resume adds the current one.
+		argv = append(argv, "--settings", line)
+	}
 	if req.Resume != "" {
 		argv = append(argv, "--resume", req.Resume)
 	} else {
@@ -406,53 +460,26 @@ func (s *Service) Start(ctx context.Context, req wire.StartCodeSession) (wire.Co
 	s.save(ctx, sess)
 	s.mu.Unlock()
 
-	terminal := ""
-	window := req.Window == nil || *req.Window
-	if window {
-		if err := s.ensureWindow(ctx); err != nil {
-			window = false
+	// The session always starts in herdr-core; with a window (the default)
+	// the Gwen window then opens its tab (plan.md 3.14.5, 3.15).
+	if req.Prompt != "" {
+		argv = append(argv, req.Prompt)
+	}
+	t, err := runFree(ctx, c, herdr.RunParams{Argv: argv, Cwd: dir, Name: name, NoParent: true, Keep: true,
+		Labels: map[string]string{SessionLabel: sess.ID},
+		Env:    map[string]string{"TERM": "xterm-256color", "COLORTERM": "truecolor", "TERM_PROGRAM": "herdr"},
+		Size:   &herdr.Size{Cols: 120, Rows: 40}})
+	if err != nil {
+		s.drop(ctx, sess)
+		return wire.CodeSession{}, coreError(err)
+	}
+	terminal := t.Address
+	if req.Window == nil || *req.Window {
+		if err := s.openWindow(ctx, "terminal:"+terminal); err != nil {
 			s.mu.Lock()
-			sess.notice = "Couldn't open Gwen Terminal"
+			sess.notice = "Couldn't open the Gwen window"
 			s.mu.Unlock()
 		}
-	}
-	if window {
-		before := s.terminalSet()
-		cmdArgs := map[string]any{"folder": dir, "argv": argv}
-		if req.Prompt != "" {
-			cmdArgs["task"] = req.Prompt
-		}
-		command := "space.new"
-		if space := s.spaceForDir(dir); space != "" {
-			command, cmdArgs["space"], cmdArgs["name"] = "tab.new", space, name
-		} else {
-			cmdArgs["tab"] = name
-		}
-		reply, err := s.termDo(ctx, command, cmdArgs)
-		if err != nil {
-			s.drop(ctx, sess)
-			return wire.CodeSession{}, fail(wire.CodeConflict, "%s", err.Error())
-		}
-		if terminal = replyTerminal(reply); terminal == "" {
-			terminal = s.awaitNewTerminal(ctx, before, claudeID)
-		}
-		if terminal == "" {
-			s.drop(ctx, sess)
-			return wire.CodeSession{}, fail(wire.CodeUnavailable, "Gwen Terminal didn't start the session")
-		}
-	} else {
-		if req.Prompt != "" {
-			argv = append(argv, req.Prompt)
-		}
-		t, err := c.Run(ctx, herdr.RunParams{Argv: argv, Cwd: dir, Name: name, NoParent: true,
-			Labels: map[string]string{SessionLabel: sess.ID},
-			Env:    map[string]string{"TERM": "xterm-256color", "COLORTERM": "truecolor", "TERM_PROGRAM": "herdr"},
-			Size:   &herdr.Size{Cols: 120, Rows: 40}})
-		if err != nil {
-			s.drop(ctx, sess)
-			return wire.CodeSession{}, coreError(err)
-		}
-		terminal = t.Address
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -468,7 +495,13 @@ func (s *Service) Start(ctx context.Context, req wire.StartCodeSession) (wire.Co
 		s.byTerminal[terminal] = sess
 		s.label(terminal, sess.ID)
 		s.save(ctx, sess)
-		s.evaluate(ctx, terminal)
+		// The core answers terminal.run before it sends the terminal's
+		// created event. Until the event is applied the terminal is unknown,
+		// and evaluate would end the new card; the event's own evaluate
+		// finds the card instead. A kept terminal is never removed first.
+		if _, known := s.terms[terminal]; known {
+			s.evaluate(ctx, terminal)
+		}
 	}
 	return s.wireSession(sess), nil
 }
@@ -482,12 +515,31 @@ func (s *Service) drop(ctx context.Context, sess *session) {
 	s.opts.Publish(wire.EventCodeSessionRemoved, wire.CodeSessionRemoved{ID: sess.ID})
 }
 
+// PhoneFolder resolves a folder the phone picked for a project, inside the
+// folders the phone may open (remote.roots, plan.md 3.14.7), making its last
+// element first when create is set (a git repository too with gitInit). A
+// project's folder is where Claude starts for it without the roots check, so
+// the phone may only name one it could open anyway.
+func (s *Service) PhoneFolder(ctx context.Context, dir string, create, gitInit bool) (string, error) {
+	return s.startDir(ctx, wire.StartCodeSession{Dir: dir, Create: create, GitInit: create && gitInit}, false)
+}
+
 // startDir resolves the folder of a new session, creating its last element
 // when asked.
-func (s *Service) startDir(ctx context.Context, req wire.StartCodeSession) (string, error) {
+func (s *Service) startDir(ctx context.Context, req wire.StartCodeSession, project bool) (string, error) {
 	dir := ExpandHome(strings.TrimSpace(req.Dir), s.home)
 	if dir == "" {
 		return "", fail(wire.CodeInvalidRequest, "choose a folder")
+	}
+	if project {
+		real, err := filepath.EvalSymlinks(dir)
+		if err != nil || !filepath.IsAbs(real) {
+			return "", fail(wire.CodeNotFound, "that folder doesn't exist")
+		}
+		if st, err := os.Stat(real); err != nil || !st.IsDir() {
+			return "", fail(wire.CodeNotFound, "that folder doesn't exist")
+		}
+		return real, nil
 	}
 	if req.Create {
 		parent, err := s.allowedDir(filepath.Dir(dir))
@@ -632,4 +684,45 @@ func (s *Service) Diff(ctx context.Context, id, path string) (wire.CodeDiff, err
 		return wire.CodeDiff{}, fail(wire.CodeNotFound, "no changes in %s", path)
 	}
 	return d, nil
+}
+
+// terminalSlug is a title as herdr-core takes a terminal's name: 1 to 32 of
+// a-z 0-9 - _ . starting with a letter or digit ("Fix add bug" is
+// "fix-add-bug"); "" when nothing of it is left.
+// runFree runs a terminal under its name made valid for herdr-core, or the
+// first free one after it (name-2, name-3, ...): the core refuses a name a
+// live terminal holds, so a second shell or session in a folder needs its own.
+func runFree(ctx context.Context, c *herdr.Client, p herdr.RunParams) (herdr.Terminal, error) {
+	base := terminalSlug(p.Name)
+	if base == "" {
+		base = "shell"
+	}
+	p.Name = base
+	for i := 2; ; i++ {
+		t, err := c.Run(ctx, p)
+		if err == nil || !herdr.IsKind(err, "name_taken") || i > 99 {
+			return t, err
+		}
+		suffix := "-" + strconv.Itoa(i)
+		p.Name = strings.TrimRight(base[:min(len(base), 32-len(suffix))], "-") + suffix
+	}
+}
+
+func terminalSlug(title string) string {
+	var b strings.Builder
+	dash := false
+	for _, r := range strings.ToLower(strings.TrimSpace(title)) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+			dash = false
+		case b.Len() > 0 && !dash:
+			b.WriteByte('-')
+			dash = true
+		}
+		if b.Len() >= 32 {
+			break
+		}
+	}
+	return strings.TrimRight(b.String(), "-")
 }

@@ -93,6 +93,7 @@ func (n *fakeNotifier) Test(context.Context) wire.NotifyTestResult {
 }
 
 func (n *fakeNotifier) Nudges(bool) []wire.Nudge { return []wire.Nudge{} }
+func (n *fakeNotifier) WindowFocus(bool)         {}
 
 func (n *fakeNotifier) Preview() []wire.Nudge { return []wire.Nudge{} }
 

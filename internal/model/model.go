@@ -127,6 +127,16 @@ type Project struct {
 	Name       string
 	Color      string
 	ArchivedAt *time.Time
+	// Folder is the project's folder on this machine (project_dirs, plan.md
+	// 3.15), "" when it has none. It is device-local and never synced.
+	Folder string
+	// ParentID is the project this one sits under, one level deep; nil at
+	// the top level.
+	ParentID *string
+	// AgentAutonomy is how freely Gwen's agent acts in it on this machine
+	// (project_dirs, plan.md 3.16): cautious, balanced, or trusted; "" follows
+	// the configuration.
+	AgentAutonomy string
 	Envelope
 }
 
@@ -174,6 +184,32 @@ func (t Task) IsTemplate() bool { return t.RRule != nil }
 
 // IsStep reports whether the task is a step of another task.
 func (t Task) IsStep() bool { return t.ParentID != nil }
+
+// Attachment kinds (task_attachments.kind).
+const (
+	AttachLink = "link"
+	AttachNote = "note"
+	AttachFile = "file"
+	AttachApp  = "app"
+)
+
+// Attachment is a row of task_attachments: context a task comes with. A link
+// has URL; a note has Body; a file has Path, on the device that added it; an
+// app item (through Composio) has App, Ref, URL, and Body, the text snapshot
+// taken at FetchedAt.
+type Attachment struct {
+	ID        string
+	TaskID    string
+	Kind      string
+	Title     string
+	URL       string
+	Path      string
+	App       string
+	Ref       string
+	Body      string
+	FetchedAt *time.Time
+	Envelope
+}
 
 // WorkDay is a row of work_days.
 type WorkDay struct {
@@ -326,10 +362,13 @@ const (
 // LastAt and Messages are read with it: when its newest message was said, and
 // how many it has.
 type ChatThread struct {
-	ID       string
-	Title    string
-	LastAt   time.Time
-	Messages int
+	ID    string
+	Title string
+	// ProjectID is the project the chat belongs to (plan.md 3.16), nil for
+	// a chat for everywhere.
+	ProjectID *string
+	LastAt    time.Time
+	Messages  int
 	Envelope
 }
 

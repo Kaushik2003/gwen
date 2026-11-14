@@ -37,6 +37,7 @@ type notifier interface {
 	Nudges(card bool) []wire.Nudge
 	Preview() []wire.Nudge
 	Act(kind, action string) error
+	WindowFocus(focused bool)
 }
 
 // loop is the one goroutine that owns all tracking state. Every transition
@@ -49,16 +50,24 @@ type loop struct {
 	engine   *timeengine.Engine
 	hub      *api.Hub
 	notifier notifier
-	monitor  activity.ActivityMonitor
-	loc      *time.Location
-	level    *slog.LevelVar
-	warnings []string
+	// openAgent shows a chat of Gwen's agent (thread; "" for Gwen › Chat),
+	// for Open on its approval notification.
+	openAgent func(ctx context.Context, thread string)
+	// answerCode gives a Claude Code session the choice picked on its
+	// notification (session, key); the daemon sets it when the remote runs.
+	answerCode func(ctx context.Context, session, key string)
+	monitor    activity.ActivityMonitor
+	loc        *time.Location
+	level      *slog.LevelVar
+	warnings   []string
 
 	reqs chan request
 	done chan struct{}
 
 	// idle and locked feed Away: no input for awayIdle, and a locked screen.
 	idle, locked atomic.Bool
+	// still is set from the first idle threshold (a few seconds without input) until the next input.
+	still atomic.Bool
 	// watchAway asks the monitor for the away threshold too; the daemon sets
 	// it when the remote runs.
 	watchAway atomic.Bool
@@ -156,6 +165,11 @@ const awayIdle = 2 * time.Minute
 // minutes: a Claude Code permission request then waits for the phone.
 func (l *loop) Away() bool { return l.locked.Load() || l.idle.Load() }
 
+// PhoneAway reports that phone notifications should go out: the laptop is
+// locked or has had no input for two minutes. Away holds the same test today
+// but decides something else (where a permission is answered).
+func (l *loop) PhoneAway() bool { return l.locked.Load() || l.idle.Load() }
+
 // run processes inputs until ctx ends, then records a clean shutdown.
 func (l *loop) run(ctx context.Context) {
 	defer close(l.done)
@@ -224,6 +238,7 @@ func (l *loop) arm(t clock.Timer) {
 func (l *loop) onActivity(ctx context.Context, ev activity.Event) {
 	switch ev.Kind {
 	case activity.Idle:
+		l.still.Store(true)
 		if ev.Threshold >= awayIdle {
 			l.idle.Store(true)
 		}
@@ -233,11 +248,13 @@ func (l *loop) onActivity(ctx context.Context, ev activity.Event) {
 		}
 	case activity.Active:
 		l.idle.Store(false)
+		l.still.Store(false)
 	case activity.Locked:
 		l.locked.Store(true)
 	case activity.Unlocked:
 		l.locked.Store(false)
 		l.idle.Store(false)
+		l.still.Store(false)
 	}
 	var in timeengine.Input
 	switch ev.Kind {
@@ -267,6 +284,22 @@ func (l *loop) onActivity(ctx context.Context, ev activity.Event) {
 }
 
 func (l *loop) onAction(ctx context.Context, a notify.ActionEvent) {
+	if a.Kind == kindAgentApproval {
+		if l.openAgent != nil {
+			thread, _ := strings.CutPrefix(a.Action, "open:")
+			if thread == "open" {
+				thread = ""
+			}
+			go l.openAgent(context.WithoutCancel(ctx), thread)
+		}
+		return
+	}
+	if a.Kind == "code_session" {
+		if session, key, ok := strings.Cut(a.Action, "@"); ok && l.answerCode != nil {
+			go l.answerCode(context.WithoutCancel(ctx), session, key)
+		}
+		return
+	}
 	in, ok := timeengine.InputForAction(a.Action, l.now(), l.engine.Status())
 	if !ok {
 		slog.Debug("unknown notification action", "kind", a.Kind, "action", a.Action)

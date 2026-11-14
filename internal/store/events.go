@@ -100,6 +100,14 @@ type Repos struct {
 	// RemoteDevices and CodeSessions are Gwen on the phone (plan.md 3.14).
 	RemoteDevices RemoteDeviceRepo
 	CodeSessions  CodeSessionRepo
+	// Attachments are what tasks come with for context.
+	Attachments AttachmentRepo
+	// Runs are the harness's runs, approvals, and grants; Subjects the
+	// resources and routines of subjects (plan.md 3.7, W19).
+	Runs     RunRepo
+	Subjects SubjectRepo
+	// Agent is the device-local half of Gwen's agent (plan.md 3.16, W32).
+	Agent AgentRepo
 }
 
 // NewRepos returns the SQLite repositories over db.
@@ -126,5 +134,9 @@ func NewRepos(db *DB) Repos {
 
 		RemoteDevices: NewRemoteDeviceRepo(db),
 		CodeSessions:  NewCodeSessionRepo(db),
+		Attachments:   NewAttachmentRepo(db),
+		Agent:         NewAgentRepo(db),
+		Runs:          NewRunRepo(db),
+		Subjects:      NewSubjectRepo(db),
 	}
 }

@@ -421,6 +421,10 @@ func (s *Server) assistantRequest(ctx context.Context, msg string, tr transcript
 	}
 	tasks = chooseTasks(tasks, blocks, today, append(lastUserTexts(tr.all, 2), msg), namedTasks(tr.sent))
 	in.MoreTasks = open - len(tasks)
+	attached, err := s.Repos.Attachments.Of(ctx, taskIDs(tasks))
+	if err != nil {
+		return in, nil, err
+	}
 	for i, t := range tasks {
 		key := fmt.Sprintf("t%d", i+1)
 		refs[key] = ref{refTask, t.ID, t.Title}
@@ -434,6 +438,14 @@ func (s *Server) assistantRequest(ctx context.Context, msg string, tr transcript
 		}
 		if at.Blocks == nil {
 			at.Blocks = []llm.AssistantBlock{}
+		}
+		for _, a := range attached[t.ID] {
+			kind := a.Kind
+			if a.Kind == model.AttachApp {
+				kind = a.App
+			}
+			at.Attachments = append(at.Attachments, llm.AssistantAttachment{Kind: kind, Title: a.Title, URL: a.URL,
+				Text: truncate(a.Body, llm.MaxAssistantAttachment)})
 		}
 		in.Tasks = append(in.Tasks, at)
 	}
@@ -688,7 +700,7 @@ func (s *Server) applyAction(ctx context.Context, a llm.Action, refs assistantRe
 			name = text(a.Title)
 		}
 		res.Summary = fmt.Sprintf("Add the project %q", name)
-		p, err := s.Repos.Projects.Create(ctx, name, nil)
+		p, err := s.Repos.Projects.Create(ctx, name, nil, nil)
 		if err != nil {
 			return res, err
 		}

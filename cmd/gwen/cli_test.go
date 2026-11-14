@@ -261,6 +261,26 @@ func TestGolden(t *testing.T) {
 			out: "0000aaaa  Internship  #3b82f6  \n",
 		},
 		{
+			name: "project add under a parent", args: []string{"project", "add", "Kutumb", "--parent", "internship"},
+			script: func(f *clienttest.Fake) {
+				f.Returns("CreateProject", &wire.Project{ID: "01926d2e-7a4b-7c3d-8e9f-00000000ffff", Name: "Kutumb", Color: "#f59e0b", ParentID: &pID}, nil)
+			},
+			method: "CreateProject", want: []any{wire.CreateProjectRequest{Name: "Kutumb", ParentID: &pID}},
+			out: "0000ffff  Kutumb  #f59e0b  \n",
+		},
+		{
+			name: "project edit moves it under a parent", args: []string{"project", "edit", "0000bbbb", "--parent", "Internship"},
+			script: func(f *clienttest.Fake) { f.Returns("PatchProject", &projectQ, nil) },
+			method: "PatchProject", want: []any{qID, wire.PatchProjectRequest{ParentID: wire.Some(pID)}},
+			out: "0000bbbb  Study  #10b981  archived\n",
+		},
+		{
+			name: "project edit moves it to the top level", args: []string{"project", "edit", "0000bbbb", "--parent", "none"},
+			script: func(f *clienttest.Fake) { f.Returns("PatchProject", &projectQ, nil) },
+			method: "PatchProject", want: []any{qID, wire.PatchProjectRequest{ParentID: wire.Null[string]()}},
+			out: "0000bbbb  Study  #10b981  archived\n",
+		},
+		{
 			name: "project archive", args: []string{"project", "archive", "0000aaaa"},
 			script: func(f *clienttest.Fake) { f.Returns("PatchProject", &projectP, nil) },
 			method: "PatchProject", want: []any{pID, wire.PatchProjectRequest{Archived: testutil.Ptr(true)}},
@@ -387,7 +407,7 @@ func TestConfigGetAll(t *testing.T) {
 	require.Contains(t, out, "tracking.soft_idle = 3m\n")
 	require.Contains(t, out, "ntfy.topic = \"\"\n")
 	require.Contains(t, out, "calendar.busy_calendars = primary\n")
-	require.True(t, strings.HasPrefix(out, "calendar."), "keys are sorted")
+	require.True(t, strings.HasPrefix(out, "agent."), "keys are sorted")
 }
 
 func TestHeatmap(t *testing.T) {
@@ -452,7 +472,7 @@ func TestExitCodes(t *testing.T) {
 	t.Run("2 on a usage error", func(t *testing.T) {
 		for _, args := range [][]string{{"bogus"}, {"in", "--nope"}, {"day", "show"}, {"day", "show", "15/09"},
 			{"seg", "add", "--kind", "work"}, {"project", "ls", "--archived", "--all"}, {"day", "set", "2026-09-14"},
-			{"config", "set", "tracking.nope", "1"}, {"task", "add", "x", "--estimate", "soon"}} {
+			{"config", "set", "tracking.nope", "1"}, {"task", "add", "x", "--estimate", "soon"}, {"project", "edit", "Internship"}} {
 			_, errOut, code := runCLI(t, fake(), args...)
 			require.Equal(t, exitUsage, code, "%v: %s", args, errOut)
 		}

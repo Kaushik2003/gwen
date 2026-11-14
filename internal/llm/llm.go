@@ -25,6 +25,8 @@ type Planner interface {
 	DayPlan(ctx context.Context, req DayPlanRequest) (DayPlanOutput, error)
 	Retro(ctx context.Context, req RetroRequest) (RetroOutput, error)
 	Assistant(ctx context.Context, req AssistantRequest) (AssistantOutput, error)
+	// CommitSummary sums up a commit from the conversation that made it.
+	CommitSummary(ctx context.Context, req CommitSummaryRequest) (CommitSummaryOutput, error)
 	Name() string
 }
 

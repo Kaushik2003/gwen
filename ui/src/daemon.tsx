@@ -12,6 +12,8 @@ export interface Daemon {
   config: wire.Config | null;
   projects: wire.Project[]; // live, not archived
   tasks: wire.Task[]; // open
+  /** When tasks were loaded, on the daemon's clock: their tracked_ms counts the running segment up to here. */
+  tasksAt: number;
   /** Bumped on day_changed, so screens showing days refetch. */
   daysVersion: number;
   tasksVersion: number;
@@ -72,6 +74,7 @@ export function DaemonProvider({ children }: { children: ReactNode }) {
   const skew = useRef(0);
   const configRef = useRef<wire.Config | null>(null);
   const lastAttribution = useRef<{ project_id: string | null; task_id: string | null }>({ project_id: null, task_id: null });
+  const tasksAt = useRef(0);
 
   const setStatus = useCallback((s: wire.Status) => {
     skew.current = Date.now() - s.server_now_at;
@@ -87,6 +90,7 @@ export function DaemonProvider({ children }: { children: ReactNode }) {
   }, []);
   const loadTasks = useCallback(async () => {
     const list = await App.ListTasks(wire.TaskQuery.createFrom({ project_id: "", status: "open", due_before: "" }));
+    tasksAt.current = Date.now() - skew.current;
     setTasks(list.tasks);
     setTasksVersion((v) => v + 1);
   }, []);
@@ -126,7 +130,11 @@ export function DaemonProvider({ children }: { children: ReactNode }) {
     refresh();
     const offs = [
       onEvent("state_changed", (s: wire.Status) => setStatus(wire.Status.createFrom(s))),
-      onEvent("day_changed", () => setDaysVersion((v) => v + 1)),
+      // A segment opened or closed (a switch, a break, an edit): tasks' tracked time moved with it.
+      onEvent("day_changed", () => {
+        setDaysVersion((v) => v + 1);
+        loadTasks().catch(() => {});
+      }),
       onEvent("projects_changed", () => loadProjects().catch(() => {})),
       onEvent("tasks_changed", () => loadTasks().catch(() => {})),
       onEvent("plan_changed", () => setPlanVersion((v) => v + 1)),
@@ -197,7 +205,7 @@ export function DaemonProvider({ children }: { children: ReactNode }) {
   );
 
   const value: Daemon = {
-    up, locked, status, config, projects, tasks, daysVersion, tasksVersion, projectsVersion, planVersion, goalsVersion,
+    up, locked, status, config, projects, tasks, tasksAt: tasksAt.current, daysVersion, tasksVersion, projectsVersion, planVersion, goalsVersion,
     integrationVersion, lastAttribution: lastAttribution.current, now, today, refresh, act, run, fail,
   };
   return <DaemonContext.Provider value={value}>{children}</DaemonContext.Provider>;

@@ -1,0 +1,84 @@
+{
+  "spaces": [
+    {
+      "id": "s1",
+      "name": "gwen",
+      "folder": "/home/user/code/gwen",
+      "color": "#7aa2f7",
+      "tabs": [
+        {
+          "id": "s1-tab1",
+          "name": "edit",
+          "root": {
+            "id": "n1",
+            "type": "row",
+            "gap": 4,
+            "children": [
+              {
+                "id": "n2",
+                "type": "block",
+                "content": { "terminal": "t3" },
+                "size": { "weight": 2 }
+              },
+              {
+                "id": "n3",
+                "type": "column",
+                "divider": { "width": 1, "color": "border" },
+                "children": [
+                  { "id": "n4", "type": "block", "content": { "terminal": "t1" } },
+                  {
+                    "id": "n5",
+                    "type": "stack",
+                    "active": "n6",
+                    "header": { "content": "tabs", "reveal": "hover", "position": "top" },
+                    "children": [
+                      { "id": "n6", "type": "block", "content": { "terminal": "t2" }, "title": "logs" },
+                      { "id": "n7", "type": "block", "content": { "mod": "git-status", "props": { "compact": true } } }
+                    ]
+                  }
+                ]
+              }
+            ],
+            "floating": [
+              { "id": "f1", "content": { "terminal": "t9" }, "edge": "bottom", "align": "end", "peek": 24 }
+            ]
+          },
+          "zoomed": "n4"
+        },
+        {
+          "id": "s1-tab2",
+          "name": "",
+          "root": { "id": "n8", "type": "block", "content": { "terminal": "t4" } }
+        }
+      ]
+    },
+    {
+      "id": "s2",
+      "name": "",
+      "folder": "/home/user/notes",
+      "tabs": [
+        {
+          "id": "s2-tab1",
+          "name": "agents",
+          "root": {
+            "id": "n9",
+            "type": "row",
+            "children": [
+              { "id": "n10", "type": "block", "content": { "agent": "focused" } },
+              { "id": "n11", "type": "block", "content": { "tab": "active", "pane": { "header": { "content": { "mod": "pane-title" } }, "shadow": "sm" } } },
+              { "id": "n12", "type": "block", "content": { "terminal": "t1" }, "hidden": true },
+              { "id": "n13", "type": "block", "content": { "terminal": "t1" } }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "s3",
+      "name": "scratch",
+      "folder": "",
+      "tabs": []
+    }
+  ],
+  "pinned": ["s1"]
+}

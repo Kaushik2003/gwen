@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -70,7 +71,16 @@ type CodeSessionRepo interface {
 	Delete(ctx context.Context, id string) error
 	// Prune deletes sessions that ended before cutoff.
 	Prune(ctx context.Context, cutoff time.Time) (int64, error)
+	// KeepCommitSummary stores Gwen's summary of a commit a Claude
+	// conversation made, replacing an older one.
+	KeepCommitSummary(ctx context.Context, claudeSessionID, commit, summary string, at time.Time) error
+	// CommitSummaries returns the stored summaries of the commits these
+	// conversations made, by CommitKey.
+	CommitSummaries(ctx context.Context, claudeSessionIDs []string) (map[string]string, error)
 }
+
+// CommitKey is how CommitSummaries keys a conversation's commit.
+func CommitKey(claudeSessionID, commit string) string { return claudeSessionID + " " + commit }
 
 type codeSessionRepo struct{ db *DB }
 
@@ -194,4 +204,39 @@ func (r codeSessionRepo) Prune(ctx context.Context, cutoff time.Time) (int64, er
 		return 0, fmt.Errorf("prune code sessions: %w", err)
 	}
 	return res.RowsAffected()
+}
+
+func (r codeSessionRepo) KeepCommitSummary(ctx context.Context, claudeSessionID, commit, summary string, at time.Time) error {
+	const qKeepCommitSummary = `INSERT INTO commit_summaries (claude_session_id, commit_short, summary, made_at) VALUES (?, ?, ?, ?)
+		ON CONFLICT (claude_session_id, commit_short) DO UPDATE SET summary = excluded.summary, made_at = excluded.made_at`
+	if _, err := r.db.sql.ExecContext(ctx, qKeepCommitSummary, claudeSessionID, commit, summary, at.UnixMilli()); err != nil {
+		return fmt.Errorf("keep commit summary: %w", classify(err))
+	}
+	return nil
+}
+
+func (r codeSessionRepo) CommitSummaries(ctx context.Context, claudeSessionIDs []string) (map[string]string, error) {
+	out := map[string]string{}
+	if len(claudeSessionIDs) == 0 {
+		return out, nil
+	}
+	args := make([]any, len(claudeSessionIDs))
+	for i, id := range claudeSessionIDs {
+		args[i] = id
+	}
+	q := `SELECT claude_session_id, commit_short, summary FROM commit_summaries WHERE claude_session_id IN (?` +
+		strings.Repeat(", ?", len(args)-1) + `)`
+	rows, err := r.db.sql.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("commit summaries: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, commit, summary string
+		if err := rows.Scan(&id, &commit, &summary); err != nil {
+			return nil, fmt.Errorf("commit summaries: %w", err)
+		}
+		out[CommitKey(id, commit)] = summary
+	}
+	return out, rows.Err()
 }

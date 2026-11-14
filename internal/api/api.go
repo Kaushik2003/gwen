@@ -8,8 +8,10 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/kzark/gwen/internal/agent"
 	"github.com/kzark/gwen/internal/clock"
 	"github.com/kzark/gwen/internal/config"
+	"github.com/kzark/gwen/internal/harness"
 	"github.com/kzark/gwen/internal/llm"
 	"github.com/kzark/gwen/internal/memory"
 	"github.com/kzark/gwen/internal/remote"
@@ -43,6 +45,9 @@ type NotifyTester interface {
 	// Act clicks a button of a showing nudge; it fails with a not-found
 	// error matching notify.ErrNoSuchNudge.
 	Act(kind, action string) error
+	// WindowFocus says whether the Gwen window has your focus; while it
+	// does, nudges show in the window alone.
+	WindowFocus(focused bool)
 }
 
 // Server holds what the handlers need.
@@ -65,7 +70,21 @@ type Server struct {
 	Memory memory.Memory
 	// Code is Gwen on the phone and the Claude Code sessions in Gwen
 	// Terminal, nil when the daemon runs none: its routes then answer 503.
-	Code       *remote.Service
+	Code *remote.Service
+	// Connectors reaches apps (Gmail, Calendar, GitHub, Notion) through
+	// Composio for task attachments, nil when this device has none: the
+	// connector routes then say so, and links, notes, and files still work.
+	Connectors Connectors
+	// Apps runs Composio's tools for Gwen's agent (apps, app_search,
+	// app_run), nil when this device has none: those tools then say so.
+	Apps AgentApps
+	// Harness runs the work Gwen does with you and holds its connections
+	// (plan.md 3.7), nil when the daemon runs none: the run routes then
+	// answer 503.
+	Harness *harness.Engine
+	// Agent is Gwen's agent, the chat that works in your projects (plan.md
+	// 3.16), nil when the daemon runs none: its routes then answer 503.
+	Agent      *agent.Manager
 	Clock      clock.Clock
 	Loc        *time.Location // the device's zone, recorded on work days that edits create
 	ConfigPath string

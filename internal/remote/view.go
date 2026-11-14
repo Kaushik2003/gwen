@@ -2,11 +2,11 @@ package remote
 
 import (
 	"context"
+	"slices"
 	"sync"
 	"time"
 
 	"github.com/kzark/gwen/internal/herdr"
-	"github.com/kzark/gwen/internal/wire"
 )
 
 // Limits of a terminal view (plan.md 3.14.7).
@@ -44,36 +44,45 @@ type View struct {
 func (s *Service) OpenView(ctx context.Context, device, terminal string) (*View, error) {
 	s.mu.Lock()
 	t, c, err := s.terminal(terminal)
-	if err == nil && device != "" && s.views[device] >= viewsPerDevice {
-		err = fail(wire.CodeConflict, "this phone already has two terminals open; close one first")
-	}
-	if err == nil && device != "" {
-		s.views[device]++
+	// A phone shows one terminal at a time, so at the limit its oldest view
+	// is one it left behind (a page in the background, a dropped connection
+	// not noticed yet): that one ends rather than the new one being refused.
+	var stale *View
+	if err == nil && device != "" && len(s.views[device]) >= viewsPerDevice {
+		stale = s.views[device][0]
 	}
 	s.mu.Unlock()
 	if err != nil {
 		return nil, err
 	}
+	if stale != nil {
+		stale.Close()
+	}
 	out, err := c.Attach(ctx, herdr.AttachParams{Terminal: terminal, Observe: true, ResizeNotifications: true,
 		History: viewHistory, Cols: t.Cols, Rows: t.Rows})
 	if err != nil {
-		s.viewDone(device)
 		return nil, coreError(err)
 	}
 	v := &View{s: s, device: device, terminal: terminal, core: c, out: out, cols: out.Terminal.Cols, rows: out.Terminal.Rows}
 	if v.cols == 0 || v.rows == 0 {
 		v.cols, v.rows = t.Cols, t.Rows
 	}
+	if device != "" {
+		s.mu.Lock()
+		s.views[device] = append(s.views[device], v)
+		s.mu.Unlock()
+	}
 	return v, nil
 }
 
-func (s *Service) viewDone(device string) {
-	if device == "" {
+func (s *Service) viewDone(v *View) {
+	if v.device == "" {
 		return
 	}
 	s.mu.Lock()
-	if s.views[device] > 0 {
-		s.views[device]--
+	s.views[v.device] = slices.DeleteFunc(s.views[v.device], func(x *View) bool { return x == v })
+	if len(s.views[v.device]) == 0 {
+		delete(s.views, v.device)
 	}
 	s.mu.Unlock()
 }
@@ -178,5 +187,5 @@ func (v *View) Close() {
 	if typist != nil {
 		typist.Close()
 	}
-	v.s.viewDone(v.device)
+	v.s.viewDone(v)
 }

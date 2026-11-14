@@ -7,4 +7,4 @@ Exec=gwen open
 Icon=gwen
 Terminal=false
 Categories=Utility;Office;Development;
-StartupWMClass=gwen-term
+StartupWMClass=gwen-ui

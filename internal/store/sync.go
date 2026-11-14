@@ -50,16 +50,27 @@ type syncTable struct {
 	// pushWhere, when set, is the SQL condition a row must meet to leave
 	// the device; the others are never pushed or pulled.
 	pushWhere string
+	// added are the columns of cols that a later schema version added, by
+	// that version: a database before it lacks them.
+	added map[string]int64
 }
 
 // columns are every column the table syncs, the envelope last.
 func (t syncTable) columns() []string { return append(append([]string{}, t.cols...), envelope...) }
 
+// at is the table as a database at schema version v has it, less the
+// columns a later version added.
+func (t syncTable) at(v int64) syncTable {
+	t.cols = slices.DeleteFunc(slices.Clone(t.cols), func(c string) bool { return t.added[c] > v })
+	return t
+}
+
 // syncTables are the synced tables in dependency order: a row's parents are
 // in an earlier table, or earlier in its own table by created_at. Their
 // columns are the complete set of each (docs/03-data-model.md#sync-envelope).
 var syncTables = []syncTable{
-	{name: "projects", since: 1, mode: modeLWW, cols: []string{"id", "name", "color", "archived_at"}},
+	{name: "projects", since: 1, mode: modeLWW, cols: []string{"id", "name", "color", "archived_at", "parent_id"},
+		added: map[string]int64{"parent_id": projectParentVersion}},
 	{name: "goals", since: 1, mode: modeLWW, cols: []string{"id", "title", "kind", "unit", "target_quantity",
 		"minutes_per_unit", "project_id", "start_day", "due_day", "status", "daily_minutes", "specific", "measurable",
 		"assignable", "realistic"}},
@@ -79,7 +90,8 @@ var syncTables = []syncTable{
 		"energy", "decisions", "improvements", "checklist"}},
 	{name: "energy_logs", since: 1, mode: modeLWW, cols: []string{"id", "at", "level"}},
 
-	{name: "chat_threads", since: memoryVersion, mode: modeAppend, cols: []string{"id", "title"}},
+	{name: "chat_threads", since: memoryVersion, mode: modeAppend, cols: []string{"id", "title", "project_id"},
+		added: map[string]int64{"project_id": agentVersion}},
 	{name: "chat_messages", since: memoryVersion, mode: modeAppend, cols: []string{"id", "thread_id", "role", "text",
 		"at", "mood", "attitude", "actions", "memory"}},
 	{name: "self_versions", since: memoryVersion, mode: modeAppend, cols: []string{"id", "attitude", "note", "since",
@@ -95,6 +107,15 @@ var syncTables = []syncTable{
 		"claim_b", "reason", "sensitivity", "status", "resolution", "resolved_at"}},
 	{name: "memory_links", since: memoryVersion, mode: modeLWW, cols: []string{"id", "from_kind", "from_id", "to_kind",
 		"to_id", "relation"}},
+
+	// A file attachment is a path on the device that added it, so it stays there.
+	{name: "task_attachments", since: attachmentsVersion, mode: modeLWW, pushWhere: `kind <> 'file'`,
+		cols: []string{"id", "task_id", "kind", "title", "url", "path", "app", "ref", "body", "fetched_at"}},
+
+	// What a subject comes with and what its start does (plan.md 3.9, W19); runs stay on their machine.
+	{name: "subject_resources", since: runsVersion, mode: modeLWW, cols: []string{"id", "subject", "kind", "title", "value",
+		"position"}},
+	{name: "routines", since: runsVersion, mode: modeLWW, cols: []string{"id", "subject", "steps", "auto_start"}},
 }
 
 // SyncTables are the names of the synced tables, in dependency order.
@@ -225,11 +246,13 @@ type syncRepo struct{ db *DB }
 // NewSyncRepo returns the SQLite SyncRepo.
 func NewSyncRepo(db *DB) SyncRepo { return syncRepo{db} }
 
-// table returns a synced table that this database has.
+// table returns a synced table that this database has, with the columns it
+// has.
 func (r syncRepo) table(name string) (syncTable, bool) {
+	v := r.db.SchemaVersion()
 	for _, t := range syncTables {
 		if t.name == name {
-			return t, t.since <= r.db.SchemaVersion()
+			return t.at(v), t.since <= v
 		}
 	}
 	return syncTable{}, false
@@ -268,8 +291,9 @@ func scanRow(rows *sql.Rows, cols []string) (Row, error) {
 
 func (r syncRepo) Changed(ctx context.Context, since time.Time, tables []string) ([]TableRow, error) {
 	var out []TableRow
-	for _, t := range syncTables {
-		if _, ok := r.table(t.name); !ok || (tables != nil && !slices.Contains(tables, t.name)) {
+	for _, st := range syncTables {
+		t, ok := r.table(st.name)
+		if !ok || (tables != nil && !slices.Contains(tables, t.name)) {
 			continue
 		}
 		cols := t.columns()
@@ -340,8 +364,9 @@ func (r syncRepo) Apply(ctx context.Context, rows Rows, hub bool) (Applied, erro
 		if _, err := tx.ExecContext(ctx, `PRAGMA defer_foreign_keys = ON`); err != nil {
 			return err
 		}
-		for _, t := range syncTables {
-			if _, ok := r.table(t.name); !ok {
+		for _, st := range syncTables {
+			t, ok := r.table(st.name)
+			if !ok {
 				continue
 			}
 			var future []any

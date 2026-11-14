@@ -1,0 +1,393 @@
+/*
+Liquid Charts by Ojieame · https://liquid.ojieame.design · nathan@ojieame.design
+
+Liquid Charts adaptation. Original foundation: Evil Charts by Gurbinder.
+Upstream: ecbd6a5db7b25f9a7e070c02b2ef728c378eeb5c
+MIT License
+
+Copyright (c) 2026 Gurbinder
+Copyright (c) 2026 NATEPAY, LLC (Liquid Charts additions)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Includes shadcn-derived primitives:
+MIT License
+
+Copyright (c) 2023 shadcn
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+*/
+/* Ring charts: the glass canvas, its flat twin, and everything that rides on the ring (labels,
+ * leaders, the centre reading, the needle). Colours come from the frame's tokens (core.module.css),
+ * so dark and light follow `data-scheme`. */
+.lc-ring-chart {
+  position: relative;
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+.lc-ring-canvas {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.lc-ring-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+/* The dial: ticks on the floor inside the ring. */
+.lc-ring-dial line {
+  stroke: color-mix(in srgb, var(--chart-ink) 16%, transparent);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
+
+/* Leaders: hairlines from the ring's edge to each outside label. */
+.lc-ring-leaders polyline {
+  fill: none;
+  stroke: var(--chart-ink-3);
+  stroke-width: 1;
+  stroke-linejoin: round;
+  opacity: 0.55;
+  transition: opacity 200ms ease-out;
+}
+.lc-ring-leaders polyline[data-active="true"] {
+  stroke: var(--chart-ink-2);
+  opacity: 0.9;
+}
+.lc-ring-leaders polyline[data-shown="false"] {
+  opacity: 0;
+}
+
+/* Outside labels: share and name, set in a column each side. The whole reading lifts on focus,
+   from the end nearest its leader. */
+.lc-ring-outside {
+  position: absolute;
+  left: 0;
+  top: 0;
+  visibility: hidden;
+  pointer-events: none;
+  white-space: nowrap;
+  color: var(--chart-ink-2);
+  transition:
+    opacity 200ms ease-out,
+    color 200ms ease-out;
+}
+.lc-ring-reading {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.lc-ring-outside[data-side="left"] .lc-ring-reading {
+  flex-direction: row-reverse;
+  transform-origin: 100% 70%;
+}
+.lc-ring-outside[data-dim="true"] {
+  opacity: 0.45;
+}
+.lc-ring-outside[data-shown="false"] {
+  opacity: 0;
+}
+.lc-ring-outside[data-figure-active="true"] {
+  color: var(--chart-ink);
+}
+.lc-ring-name {
+  color: var(--chart-ink-3);
+}
+.lc-ring-outside[data-figure-active="true"] .lc-ring-name {
+  color: var(--chart-ink-2);
+}
+
+/* Inside labels sit on the glass: a soft shadow keeps them legible over its bright rims. */
+.lc-ring-inside {
+  color: #fff;
+  text-shadow:
+    0 0 6px rgb(10 10 10 / 0.55),
+    0 1px 2px rgb(10 10 10 / 0.45);
+}
+/* Light glass is pale, so white would wash out on it: light-theme labels are dark ink with a white
+   halo, which also holds on the stronger flat and liquid fills. */
+[data-scheme="light"] .lc-ring-inside {
+  color: var(--chart-ink);
+  text-shadow:
+    0 0 5px rgb(255 255 255 / 0.7),
+    0 0 1px rgb(255 255 255 / 0.8);
+}
+
+/* The centre reading: the total, or the segment in focus. */
+.lc-ring-centre {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  text-align: center;
+  white-space: nowrap;
+  /* Crossfades with the tooltip when the card takes the hole over and gives it back. */
+  transition: opacity 160ms ease-out;
+}
+.lc-ring-centre:not([data-placed]) {
+  visibility: hidden;
+}
+.lc-ring-centre[data-anchor="top"] {
+  transform: translate(-50%, 0);
+}
+.lc-ring-centre[data-anchor="bottom"] {
+  transform: translate(-50%, -100%);
+}
+.lc-ring-centreCaption {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  max-width: 100%;
+  color: var(--chart-ink-3);
+}
+.lc-ring-centreValue {
+  color: var(--chart-ink);
+}
+.lc-ring-centreShare {
+  color: var(--chart-ink-2);
+}
+
+/* The flat / tilt switch. */
+.lc-ring-switch {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 3;
+}
+
+/* Gauge: band names round the outside, ticks at the thresholds, the needle and its hub. */
+.lc-ring-bandName {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform: translate(-50%, -50%);
+  color: var(--chart-ink-3);
+  pointer-events: none;
+  white-space: nowrap;
+  transition:
+    color 180ms ease-out,
+    opacity 180ms ease-out;
+}
+.lc-ring-bandName[data-active="true"] {
+  color: var(--chart-ink);
+}
+.lc-ring-bandName[data-dim="true"] {
+  opacity: 0.5;
+}
+.lc-ring-tickLabel {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform: translate(-50%, -50%);
+  color: var(--chart-ink-3);
+  pointer-events: none;
+}
+/* The needle turns about the centre of its own box, which an unpainted circle as long as its reach
+ * keeps on the pivot. An origin in px drifts off the pivot when Safari zooms the page. */
+.lc-ring-needle {
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: rotate 1500ms cubic-bezier(0.25, 1.18, 0.4, 1);
+}
+.lc-ring-needle[data-instant="true"] {
+  transition: none;
+}
+/* The needle is a watch's hand in the card's own material: white on a light card, charcoal on a
+ * dark one, with a lit face, a shaded one and a bright rim. Its lume strip takes the value's band
+ * colour (gauge.tsx) and sits in a groove. Its shadow belongs to the card: deep on dark, faint on
+ * light. */
+.lc-ring-needle {
+  --needle-hand: rgb(40 42 48 / 0.96);
+  --needle-edge: rgb(255 255 255 / 0.18);
+  --needle-shaded: rgb(0 0 0 / 0.2);
+  --needle-lit: rgb(255 255 255 / 0.07);
+  --needle-rim: rgb(255 255 255 / 0.4);
+  --needle-groove: rgb(0 0 0 / 0.5);
+  --needle-hub: #30323a;
+  --needle-shadow: rgb(0 0 0 / 0.25);
+}
+[data-scheme="light"] .lc-ring-needle {
+  --needle-hand: #fbfbfc;
+  --needle-edge: rgb(20 20 20 / 0.14);
+  --needle-shaded: rgb(20 20 20 / 0.06);
+  --needle-lit: rgb(255 255 255 / 0.5);
+  --needle-rim: #ffffff;
+  --needle-groove: rgb(20 20 20 / 0.22);
+  --needle-hub: #fbfbfc;
+  --needle-shadow: rgb(0 0 0 / 0.06);
+}
+.lc-ring-needleShadow {
+  fill: none;
+  stroke: var(--needle-shadow);
+  stroke-linejoin: round;
+}
+.lc-ring-needleHand {
+  fill: var(--needle-hand);
+  stroke: var(--needle-edge);
+  stroke-width: 1;
+  stroke-linejoin: round;
+}
+.lc-ring-needleShaded {
+  fill: var(--needle-shaded);
+}
+.lc-ring-needleLit {
+  fill: var(--needle-lit);
+}
+.lc-ring-needleRim {
+  fill: none;
+  stroke: var(--needle-rim);
+  stroke-width: 1.2;
+  stroke-linecap: round;
+}
+.lc-ring-needleGroove {
+  fill: none;
+  stroke: var(--needle-groove);
+  stroke-width: 6;
+  stroke-linecap: round;
+}
+.lc-ring-needleLume {
+  fill: none;
+  stroke-linecap: round;
+}
+.lc-ring-needleHubShadow {
+  fill: var(--needle-shadow);
+}
+.lc-ring-needleHub {
+  fill: var(--needle-hub);
+  stroke: var(--needle-edge);
+  stroke-width: 1;
+}
+.lc-ring-goalTick {
+  stroke: var(--chart-ink-2);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+/* Progress rings: tracks under the glass, and a row per ring beside it. */
+.lc-ring-tracks circle {
+  fill: none;
+}
+.lc-ring-progressWrap {
+  container-type: inline-size;
+}
+.lc-ring-progress {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 18px;
+}
+@container (max-width: 440px) {
+  .lc-ring-progress {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.lc-ring-rows {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.lc-ring-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 10px;
+  padding: 7px 10px 7px 8px;
+  border-radius: 2px;
+  color: var(--chart-ink-2);
+  transition:
+    background-color 160ms ease-out,
+    opacity 160ms ease-out;
+}
+.lc-ring-row[data-active="true"] {
+  background: color-mix(in srgb, var(--chart-ink) 5%, transparent);
+  color: var(--chart-ink);
+}
+.lc-ring-row[data-dim="true"] {
+  opacity: 0.55;
+}
+.lc-ring-rowSwatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+.lc-ring-rowName {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+.lc-ring-rowGoal {
+  color: var(--chart-ink-3);
+}
+.lc-ring-rowPercent {
+  justify-self: end;
+  color: var(--chart-ink);
+}
+.lc-ring-over {
+  color: var(--chart-gain);
+}
+
+.lc-ring-srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lc-ring-centre,
+  .lc-ring-outside,
+  .lc-ring-leaders polyline,
+  .lc-ring-bandName,
+  .lc-ring-row,
+  .lc-ring-needle {
+    transition: none;
+  }
+}

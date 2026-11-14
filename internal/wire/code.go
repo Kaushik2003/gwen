@@ -17,6 +17,9 @@ const (
 	// EventRemoteChanged says pairing or publishing changed; it carries
 	// RemoteChanged.
 	EventRemoteChanged = "remote_changed"
+	// EventCodeUsage carries ClaudeUsage: a newer reading of Claude's usage
+	// limits.
+	EventCodeUsage = "code_usage"
 )
 
 // Code session states.
@@ -60,10 +63,21 @@ type CodeSession struct {
 	// Waiting is the permission or question it is waiting on, when known.
 	Waiting *CodeWaiting `json:"waiting"`
 	// Helpers are the terminals this agent started, by address.
-	Helpers   []CodeTerminal `json:"helpers"`
-	StartedAt int64          `json:"started_at"`
-	UpdatedAt int64          `json:"updated_at"`
-	EndedAt   *int64         `json:"ended_at"`
+	Helpers []CodeTerminal `json:"helpers"`
+	// Changes totals what the session changed, for its card; nil until
+	// Gwen has counted.
+	Changes   *CodeStat `json:"changes"`
+	StartedAt int64     `json:"started_at"`
+	UpdatedAt int64     `json:"updated_at"`
+	EndedAt   *int64    `json:"ended_at"`
+}
+
+// CodeStat totals a session's changes: files, and lines added and removed,
+// leaving out files that were already changed when it started.
+type CodeStat struct {
+	Files   int `json:"files"`
+	Added   int `json:"added"`
+	Removed int `json:"removed"`
 }
 
 // What a session is waiting on.
@@ -138,6 +152,12 @@ type StartCodeSession struct {
 	Window *bool `json:"window,omitempty"`
 	// Resume is a Claude session id to continue.
 	Resume string `json:"resume,omitempty"`
+	// PermissionMode starts Claude Code in a permission mode: acceptEdits,
+	// auto, or plan; "" keeps Claude Code's own default. Gwen's agent starts
+	// a Trusted project's jobs in auto (plan.md 3.16).
+	PermissionMode string `json:"permission_mode,omitempty"`
+	// Name names the session ("" names it after its folder).
+	Name string `json:"name,omitempty"`
 }
 
 // CodePrompt is the body of POST .../prompt and of POST
@@ -317,9 +337,12 @@ type CodeChange struct {
 type CodeChanges struct {
 	// Git is false outside a git folder: Files then lists what the session
 	// edited, without diffs.
-	Git    bool         `json:"git"`
-	Branch string       `json:"branch"`
-	Files  []CodeChange `json:"files"`
+	Git    bool   `json:"git"`
+	Branch string `json:"branch"`
+	// Head is the short hash of the last commit the files are compared
+	// with; "" before the first commit.
+	Head  string       `json:"head"`
+	Files []CodeChange `json:"files"`
 }
 
 // CodeDiff is the body of GET .../changes/diff.
@@ -362,6 +385,44 @@ type CodeConversation struct {
 	SessionID string `json:"session_id"`
 }
 
+// CommitSession is a commit a Claude conversation made, and that
+// conversation (plan.md 3.15, History).
+type CommitSession struct {
+	// Commit is the short commit id git printed.
+	Commit string `json:"commit"`
+	// At is when git printed it, Unix ms; 0 when not known.
+	At              int64  `json:"at"`
+	ClaudeSessionID string `json:"claude_session_id"`
+	// Title is the conversation's own name, "" when it has none.
+	Title       string `json:"title"`
+	FirstPrompt string `json:"first_prompt"`
+	Cwd         string `json:"cwd"`
+	Sandbox     bool   `json:"sandbox"`
+	// SessionID is the code session it is running in now, "" when it is not.
+	SessionID string `json:"session_id"`
+	// Summary is Gwen's summary of the commit, "" until you ask for one.
+	Summary string `json:"summary"`
+}
+
+// CommitSessions is the body of GET /v1/code/commit-sessions?dir=.
+type CommitSessions struct {
+	Commits []CommitSession `json:"commits"`
+}
+
+// SummarizeCommit is the body of POST /v1/code/commit-sessions/summary.
+type SummarizeCommit struct {
+	Dir             string `json:"dir"`
+	ClaudeSessionID string `json:"claude_session_id"`
+	Commit          string `json:"commit"`
+	// Subject is the commit's first line, which the model is given too.
+	Subject string `json:"subject"`
+}
+
+// CommitSummary is the reply of POST /v1/code/commit-sessions/summary.
+type CommitSummary struct {
+	Summary string `json:"summary"`
+}
+
 // CodeConversations is the body of GET /v1/code/conversations.
 type CodeConversations struct {
 	Conversations []CodeConversation `json:"conversations"`
@@ -394,6 +455,29 @@ type CodeHookEvent struct {
 	Terminal string `json:"terminal"`
 	PID      int    `json:"pid"`
 	Sandbox  bool   `json:"sandbox"`
+	// Usage is sent with the event StatusLine only, by `gwen statusline`.
+	Usage *ClaudeUsage `json:"usage,omitempty"`
+}
+
+// HookStatusLine is the event `gwen statusline` sends: not one of Claude
+// Code's hooks, but the usage limits Claude Code gives a status line.
+const HookStatusLine = "StatusLine"
+
+// ClaudeUsage is how much of your Claude plan's usage limits is used, as
+// Claude Code last told the status line of a session Gwen started
+// (GET /v1/code/usage). A window is nil when Claude Code did not report it;
+// At is when the reading was taken, 0 when Gwen has none yet.
+type ClaudeUsage struct {
+	FiveHour *UsageWindow `json:"five_hour"`
+	SevenDay *UsageWindow `json:"seven_day"`
+	At       int64        `json:"at"`
+}
+
+// UsageWindow is one usage limit: the share used, 0 to 100, and when it
+// resets (Unix ms, 0 when not known).
+type UsageWindow struct {
+	UsedPercent float64 `json:"used_percent"`
+	ResetsAt    int64   `json:"resets_at"`
 }
 
 // CodeHookReply answers a hook. Output, when not empty, is what `gwen hook`

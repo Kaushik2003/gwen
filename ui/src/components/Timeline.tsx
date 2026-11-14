@@ -13,6 +13,8 @@ export interface PlannedBlock {
   minutes: number;
   color: string;
   done: boolean;
+  /** Proposed, not yet applied (Plan with Gwen): drawn as an outline with a light fill. */
+  proposed?: boolean;
 }
 
 export interface FixedBlock {
@@ -61,6 +63,7 @@ export default function Timeline({
   fixed = [],
   onSegment,
   showDensity = false,
+  showLegend = true,
 }: {
   segments: wire.Segment[];
   colors: Map<string | null, string>;
@@ -77,6 +80,8 @@ export default function Timeline({
   /** A real, derived strip under the lanes: tracked minutes per bucket across the day, not a
    * decorative sparkline. Off by default — opt in where the extra row earns its space. */
   showDensity?: boolean;
+  /** The legend under the lanes; off where the caller shows its own breakdown. */
+  showLegend?: boolean;
 }) {
   const [tip, setTip] = useState<Tip | null>(null);
   const showTip = (e: ReactMouseEvent | FocusEvent, color: string | undefined, title: string, sub: string) => {
@@ -178,7 +183,7 @@ export default function Timeline({
   );
 
   return (
-    <div className="select-none">
+    <div className="@container select-none">
       <div className="relative ml-16 h-5 text-[11px] text-ink-faint tabular-nums">
         {ticks.map((t, i) => {
           // The tick nearest now steps aside for the live time chip, rather than crowd it. The
@@ -186,8 +191,10 @@ export default function Timeline({
           // in and needs a wider berth.
           const edge = i === 0 || i === ticks.length - 1;
           const tooCloseToNow = nowIn && Math.abs(t - now) / span < (edge ? 0.12 : 0.05);
+          // In a narrow card every other label goes, and so do those the now chip would cover.
+          const thin = (i / step) % 2 === 1 || (nowIn && Math.abs(t - now) / span < 0.16);
           return i % step === 0 && !tooCloseToNow ? (
-            <span key={t} className={`absolute top-0 whitespace-nowrap ${i === 0 ? "" : i === ticks.length - 1 ? "-translate-x-full" : "-translate-x-1/2"}`} style={{ left: pct(t) }}>
+            <span key={t} className={`absolute top-0 whitespace-nowrap ${i === 0 ? "" : i === ticks.length - 1 ? "-translate-x-full" : "-translate-x-1/2"} ${thin ? "@max-[30rem]:hidden" : ""}`} style={{ left: pct(t) }}>
               {formatTime(t).replace(":00 ", " ")}
             </span>
           ) : null;
@@ -223,19 +230,19 @@ export default function Timeline({
             })}
             {planned.map((p) => {
               const stop = p.start + p.minutes * 60_000;
-              const sub = `${formatTime(p.start)} · ${formatDuration(p.minutes * 60_000)}${p.done ? " · done" : ""}`;
+              const sub = `${formatTime(p.start)} · ${formatDuration(p.minutes * 60_000)}${p.done ? " · done" : p.proposed ? " · proposed" : ""}`;
               return (
                 <span
                   key={p.id}
                   aria-label={`${p.title}: ${sub}`}
                   onMouseEnter={(e) => showTip(e, p.color, p.title, sub)}
                   onMouseLeave={hideTip}
-                  className="bar-sheen absolute top-1 bottom-1 truncate rounded-[4px] px-1.5 text-[11px] leading-4.5 font-medium text-ink-muted"
+                  className={cx("absolute top-1 bottom-1 truncate rounded-[4px] px-1.5 text-[11px] leading-4.5 font-medium text-ink-muted", !p.proposed && "bar-sheen")}
                   style={{
                     left: pct(p.start),
                     width: width(p.start, stop),
-                    backgroundColor: over(p.color, p.done ? 0.4 : 0.2),
-                    boxShadow: `0 0 0 1.5px var(--color-canvas), inset 0 0 0 1px ${alpha(p.color, 0.7)}`,
+                    backgroundColor: p.proposed ? alpha(p.color, 0.08) : over(p.color, p.done ? 0.4 : 0.2),
+                    boxShadow: p.proposed ? `inset 0 0 0 1.5px ${p.color}` : `0 0 0 1.5px var(--color-canvas), inset 0 0 0 1px ${alpha(p.color, 0.7)}`,
                   }}
                 >
                   {frac(p.start, stop) > labelMinFraction && p.title}
@@ -316,7 +323,7 @@ export default function Timeline({
           ))}
         </div>
       )}
-      {segments.length > 0 && (legend.projects.length > 0 || legend.hasBreak) && (
+      {showLegend && segments.length > 0 && (legend.projects.length > 0 || legend.hasBreak) && (
         <div className="mt-2.5 ml-16 flex flex-wrap items-center gap-x-3.5 gap-y-1 text-[11px] text-ink-subtle">
           {legend.projects.map(([id, color]) => (
             <span key={id ?? "none"} className="inline-flex items-center gap-1.5">

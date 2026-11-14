@@ -90,13 +90,13 @@ build() {
   bash "$term_dir/scripts/install-linux"
   merge_programs
   # The window's own launcher entry stays out of sight: "Gwen" in the launcher is
-  # packaging/gwen.desktop, which opens this window on Gwen's screens.
+  # packaging/gwen.desktop, the Gwen window (plan.md 3.15).
   local entry=${XDG_DATA_HOME:-$HOME/.local/share}/applications/gwen-term.desktop
   if [[ -f $entry ]] && ! grep -q '^NoDisplay=true' "$entry"; then
     echo "NoDisplay=true" >> "$entry"
   fi
-  # Gwen's screens, themes and Ctrl+Shift+G; gwend also does this at every start.
-  (cd "$here" && go run ./cmd/gwend --install-term) || die "Gwen's screens could not be put in the Gwen window's folder."
+  # Gwen's themes (and the first W16's mod and key removed); gwend also does this at every start.
+  (cd "$here" && go run ./cmd/gwend --install-term) || die "Gwen's themes could not be put in Gwen Terminal's folder."
   echo "term: installed gwen-term $(git -C "$term_dir" describe --tags --always) and its own core, $("$core_bin" --version)."
 }
 
@@ -121,7 +121,6 @@ scripts/gwen-rename and commit again."
   fi
   echo "term: running Herdr's checks"
   (cd "$term_dir" && PATH="$(dirname "$core_bin"):$PATH" just check) || die "Herdr's checks fail on the gwen branch. Nothing was installed."
-  check_mod
   local newest pinned
   newest=$(git ls-remote --tags --refs "$core_repo" 'v*' | sed 's|.*refs/tags/||' | sort -V | tail -1)
   pinned=$(tr -d '[:space:]' < "$here/term/core.version")
@@ -129,29 +128,22 @@ scripts/gwen-rename and commit again."
   [[ $newest == "$pinned" ]] || echo "term: herdr-core $newest is out; term/core.version pins $pinned. Change it to move."
 }
 
-# check_mod builds the fork and loads Gwen's screens in it once (plan.md
-# 3.15), so a Herdr update that breaks them stops here instead of in the
-# window. The check writes type files into the folder it checks and may keep
-# state in its home, so both are scratch copies.
-check_mod() {
-  need_checkout
-  echo "term: checking that Gwen's screens load on this Herdr"
-  (cd "$term_dir" && cargo build --release --locked --quiet) || die "the gwen branch does not build. Nothing was installed."
-  local scratch out
-  scratch=$(mktemp -d)
-  cp -r "$here/term/mods/gwen" "$scratch/gwen"
-  if ! out=$(HERDR_APP_HOME="$scratch/home" "$term_dir/target/release/herdr-app" check "$scratch/gwen" 2>&1); then
-    rm -rf "$scratch"
-    die "Gwen's screens do not load on this Herdr. Fix term/mods/gwen, then run this again. Nothing was installed.
-$(printf '%s\n' "$out" | tail -8)"
+# Builds Gwen Terminal and its core only when one is missing or the core isn't the pinned release, so
+# `make install-dev` can run it every time without rebuilding Herdr or restarting Gwen's core for nothing.
+ensure() {
+  local tag have=""
+  tag=$(tr -d '[:space:]' < "$here/term/core.version")
+  [[ -x $core_bin ]] && have=$("$core_bin" --version 2>/dev/null | awk '{print $2}')
+  if [[ v$have == "$tag" && -x $bin/gwen-term ]]; then
+    echo "term: Gwen Terminal and herdr-core $tag are installed."
+    return
   fi
-  rm -rf "$scratch"
-  echo "term: Gwen's screens load"
+  build
 }
 
 case ${1:-} in
   build) build ;;
+  ensure) ensure ;;
   update) update ;;
-  check-mod) check_mod ;;
-  *) die "usage: scripts/term.sh build|update|check-mod ($app_repo, $core_repo)" ;;
+  *) die "usage: scripts/term.sh build|ensure|update ($app_repo, $core_repo)" ;;
 esac

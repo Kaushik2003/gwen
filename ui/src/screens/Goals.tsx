@@ -1,17 +1,21 @@
-import { CalendarRange, CircleCheck, Clock, Hash, ListChecks, Pencil, Plus, Sparkles, Target, Trash2, TriangleAlert } from "lucide-react";
+import { CalendarRange, ChevronRight, CircleCheck, Clock, Hash, ListChecks, ListPlus, Pencil, Plus, Repeat, Sparkles, Target, Trash2, TriangleAlert } from "lucide-react";
 import { useEffect, useState } from "react";
 import { App, readOnly, wire } from "../api";
 import Breakdown from "../components/Breakdown";
 import DurationInput from "../components/DurationInput";
 import { useConfirm, useToast } from "../components/feedback";
 import { GoalMeter, PaceChip, goalFraction } from "../components/goal";
+import GoalsGlance from "../components/GoalsGlance";
 import Recurrence from "../components/Recurrence";
 import TimeInput from "../components/TimeInput";
 import { ProjectTag } from "../components/tags";
 import { Badge, Button, Callout, Checkbox, Empty, Field, IconButton, Input, Modal, PageHeader, Panel, Segmented, Select, TextArea, ToggleRow, cx } from "../components/ui";
 import { useDaemon } from "../daemon";
-import { daysBetween, formatClock, formatDate, formatDuration, goDuration, parseDuration } from "../format";
+import { daysBetween, formatClock, formatDate, formatDuration, goDuration, parseDuration, relativeDay } from "../format";
 import { clockOf, describeRule, litWeekdays, weekdayCodes } from "../rrule";
+import { RowMenu } from "../task/Menu";
+import TaskRow from "../task/TaskRow";
+import { useTaskUI } from "../task/TaskUI";
 
 export default function Goals() {
   const d = useDaemon();
@@ -21,6 +25,8 @@ export default function Goals() {
   const [editing, setEditing] = useState<wire.Goal | "new" | null>(null);
   const [breakingDown, setBreakingDown] = useState<wire.Goal | null>(null);
   const [deleting, setDeleting] = useState<wire.Goal | null>(null);
+  // Every goal's tasks, done ones and repeating ones too, so each card can list its own.
+  const [tasks, setTasks] = useState<wire.Task[]>([]);
 
   useEffect(() => {
     App.ListGoals(status).then((l) => {
@@ -28,6 +34,9 @@ export default function Goals() {
       setLoaded(true);
     }, d.fail);
   }, [status, d.goalsVersion, d.tasksVersion, d.fail]);
+  useEffect(() => {
+    App.ListTasks(wire.TaskQuery.createFrom({ project_id: "", status: "all", due_before: "", templates: true })).then((l) => setTasks(l.tasks.filter((x) => x.goal_id)), d.fail);
+  }, [d.goalsVersion, d.tasksVersion, d.fail]);
 
   return (
     <div className="flex flex-col gap-5">
@@ -56,6 +65,8 @@ export default function Goals() {
         }
       />
 
+      {status === "active" && goals.length >= 2 && <GoalsGlance goals={goals} projects={d.projects} today={d.today()} />}
+
       {loaded && goals.length === 0 ? (
         <Empty
           icon={Target}
@@ -72,13 +83,14 @@ export default function Goals() {
           {status === "active" && "Try 300 problems by December, or a set of tasks such as finishing a course."}
         </Empty>
       ) : (
-        <div className="grid gap-4 @3xl:grid-cols-2">
+        <div className="grid items-start gap-4 @3xl:grid-cols-2">
           {goals.map((g) => (
             <GoalCard
               key={g.id}
               g={g}
               today={d.today()}
               project={d.projects.find((p) => p.id === g.project_id)}
+              tasks={tasks.filter((x) => x.goal_id === g.id)}
               onEdit={() => setEditing(g)}
               onBreakdown={() => setBreakingDown(g)}
               onDelete={() => setDeleting(g)}
@@ -150,7 +162,23 @@ function DeleteGoal({ goal: g, onClose }: { goal: wire.Goal; onClose: () => void
   );
 }
 
-function GoalCard({ g, today, project, onEdit, onBreakdown, onDelete }: { g: wire.Goal; today: string; project?: wire.Project; onEdit: () => void; onBreakdown: () => void; onDelete: () => void }) {
+function GoalCard({
+  g,
+  today,
+  project,
+  tasks,
+  onEdit,
+  onBreakdown,
+  onDelete,
+}: {
+  g: wire.Goal;
+  today: string;
+  project?: wire.Project;
+  tasks: wire.Task[];
+  onEdit: () => void;
+  onBreakdown: () => void;
+  onDelete: () => void;
+}) {
   const p = g.progress;
   const total = p.done_quantity + p.remaining_quantity;
   const unit = g.kind === "tasks" ? "tasks" : g.unit || "units";
@@ -208,17 +236,172 @@ function GoalCard({ g, today, project, onEdit, onBreakdown, onDelete }: { g: wir
         </Callout>
       )}
 
+      <GoalTasks g={g} tasks={tasks} onBreakdown={onBreakdown} />
+
       {!readOnly && (
         <footer className="-mb-1 flex items-center gap-2 border-t border-line pt-3">
-          <Button size="sm" icon={Sparkles} iconColor="var(--color-accent-hover)" onClick={onBreakdown}>
-            Break down with AI
-          </Button>
+          {/* While it has no tasks, Ask Gwen sits with the other ways to break it down. */}
+          {(g.status !== "active" || hasOpenTasks(tasks)) && (
+            <Button size="sm" icon={Sparkles} iconColor="var(--color-accent-hover)" onClick={onBreakdown}>
+              Break down with AI
+            </Button>
+          )}
           <div className="flex-1" />
           <IconButton icon={Pencil} label={`Edit ${g.title}`} size="sm" onClick={onEdit} />
           <IconButton icon={Trash2} label={`Delete ${g.title}`} size="sm" onClick={onDelete} />
         </footer>
       )}
     </article>
+  );
+}
+
+/** A goal's tasks include one that repeats or an open one-off: it has been broken down. */
+function hasOpenTasks(tasks: wire.Task[]): boolean {
+  return tasks.some((x) => !x.parent_id && (x.rrule || (!x.template_id && x.status === "open")));
+}
+
+/** How many open tasks show before the rest fold into "Show n more". */
+const goalTasksShown = 6;
+
+/**
+ * A goal broken down into tasks: one that repeats each day (a number goal's daily session is one), a set of
+ * one-off tasks, or both. Steps show under each task, and Add opens the window's one task form on this goal;
+ * Several opens it on a list, one task per line.
+ */
+function GoalTasks({ g, tasks, onBreakdown }: { g: wire.Goal; tasks: wire.Task[]; onBreakdown: () => void }) {
+  const d = useDaemon();
+  const ui = useTaskUI();
+  const today = d.today();
+  const [showAll, setShowAll] = useState(false);
+  const [showDone, setShowDone] = useState(false);
+  const top = tasks.filter((x) => !x.parent_id);
+  const repeating = top.filter((x) => x.rrule);
+  // A repeating task's copies up to today that are still open: today's, and any missed ones.
+  const copiesOf = (id: string) =>
+    top.filter((x) => x.template_id === id && x.status === "open" && (!x.occurrence_day || x.occurrence_day <= today)).sort((a, b) => (a.occurrence_day ?? "").localeCompare(b.occurrence_day ?? ""));
+  const oneOff = top.filter((x) => !x.rrule && !x.template_id);
+  const open = oneOff.filter((x) => x.status === "open").sort((a, b) => b.priority - a.priority || (a.due_day ?? "9999").localeCompare(b.due_day ?? "9999"));
+  const done = top.filter((x) => !x.rrule && x.status === "done").sort((a, b) => (b.done_at ?? 0) - (a.done_at ?? 0));
+  const shown = showAll ? open : open.slice(0, goalTasksShown);
+  const active = g.status === "active" && !readOnly;
+  const add = (how: { rrule?: string; many?: boolean } = {}) => ui.create({ goal: g.id, project: g.project_id ?? undefined, ...how });
+  const dayLabel = (x: wire.Task) => {
+    if (!x.occurrence_day) return "";
+    const rel = relativeDay(x.occurrence_day, today);
+    return ["today", "yesterday"].includes(rel) ? rel[0].toUpperCase() + rel.slice(1) : formatDate(x.occurrence_day, false);
+  };
+  const empty = !hasOpenTasks(tasks);
+
+  return (
+    <section aria-label={`Tasks for ${g.title}`} className="flex flex-col gap-2">
+      <header className="flex min-h-7 items-center gap-2">
+        <span className="text-[13px] font-semibold text-ink">Tasks</span>
+        <span className="min-w-0 truncate text-xs text-ink-subtle tabular-nums">
+          {[repeating.length > 0 && `${repeating.length} repeating`, open.length > 0 && `${open.length} open`, done.length > 0 && `${done.length} done`].filter(Boolean).join(" · ")}
+        </span>
+        {active && !empty && (
+          <span className="ml-auto flex shrink-0 items-center gap-1">
+            <Button size="sm" tone="ghost" icon={Repeat} onClick={() => add({ rrule: "FREQ=DAILY" })}>
+              Daily
+            </Button>
+            <Button size="sm" tone="ghost" icon={ListPlus} onClick={() => add({ many: true })}>
+              Several
+            </Button>
+            <Button size="sm" icon={Plus} onClick={() => add()}>
+              Add task
+            </Button>
+          </span>
+        )}
+      </header>
+      {empty && active ? (
+        <div className="flex flex-col gap-2.5 rounded-lg border border-dashed border-line px-3 py-3">
+          <p className="text-xs leading-relaxed text-ink-subtle">Break it down: one task that repeats each day, or the set of tasks that gets it done. Add steps to any of them.</p>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" icon={Repeat} onClick={() => add({ rrule: "FREQ=DAILY" })}>
+              One daily task
+            </Button>
+            <Button size="sm" icon={ListPlus} onClick={() => add({ many: true })}>
+              A set of tasks
+            </Button>
+            <Button size="sm" tone="ghost" icon={Sparkles} iconColor="var(--color-accent-hover)" onClick={onBreakdown}>
+              Ask Gwen
+            </Button>
+          </div>
+        </div>
+      ) : empty ? (
+        <p className="rounded-lg border border-dashed border-line px-3 py-2.5 text-xs leading-relaxed text-ink-subtle">No open tasks.</p>
+      ) : (
+        <ul className="overflow-hidden rounded-lg border border-line">
+          {repeating.map((t, i) => {
+            const copies = copiesOf(t.id);
+            return (
+              <li key={t.id} className={cx(i > 0 && "border-t border-chrome-line")}>
+                <div className="flex items-center gap-3 py-2 pr-3 pl-4">
+                  <span className="grid size-4.5 shrink-0 place-items-center text-ink-subtle" title="Repeats: each day's copy is what you tick off">
+                    <Repeat size={14} aria-hidden />
+                  </span>
+                  <button type="button" onClick={() => ui.edit(t)} className="min-w-0 flex-1 truncate text-left text-[13.5px] text-ink hover:underline hover:decoration-line-3 hover:underline-offset-2">
+                    {t.title}
+                  </button>
+                  <span className="shrink-0 text-xs text-ink-subtle">{describeRule(t.rrule!)}</span>
+                  {!readOnly && (
+                    <RowMenu
+                      label={`More for ${t.title}`}
+                      items={[
+                        { label: "Edit the repeating task", icon: Pencil, onSelect: () => ui.edit(t) },
+                        "divider",
+                        { label: "Delete", icon: Trash2, danger: true, onSelect: () => ui.remove(t) },
+                      ]}
+                    />
+                  )}
+                </div>
+                {copies.length > 0 && (
+                  <ul className="border-t border-chrome-line">
+                    {copies.map((c, j) => (
+                      <TaskRow
+                        key={c.id}
+                        task={c}
+                        first={j === 0}
+                        showProject={false}
+                        stepsOpen
+                        indent={12}
+                        lead={<span className="w-[60px] shrink-0 truncate pt-0.5 text-xs text-ink-subtle">{dayLabel(c)}</span>}
+                      />
+                    ))}
+                  </ul>
+                )}
+              </li>
+            );
+          })}
+          {shown.map((x, i) => (
+            <TaskRow key={x.id} task={x} first={repeating.length === 0 && i === 0} showProject={false} stepsOpen />
+          ))}
+          {open.length > goalTasksShown && (
+            <li className="border-t border-chrome-line">
+              <button type="button" onClick={() => setShowAll(!showAll)} className="flex w-full items-center gap-2 px-4 py-2 text-left text-xs text-ink-subtle hover:bg-surface-2/40 hover:text-ink">
+                <ChevronRight size={12} className={cx("transition-transform", showAll && "rotate-90")} aria-hidden />
+                {showAll ? "Show fewer" : `${open.length - goalTasksShown} more open`}
+              </button>
+            </li>
+          )}
+        </ul>
+      )}
+      {done.length > 0 && (
+        <div>
+          <button type="button" onClick={() => setShowDone(!showDone)} aria-expanded={showDone} className="flex items-center gap-1.5 text-xs text-ink-subtle hover:text-ink">
+            <ChevronRight size={12} className={cx("transition-transform", showDone && "rotate-90")} aria-hidden />
+            {done.length} done
+          </button>
+          {showDone && (
+            <ul className="mt-2 overflow-hidden rounded-lg border border-line">
+              {done.slice(0, 20).map((x, i) => (
+                <TaskRow key={x.id} task={x} first={i === 0} showProject={false} quietStatus={["done"]} />
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -239,7 +422,8 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: str
   );
 }
 
-function GoalForm({ goal, onClose }: { goal: wire.Goal | null; onClose: () => void }) {
+/** The one goal form, new and edit; Today's New goal opens it too. */
+export function GoalForm({ goal, onClose }: { goal: wire.Goal | null; onClose: () => void }) {
   const d = useDaemon();
   const notify = useToast();
   const [title, setTitle] = useState(goal?.title ?? "");

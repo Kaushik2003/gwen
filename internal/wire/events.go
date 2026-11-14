@@ -25,15 +25,6 @@ type Event struct {
 	Data json.RawMessage `json:"data" ts_type:"any"`
 }
 
-// EventPoll is the reply of GET /v1/events/poll: the events after the
-// sequence number asked for, and the number to ask with next. Reset means
-// the client missed events and must refetch what it shows.
-type EventPoll struct {
-	Seq    int64   `json:"seq"`
-	Events []Event `json:"events"`
-	Reset  bool    `json:"reset,omitempty"`
-}
-
 // DayChanged is the data of day_changed.
 type DayChanged struct {
 	Day string `json:"day"`

@@ -126,3 +126,43 @@ func TestPreviewShowsEveryNudge(t *testing.T) {
 	require.Empty(t, desktop.kinds(), "the card showed it")
 	require.Empty(t, phone.kinds(), "never the phone")
 }
+
+func TestSessionNudgeShowsOnTheCardAloneWhileItPolls(t *testing.T) {
+	t.Parallel()
+	desktop, phone := newFake("desktop"), newFake("phone")
+	d := NewDispatcher(desktop, phone, nil, cfgWith(true, false))
+	d.now = func() time.Time { return noon }
+	d.Nudges(true) // the panel card is polling
+
+	d.Send(Notification{Kind: "code_session", Title: "app", Body: "Claude has a question: Ship it?",
+		Actions: []Action{{"cs_1@option:1", "Yes"}, {"cs_1@option:2", "No"}}})
+	d.Wait()
+	require.Empty(t, desktop.kinds(), "the card shows it; no toast on top")
+	got := d.Nudges(true)
+	require.Len(t, got, 1)
+	require.Equal(t, []wire.NudgeAction{{ID: "cs_1@option:1", Label: "Yes"}, {ID: "cs_1@option:2", Label: "No"}}, got[0].Actions)
+}
+
+func TestSessionNudgeShowsEvenWhenTheWindowClaimsFocus(t *testing.T) {
+	t.Parallel()
+	desktop, phone := newFake("desktop"), newFake("phone")
+	d := NewDispatcher(desktop, phone, nil, cfgWith(true, false))
+	d.now = func() time.Time { return noon }
+	d.Nudges(true)
+	d.WindowFocus(true) // a window left open in the background still says so
+	d.Send(Notification{Kind: "code_session", Title: "app", Body: "Claude has a question"})
+	d.Send(idleNudge)
+	d.Wait()
+	require.Equal(t, []string{"code_session"}, kindsOf(d.Nudges(true)), "the idle nudge stays in the window; Claude waiting on you shows on the card")
+}
+
+func TestSessionNudgeIsAToastWhenNoCardPolls(t *testing.T) {
+	t.Parallel()
+	desktop, phone := newFake("desktop"), newFake("phone")
+	d := NewDispatcher(desktop, phone, nil, cfgWith(true, false))
+	d.now = func() time.Time { return noon }
+	d.WindowFocus(true)
+	d.Send(Notification{Kind: "code_session", Title: "app", Body: "Claude has a question"})
+	d.Wait()
+	require.Equal(t, []string{"code_session"}, desktop.kinds())
+}

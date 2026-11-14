@@ -1,0 +1,62 @@
+bwrap
+--die-with-parent
+--unshare-pid
+--unshare-ipc
+--unshare-uts
+--ro-bind /usr /usr
+--symlink usr/bin /bin
+--symlink usr/sbin /sbin
+--symlink usr/lib /lib
+--symlink usr/lib64 /lib64
+--ro-bind /etc /etc
+--ro-bind-try /opt /opt
+--proc /proc
+--dev /dev
+--tmpfs /tmp
+--tmpfs /var/tmp
+--tmpfs /run
+--ro-bind-try /run/systemd/resolve /run/systemd/resolve
+--tmpfs /home/user
+--bind /home/user/code/app /home/user/code/app
+--bind /home/user/.local/share/gwen/sandbox/app-0123456789ab/claude /home/user/.claude
+--setenv CLAUDE_CONFIG_DIR /home/user/.claude
+--ro-bind /home/user/.claude/settings.json /home/user/.claude/settings.json
+--ro-bind /home/user/.claude/CLAUDE.md /home/user/.claude/CLAUDE.md
+--ro-bind /home/user/.claude/commands /home/user/.claude/commands
+--ro-bind /home/user/.claude/skills /home/user/.claude/skills
+--bind /home/user/.claude/projects/-home-user-code-app /home/user/.claude/projects/-home-user-code-app
+--ro-bind /home/user/code/app/.git/config /home/user/code/app/.git/config
+--ro-bind /home/user/code/app/.git/hooks /home/user/code/app/.git/hooks
+--ro-bind /home/user/.local/bin/gwen /home/user/.local/bin/gwen
+--dir /run/user/1000/gwen
+--bind /run/user/1000/gwen/hook.sock /run/user/1000/gwen/hook.sock
+--ro-bind-try /home/user/.local/bin /home/user/.local/bin
+--ro-bind-try /home/user/.local/share/claude /home/user/.local/share/claude
+--ro-bind-try /home/user/go /home/user/go
+--ro-bind-try /home/user/.cargo/bin /home/user/.cargo/bin
+--ro-bind-try /home/user/.rustup /home/user/.rustup
+--ro-bind-try /home/user/.nvm /home/user/.nvm
+--ro-bind-try /home/user/.bun /home/user/.bun
+--ro-bind-try /home/user/.deno /home/user/.deno
+--ro-bind-try /home/user/.gitconfig /home/user/.gitconfig
+--ro-bind-try /home/user/.config/git /home/user/.config/git
+--overlay-src /home/user/go/pkg/mod
+--overlay /home/user/.local/share/gwen/sandbox/app-0123456789ab/cache/go-pkg-mod/upper /home/user/.local/share/gwen/sandbox/app-0123456789ab/cache/go-pkg-mod/work /home/user/go/pkg/mod
+--overlay-src /home/user/.cache/go-build
+--overlay /home/user/.local/share/gwen/sandbox/app-0123456789ab/cache/cache-go-build/upper /home/user/.local/share/gwen/sandbox/app-0123456789ab/cache/cache-go-build/work /home/user/.cache/go-build
+--overlay-src /home/user/.npm
+--overlay /home/user/.local/share/gwen/sandbox/app-0123456789ab/cache/npm/upper /home/user/.local/share/gwen/sandbox/app-0123456789ab/cache/npm/work /home/user/.npm
+--bind /home/user/.local/share/gwen/sandbox/app-0123456789ab/cache/cache-pip/dir /home/user/.cache/pip
+--bind /home/user/.local/share/gwen/sandbox/app-0123456789ab/cache/cargo-registry/dir /home/user/.cargo/registry
+--bind /home/user/.local/share/gwen/sandbox/app-0123456789ab/cache/local-share-pnpm/dir /home/user/.local/share/pnpm
+--ro-bind /home/user/notes /home/user/notes
+--bind /srv/shared /srv/shared
+--unsetenv SSH_AUTH_SOCK
+--unsetenv DBUS_SESSION_BUS_ADDRESS
+--unsetenv WAYLAND_DISPLAY
+--unsetenv DISPLAY
+--unsetenv HC_SOCKET
+--unsetenv HC_SESSION
+--setenv GWEN_SANDBOX 1
+--chdir /home/user/code/app
+-- /home/user/.local/bin/claude

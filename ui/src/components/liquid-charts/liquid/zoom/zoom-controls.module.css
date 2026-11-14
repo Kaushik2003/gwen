@@ -1,0 +1,122 @@
+/*
+Liquid Charts by Ojieame · https://liquid.ojieame.design · nathan@ojieame.design
+
+Liquid Charts adaptation. Original foundation: Evil Charts by Gurbinder.
+Upstream: ecbd6a5db7b25f9a7e070c02b2ef728c378eeb5c
+MIT License
+
+Copyright (c) 2026 Gurbinder
+Copyright (c) 2026 NATEPAY, LLC (Liquid Charts additions)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Includes shadcn-derived primitives:
+MIT License
+
+Copyright (c) 2023 shadcn
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+*/
+/* Zoom keys: zoom in, zoom out and back to the whole view, three raised keys in a recessed well at
+ * the plot's top right corner, with the site's --lc-* tokens when a page defines them and built-in
+ * copies otherwise. The theme comes from `data-scheme`. */
+.lc-zoom-controls-zoomKeys {
+  --well: linear-gradient(#e5e5e5, #f2f2f2);
+  --well-shadow:
+    inset 0 1px 2px rgb(0 0 0 / 0.16), inset 0 0 0 1px rgb(0 0 0 / 0.05),
+    0 1px 0 rgb(255 255 255 / 0.9);
+  --key: linear-gradient(#ffffff, #efefef);
+  --key-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 1), 0 0 0 1px rgb(0 0 0 / 0.07), 0 1px 2px rgb(0 0 0 / 0.18);
+  --key-ink: #121212;
+  --key-pressed: inset 0 1px 2px rgb(0 0 0 / 0.14), 0 0 0 1px rgb(0 0 0 / 0.08);
+  position: absolute;
+  z-index: 3;
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 2px;
+  background: var(--lc-well, var(--well));
+  box-shadow: var(--lc-well-shadow, var(--well-shadow));
+}
+.lc-zoom-controls-zoomKeys[data-scheme="dark"] {
+  --well: linear-gradient(#080808, #131313);
+  --well-shadow:
+    inset 0 1px 3px rgb(0 0 0 / 0.75), inset 0 0 0 1px rgb(255 255 255 / 0.05),
+    0 1px 0 rgb(255 255 255 / 0.06);
+  --key: linear-gradient(#3c3c3c, #262626);
+  --key-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.18), 0 0 0 1px rgb(0 0 0 / 0.55), 0 1px 2px rgb(0 0 0 / 0.6);
+  --key-ink: #f4f4f4;
+  --key-pressed: inset 0 1px 3px rgb(0 0 0 / 0.6), 0 0 0 1px rgb(0 0 0 / 0.55);
+}
+.lc-zoom-controls-zoomKey {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: var(--lc-key, var(--key));
+  box-shadow: var(--lc-key-shadow, var(--key-shadow));
+  color: var(--lc-key-ink, var(--key-ink));
+  cursor: pointer;
+  transition:
+    translate 90ms ease-out,
+    box-shadow 90ms ease-out,
+    opacity 160ms ease-out;
+}
+.lc-zoom-controls-zoomKey:active:not(:disabled) {
+  translate: 0 1px;
+  box-shadow: var(--lc-key-pressed, var(--key-pressed));
+}
+.lc-zoom-controls-zoomKey:disabled {
+  background: transparent;
+  box-shadow: none;
+  opacity: 0.4;
+  cursor: default;
+}
+.lc-zoom-controls-zoomKey:focus-visible {
+  outline: 1px solid var(--chart-focus);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lc-zoom-controls-zoomKey {
+    transition: none;
+  }
+}

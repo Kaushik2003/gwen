@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/kzark/gwen/internal/wire"
 )
@@ -179,7 +180,7 @@ func (t *transcript) parse(at int64, line []byte) {
 	add := func(ev wire.CodeTranscriptEvent) {
 		ev.Cursor, ev.At = at, when
 		if len(ev.Text) > maxEventText {
-			ev.Text = ev.Text[:maxEventText] + "\n…"
+			ev.Text = cutRunes(ev.Text, maxEventText) + "\n…"
 		}
 		t.events = append(t.events, ev)
 	}
@@ -479,3 +480,14 @@ func transcriptCwd(path string) string {
 
 // claudeProjectsDir is where Claude Code keeps its transcripts.
 func claudeProjectsDir(home string) string { return filepath.Join(home, ".claude", "projects") }
+
+// cutRunes cuts s to at most n bytes without splitting a character.
+func cutRunes(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
+}

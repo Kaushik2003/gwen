@@ -20,7 +20,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/kzark/gwen/internal/clock"
@@ -62,6 +61,17 @@ type Options struct {
 	// Away reports that the laptop is locked or has had no input for two
 	// minutes; nil means never away.
 	Away func() bool
+	// PhoneAway reports that phone notifications should go out: the laptop
+	// is locked or has had no input for two minutes. It is kept apart from
+	// Away, which only decides whether a permission request waits for the
+	// phone; nil falls back to Away.
+	PhoneAway func() bool
+	// Desktop shows a desktop notification that a session needs you or ended;
+	// nil shows none.
+	Desktop func(a DesktopAlert)
+	// Resolved withdraws that notification once no session needs you any more;
+	// nil does nothing.
+	Resolved func()
 	// Push sends one phone notification; nil sends none.
 	Push func(ctx context.Context, title, message, click string) error
 	Home string
@@ -85,9 +95,6 @@ type Options struct {
 	// Launch and Dial replace systemd-run and the core connection in tests.
 	Launch func(ctx context.Context, unit string, argv []string) error
 	Dial   func(ctx context.Context, socket string) (*herdr.Client, error)
-	// WatchWindow makes the Gwen space whenever the Gwen window opens
-	// (plan.md 3.15). The daemon sets it; tests leave the window alone.
-	WatchWindow bool
 }
 
 // Service is the remote. It is safe for concurrent use.
@@ -101,7 +108,9 @@ type Service struct {
 
 	ownDirs []string
 	pair    pairing
+	origin  phoneOrigin
 	files   transcripts
+	commits commitScans
 	stt     sttHelper
 	awake   inhibitor
 
@@ -115,7 +124,7 @@ type Service struct {
 	sessions   map[string]*session
 	byTerminal map[string]*session
 	idem       map[string]idemEntry
-	views      map[string]int // open terminal views by device
+	views      map[string][]*View // open terminal views by device, oldest first
 	// phones are the cancel funcs of each phone's open connections, by
 	// device and then by number; ended are the phones unpaired since
 	// gwend started (phones.go).
@@ -125,13 +134,9 @@ type Service struct {
 	hookRate   map[int]*rate
 	spacesDirt bool
 	kick       chan struct{}
-
-	// The Gwen space (gwenspace.go): one maker at a time, whether the open
-	// window has been given its Gwen space, and how many times in a row the
-	// watcher could not give it (only gwenMu's holder touches spaceMisses).
-	gwenMu      sync.Mutex
-	windowSeen  atomic.Bool
-	spaceMisses int
+	// usage is the newest reading of Claude's usage limits, usageKept the
+	// one last written to the database (usage.go).
+	usage, usageKept wire.ClaudeUsage
 }
 
 // session is a card: the stored row and what only matters while it runs.
@@ -146,7 +151,20 @@ type session struct {
 	held      *hold
 	stateAt   time.Time // when State last changed
 	pushedAt  time.Time
-	ending    bool
+	pushedMsg string // what the push at pushedAt said
+	phoneOwed string // a push the phone has not had, because you were at the laptop
+	// alertMsg is a desktop alert waiting for readDialog to learn what the
+	// session asks, so the alert can say it; "" when none waits.
+	alertMsg string
+	ending   bool
+	// stat totals its changes for the card; counting is set while a count
+	// runs, and recount asks for one more after it.
+	stat              *wire.CodeStat
+	counting, recount bool
+	// status is the state of Claude's own status last acted on: an event
+	// that leaves it as it was (a new title, a resize) changes nothing, so
+	// it never undoes what a hook said since, such as a held permission.
+	status string
 }
 
 type idemEntry struct {
@@ -166,7 +184,7 @@ func New(o Options) (*Service, error) {
 	}
 	s := &Service{opts: o, db: o.DB, repos: o.Repos, clk: o.Clock, cfg: o.Config, home: o.Home,
 		coreState: "down", terms: map[string]herdr.Terminal{}, sessions: map[string]*session{},
-		byTerminal: map[string]*session{}, idem: map[string]idemEntry{}, views: map[string]int{},
+		byTerminal: map[string]*session{}, idem: map[string]idemEntry{}, views: map[string][]*View{},
 		phones: map[string]map[int]context.CancelFunc{}, ended: map[string]bool{},
 		hookRate: map[int]*rate{}, kick: make(chan struct{}, 1)}
 	for _, d := range o.OwnDirs {
@@ -175,6 +193,7 @@ func New(o Options) (*Service, error) {
 		}
 	}
 	s.stt = sttHelper{bin: o.SttBin, models: o.ModelsDir, clk: o.Clock}
+	s.loadUsage(context.Background())
 	return s, nil
 }
 
@@ -367,9 +386,6 @@ func (s *Service) janitor(ctx context.Context) {
 		if dirty {
 			s.opts.Publish(wire.EventCodeSpaces, wire.CodeSpacesChanged{})
 		}
-		if s.opts.WatchWindow && n%4 == 0 { // every two seconds
-			s.watchWindow(ctx)
-		}
 		if n++; n%20 != 0 { // the rest every ten seconds
 			continue
 		}
@@ -388,6 +404,12 @@ func (s *Service) janitor(ctx context.Context) {
 				gone = append(gone, id)
 			}
 			busy = busy || sess.State == store.CodeWorking || sess.State == store.CodeNeedsYou
+		}
+		s.payPhone()
+		for _, sess := range s.sessions {
+			if sess.alertMsg != "" && sess.State == store.CodeNeedsYou {
+				s.alert(sess) // readDialog never reported back
+			}
 		}
 		s.mu.Unlock()
 		for _, id := range gone {
@@ -523,7 +545,8 @@ func (s *Service) evaluate(ctx context.Context, addr string) {
 		sess.PID = pid
 	}
 	state, changed := sess.State, false
-	if st := claudeStatus(t); st != nil {
+	if st := claudeStatus(t); st != nil && st.State != sess.status {
+		sess.status = st.State
 		switch st.State {
 		case "working":
 			state, sess.worked = store.CodeWorking, true
@@ -639,11 +662,16 @@ func (s *Service) setState(sess *session, state string) {
 		}
 	case store.CodeWorking:
 		sess.notice = ""
+		sess.phoneOwed = ""
 	case store.CodeIdle, store.CodeDone, store.CodeError:
 		sess.Step = ""
 	}
 	if prev != state && (state == store.CodeNeedsYou || state == store.CodeDone || state == store.CodeError) {
 		s.push(sess)
+	}
+	if prev == store.CodeNeedsYou && state != store.CodeNeedsYou {
+		sess.alertMsg = ""
+		s.resolved()
 	}
 }
 
@@ -723,8 +751,11 @@ func (s *Service) wireSession(sess *session) wire.CodeSession {
 		ID: sess.ID, Terminal: sess.Terminal, Name: filepath.Base(sess.Cwd), Cwd: sess.Cwd, Branch: findBranch(sess.Cwd),
 		Sandbox: sess.Sandbox, State: sess.State, Need: sess.Need, Step: sess.Step, LastMessage: sess.LastMessage,
 		PermissionMode: sess.PermissionMode, ClaudeSessionID: sess.ClaudeSessionID, Pinned: sess.Pinned,
-		Notice: sess.notice, Helpers: []wire.CodeTerminal{},
+		Notice: sess.notice, Helpers: []wire.CodeTerminal{}, Changes: sess.stat,
 		StartedAt: sess.StartedAt.UnixMilli(), UpdatedAt: sess.UpdatedAt.UnixMilli(), EndedAt: wire.MillisPtr(sess.EndedAt),
+	}
+	if sess.stat == nil {
+		s.countChanges(sess)
 	}
 	switch sess.State {
 	case store.CodeNeedsYou, store.CodeDone, store.CodeError:
@@ -855,8 +886,7 @@ func (s *Service) ensureCore(ctx context.Context) (*herdr.Client, error) {
 	if hc == "" {
 		return nil, fail(wire.CodeUnavailable, "Gwen Terminal isn't installed; run make term")
 	}
-	// Gwen's own core, never the one a Herdr of yours uses.
-	if err := s.launch(ctx, coreUnit, "env", "HC_SESSION="+herdr.Session, hc, "server", "start"); err != nil {
+	if err := s.launch(ctx, coreUnit, coreArgv(hc)...); err != nil {
 		slog.Warn("start herdr-core", "err", err)
 	}
 	deadline := time.Now().Add(8 * time.Second)

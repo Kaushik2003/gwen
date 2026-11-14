@@ -19,6 +19,25 @@ func (a *App) StartCodeSession(req wire.StartCodeSession) (*wire.CodeSession, er
 	return call(a.api.StartCodeSession(a.ctx, req))
 }
 func (a *App) RemoteStatus() (*wire.RemoteStatus, error) { return call(a.api.RemoteStatus(a.ctx)) }
+func (a *App) ClaudeUsage() (*wire.ClaudeUsage, error)   { return call(a.api.ClaudeUsage(a.ctx)) }
+func (a *App) CommitSessions(dir string) (*wire.CommitSessions, error) {
+	return call(a.api.CommitSessions(a.ctx, dir))
+}
+func (a *App) SummarizeCommit(req wire.SummarizeCommit) (*wire.CommitSummary, error) {
+	return call(a.api.SummarizeCommit(a.ctx, req))
+}
+func (a *App) CodeAnswer(id string, req wire.CodeAnswer) (*wire.CodeAnswerResult, error) {
+	return call(a.api.CodeAnswer(a.ctx, id, req))
+}
+func (a *App) CodeMark(id string, req wire.CodeMark) error {
+	return wrap(a.api.CodeMark(a.ctx, id, req))
+}
+func (a *App) CodeControl(id string, req wire.CodeControl) error {
+	return wrap(a.api.CodeControl(a.ctx, id, req))
+}
+func (a *App) CodeConversations(dir string) (*wire.CodeConversations, error) {
+	return call(a.api.CodeConversations(a.ctx, dir))
+}
 func (a *App) RemotePairCode() (*wire.RemotePairCode, error) {
 	return call(a.api.RemotePairCode(a.ctx))
 }

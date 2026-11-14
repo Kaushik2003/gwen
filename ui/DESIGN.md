@@ -1,12 +1,35 @@
 # Gwen's look
 
-Gwen looks like Gwen Terminal, which is Herdr's app under Gwen's name (plan.md 3.14.12, 5.1). This file describes
-that look for everything Gwen draws herself: the phone app (`ui/src/mobile`) today, and Gwen's screens inside Gwen
-Terminal from W16. The reference implementation is `ui/src/mobile/mobile.css`; when this file and that one
-disagree, fix whichever is wrong in the same change.
+One design system for the Gwen window (`ui/src` outside `mobile/`, plan.md 3.15) and the phone app (`ui/src/mobile`).
+The approved mockups are the "Gwen, one app" canvas (plan.md 3.15); this file is the rule set they follow. The
+reference implementations are `ui/src/index.css` with `ui/src/shell/` for the window, and `ui/src/mobile/mobile.css`
+for the phone; when this file and those disagree, fix whichever is wrong in the same change.
 
-The old dashboard window (`ui/src` outside `mobile/`) keeps the Linear-style look it was built with until W16b
-deletes it. Its guide is the previous version of this file, in git history. Don't restyle the old window.
+## 0. The Gwen window
+
+- **Palette.** Ghost by default (plan.md 5.2), Tide and Ember in Settings › Appearance. Tokens live in
+  `ui/src/index.css` (`canvas`, `surface-1..4`, `line`, `ink`, `ink-muted`, `ink-subtle`, `accent`, the status
+  colours) plus the shell's chrome: `chrome` (sidebar and side panel), `chrome-line` (their hairlines), and
+  `chrome-deep` (tab bar, status bar, strips). Tracking colours (working, idle, break, off) never change with the
+  theme: they match the tray icons.
+- **Frame.** Sidebar 256 px; tab bar 44 px; status bar 30 px; side panel 340 px; a terminal's task strip 40 px.
+  Base text 13 px in the chrome. Rows 26 to 30 px high, radii 7 px for rows and tabs, 10 px for the Now card,
+  12 px for cards.
+- **Sidebar** (top to bottom): brand and search, the Now card, Today, Inbox, Gwen, Plan, Review, Projects with
+  their live sessions nested under them on a hairline guide, then Settings and the phone. The selected row is
+  `surface-2` with an inset 1 px `line` ring; others are `ink-muted` and brighten on hover.
+- **Session state** is a glyph beside its name, never colour alone: an amber dot with a soft ring for needs you, a
+  thin blue spinner for working, a green tick for finished unread, a red dot for an error. Claude is marked with a
+  small orange asterisk; a shell with a terminal icon.
+- **Cards** are `surface-1` with a `line` hairline; a card's list rows are separated by `chrome-line`. One primary
+  (accent) button per card.
+- **Code and terminals** are Geist Mono. Diffs use `success` for added and `danger` for removed lines, tinted 7 to
+  15% into the surface; long lines wrap in diffs and scroll sideways only in the file viewer.
+- **Keys.** Ctrl K (or Ctrl Shift P) opens everything; Ctrl W closes a tab, Ctrl Tab cycles, Ctrl 1 to 9 jump, Ctrl \
+  shows the side panel. Inside a terminal Ctrl W, Ctrl K, and Ctrl \ belong to the program, so the window uses
+  Ctrl Shift W and Ctrl Shift P there.
+
+The phone follows the sections below.
 
 ## 1. Colour comes from the theme
 
@@ -99,7 +122,5 @@ and a new theme needs nothing but its palette.
 - Do take every colour from the tokens; do check a light theme (paper) as well as graphite.
 - Do keep one accent. Status colours are for status only.
 - Don't add gradients, glows, drop shadows, or decorative illustration.
-- Don't invent a second navigation: on the laptop Herdr's sidebar, tabs, palette and settings window are the
-  navigation; on the phone it is the bottom tabs (Inbox, New, Spaces) and pushed screens with a back arrow.
-- Don't copy Herdr's layouts into Gwen's files: a personal copy stops getting Herdr's updates. Gwen's screens are
-  mods opened in tabs.
+- Don't invent a second navigation: on the laptop the sidebar, tabs, and Ctrl K are the navigation; on the phone
+  it is the bottom tabs (Inbox, New, Spaces) and pushed screens with a back arrow.

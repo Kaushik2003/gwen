@@ -26,6 +26,35 @@ const testShown = 15 * time.Second
 // does not have.
 var ErrNoSuchNudge = errors.New("no such nudge")
 
+// windowFresh is how long after its last word the Gwen window counts as
+// having your focus; it repeats itself while it does.
+const windowFresh = 45 * time.Second
+
+// WindowFocus records whether the Gwen window has your focus (POST
+// /v1/window/focus): while it does, nudges show in the window alone.
+func (d *Dispatcher) WindowFocus(focused bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if focused {
+		d.windowAt = d.now()
+	} else {
+		d.windowAt = time.Time{}
+	}
+}
+
+// showQuietly records n as showing for the window alone when the window has
+// your focus, and reports whether it did. A preview always shows.
+func (d *Dispatcher) showQuietly(n Notification) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if n.Preview || d.windowAt.IsZero() || d.now().Sub(d.windowAt) >= windowFresh {
+		return false
+	}
+	d.shown[n.Kind] = n
+	d.quiet[n.Kind] = true
+	return true
+}
+
 // show records n as showing and reports whether the card will show it.
 func (d *Dispatcher) show(n Notification) bool {
 	d.mu.Lock()
@@ -35,6 +64,7 @@ func (d *Dispatcher) show(n Notification) bool {
 		key = previewKey
 	}
 	d.shown[key] = n
+	delete(d.quiet, key)
 	return !d.cardAt.IsZero() && d.now().Sub(d.cardAt) < cardFresh
 }
 
@@ -53,7 +83,8 @@ func (d *Dispatcher) chime() {
 
 // Nudges are the nudges showing, newest first. card says the caller is the
 // panel card, which then shows desktop nudges in place of the notification
-// server.
+// server; it doesn't get the ones that came while you were in the Gwen
+// window.
 func (d *Dispatcher) Nudges(card bool) []wire.Nudge {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -65,6 +96,10 @@ func (d *Dispatcher) Nudges(card bool) []wire.Nudge {
 	for key, n := range d.shown {
 		if !n.Expires.IsZero() && !n.Expires.After(now) {
 			delete(d.shown, key)
+			delete(d.quiet, key)
+			continue
+		}
+		if card && d.quiet[key] {
 			continue
 		}
 		out = append(out, toWire(n))

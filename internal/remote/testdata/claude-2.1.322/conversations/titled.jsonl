@@ -1,0 +1,10 @@
+{"type":"last-prompt","leafUuid":"a1999999-0000-4000-8000-000000999999","sessionId":"c0000001-0000-4000-8000-000000000001"}
+{"type":"mode","mode":"normal","sessionId":"c0000001-0000-4000-8000-000000000001"}
+{"type":"permission-mode","permissionMode":"default","sessionId":"c0000001-0000-4000-8000-000000000001"}
+{"type":"session-owner","accountUuid":"00000000-0000-4000-8000-0000000000aa","organizationUuid":"00000000-0000-4000-8000-0000000000bb","sessionId":"c0000001-0000-4000-8000-000000000001"}
+{"parentUuid":null,"isSidechain":false,"promptId":"b0000000-0000-4000-8000-000000000001","type":"user","message":{"role":"user","content":"Fix the login redirect loop"},"uuid":"a1000001-0000-4000-8000-000000000001","timestamp":"2026-11-12T09:00:03.001Z","userType":"external","entrypoint":"cli","cwd":"__DIR__","sessionId":"c0000001-0000-4000-8000-000000000001","version":"2.1.322","gitBranch":"main"}
+{"parentUuid":"a1000001-0000-4000-8000-000000000001","isSidechain":false,"message":{"model":"claude-opus-5-5","id":"msg_01SYNTHETIC0001","type":"message","role":"assistant","content":[{"type":"text","text":"Looking at the middleware."}],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":12,"cache_creation_input_tokens":0,"cache_read_input_tokens":4096,"output_tokens":48,"service_tier":"standard"}},"apiBlockIndex":0,"requestId":"req_01SYNTHETIC0001","type":"assistant","effort":"high","session_id":"c0000001-0000-4000-8000-000000000001","uuid":"a1000002-0000-4000-8000-000000000002","timestamp":"2026-11-12T09:00:06.002Z","userType":"external","entrypoint":"cli","cwd":"__DIR__","sessionId":"c0000001-0000-4000-8000-000000000001","version":"2.1.322","gitBranch":"main"}
+{"type":"ai-title","aiTitle":"Login redirect fix","sessionId":"c0000001-0000-4000-8000-000000000001"}
+{"type":"custom-title","customTitle":"Login bug","sessionId":"c0000001-0000-4000-8000-000000000001"}
+{"type":"custom-title","customTitle":"Login loop, round two","sessionId":"c0000001-0000-4000-8000-000000000001"}
+{"type":"ai-title","aiTitle":"Login redirect fix","sessionId":"c0000001-0000-4000-8000-000000000001"}

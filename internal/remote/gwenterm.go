@@ -11,11 +11,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/kzark/gwen/internal/herdr"
+	"github.com/kzark/gwen/internal/model"
+	"github.com/kzark/gwen/internal/store"
 	"github.com/kzark/gwen/internal/wire"
 )
 
@@ -143,11 +146,64 @@ func (s *Service) ensureWindow(ctx context.Context) error {
 	return ErrNoWindow
 }
 
-// launch starts a long-lived program as a transient user unit.
+// uiBin is the Gwen window's program, gwen-ui, "" when it isn't installed.
+func uiBin(home string) string {
+	if p, err := exec.LookPath("gwen-ui"); err == nil {
+		return p
+	}
+	for _, p := range []string{filepath.Join(home, ".local", "bin", "gwen-ui"), "/usr/bin/gwen-ui"} {
+		if st, err := os.Stat(p); err == nil && !st.IsDir() {
+			return p
+		}
+	}
+	return ""
+}
+
+// openWindow shows a target (a screen, "project:<id>", "session:<id>", or
+// "terminal:<address>") in the Gwen window (plan.md 3.15). gwen-ui keeps one
+// window: started while it is open, it hands the target over and exits;
+// otherwise it becomes the window. It runs through systemd-run so it gets
+// the desktop session's environment, not the service's.
+func (s *Service) openWindow(ctx context.Context, target string) error {
+	bin := uiBin(s.home)
+	if bin == "" {
+		return errors.New("gwen-ui isn't installed")
+	}
+	return s.launch(ctx, "", bin, "--open", target)
+}
+
+// launch starts a long-lived program as a transient user unit; an empty
+// unit lets systemd name it.
 func (s *Service) launch(ctx context.Context, unit string, argv ...string) error {
 	if s.opts.Launch != nil {
 		return s.opts.Launch(ctx, unit, argv)
 	}
+	return systemdRun(ctx, unit, argv)
+}
+
+// ErrNoCore is Gwen's own herdr-core not installed.
+var ErrNoCore = errors.New("herdr-core isn't installed for Gwen; run make term")
+
+// StartCore starts Gwen's own herdr-core (session gwen) the way gwend does
+// when a session needs one (plan.md 3.14.5): through systemd-run, so it gets
+// the desktop session's environment and outlives the caller. It returns once
+// the start command ran; the core's socket appears shortly after.
+func StartCore(ctx context.Context, home string) error {
+	hc := CoreBin(home)
+	if hc == "" {
+		return ErrNoCore
+	}
+	return systemdRun(ctx, coreUnit, coreArgv(hc))
+}
+
+// coreArgv starts the herdr-core at hc as Gwen's own core, never the one a
+// Herdr of yours uses.
+func coreArgv(hc string) []string {
+	return []string{"env", "HC_SESSION=" + herdr.Session, hc, "server", "start"}
+}
+
+// systemdRun starts argv as a transient user unit.
+func systemdRun(ctx context.Context, unit string, argv []string) error {
 	args := []string{"--user", "--collect", "--quiet"}
 	if unit == coreUnit {
 		// `hc server start` puts the core in the background and returns. As a
@@ -156,14 +212,14 @@ func (s *Service) launch(ctx context.Context, unit string, argv ...string) error
 		// window. It gets a name of systemd's choosing, so a core that died
 		// can always be started again.
 		args = append(args, "-p", "Type=oneshot", "-p", "RemainAfterExit=yes", "--description", "Gwen's herdr-core")
-	} else {
+	} else if unit != "" {
 		args = append(args, "--unit", unit)
 	}
 	args = append(append(args, "--"), argv...)
 	out, err := exec.CommandContext(ctx, "systemd-run", args...).CombinedOutput()
 	if err != nil {
 		// A unit left over from a crash blocks the name; clear it and retry once.
-		if strings.Contains(string(out), "already") {
+		if unit != "" && strings.Contains(string(out), "already") {
 			_ = exec.CommandContext(ctx, "systemctl", "--user", "reset-failed", unit+".service").Run()
 			out, err = exec.CommandContext(ctx, "systemd-run", args...).CombinedOutput()
 		}
@@ -176,17 +232,6 @@ func (s *Service) launch(ctx context.Context, unit string, argv ...string) error
 
 // coreUnit names the launch of Gwen's own herdr-core.
 const coreUnit = "gwen-core"
-
-// spaceForDir is the id of the window's space whose folder is dir, "" for
-// none.
-func (s *Service) spaceForDir(dir string) string {
-	for _, sp := range s.spacesDoc() {
-		if sp.Folder != "" && filepath.Clean(ExpandHome(sp.Folder, s.home)) == dir {
-			return sp.ID
-		}
-	}
-	return ""
-}
 
 // replyTerminal finds the terminal a tab.new or space.new reply names.
 var terminalAddress = regexp.MustCompile(`^t[0-9]+$`)
@@ -288,6 +333,16 @@ func (s *Service) spacesDoc() []docSpace {
 	return s.spaces
 }
 
+// TerminalName is what to call a terminal in a list: its name, its title, its
+// foreground program, or its command.
+func TerminalName(t herdr.Terminal) string { return terminalName(t) }
+
+// IsClaude reports whether Claude Code runs in t now (plan.md 3.14.5).
+func IsClaude(t herdr.Terminal) bool { return isClaude(t) }
+
+// ClaudeStatus is the status Claude Code reported in t, nil when none did.
+func ClaudeStatus(t herdr.Terminal) *herdr.Status { return claudeStatus(t) }
+
 // terminalName is what to call a terminal on the phone.
 func terminalName(t herdr.Terminal) string {
 	switch {
@@ -317,14 +372,79 @@ func (s *Service) wireTerminal(t herdr.Terminal) wire.CodeTerminal {
 	return out
 }
 
-// Spaces lists Gwen Terminal's spaces, tabs and terminals, with its theme.
-func (s *Service) Spaces() wire.CodeSpaces {
+// ProjectLabel marks a terminal the Gwen window started in a project
+// (plan.md 3.15).
+const ProjectLabel = "gwen.project"
+
+// projectSpaces are the projects with a folder on this machine: from W16b
+// each is a space on the phone (plan.md 3.15).
+func (s *Service) projectSpaces(ctx context.Context) []model.Project {
+	if s.repos.Projects == nil {
+		return nil
+	}
+	ps, err := s.repos.Projects.List(ctx, store.ArchivedExclude)
+	if err != nil {
+		return nil
+	}
+	out := ps[:0]
+	for _, p := range ps {
+		if p.Folder != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// Spaces lists the spaces, tabs and terminals for the phone, with the
+// theme. Each project with a folder is a space with a tab per terminal in
+// it (plan.md 3.15); while no project has one, Gwen Terminal's spaces are
+// listed instead.
+func (s *Service) Spaces(ctx context.Context) wire.CodeSpaces {
 	theme := s.Theme()
+	projects := s.projectSpaces(ctx)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := wire.CodeSpaces{Spaces: []wire.CodeSpace{}, Loose: []wire.CodeTerminal{}, Theme: theme}
 	placed := map[string]bool{}
+	if len(projects) > 0 {
+		// The deepest folder wins, so a project inside another keeps its own terminals.
+		byDepth := slices.Clone(projects)
+		slices.SortStableFunc(byDepth, func(a, b model.Project) int { return len(b.Folder) - len(a.Folder) })
+		owner := map[string]string{}
+		for _, addr := range s.sortedTerminals() {
+			t := s.terms[addr]
+			if t.State != "live" || !t.Local() || t.Parent != "" {
+				continue
+			}
+			if id := t.Labels[ProjectLabel]; id != "" {
+				owner[addr] = id
+				continue
+			}
+			cwd := s.wireTerminal(t).Cwd
+			for _, p := range byDepth {
+				if within(cwd, p.Folder) {
+					owner[addr] = p.ID
+					break
+				}
+			}
+		}
+		for _, p := range projects {
+			ws := wire.CodeSpace{ID: p.ID, Name: p.Name, Folder: p.Folder, Tabs: []wire.CodeTab{}}
+			for _, addr := range s.sortedTerminals() {
+				if owner[addr] != p.ID {
+					continue
+				}
+				wt := s.wireTerminal(s.terms[addr])
+				placed[addr] = true
+				ws.Tabs = append(ws.Tabs, wire.CodeTab{ID: addr, Name: wt.Name, Terminals: []wire.CodeTerminal{wt}})
+			}
+			out.Spaces = append(out.Spaces, ws)
+		}
+	}
 	for _, sp := range s.spaces {
+		if len(projects) > 0 {
+			break
+		}
 		ws := wire.CodeSpace{ID: sp.ID, Name: sp.Name, Folder: sp.Folder, Tabs: []wire.CodeTab{}}
 		if ws.Name == "" {
 			ws.Name = filepath.Base(sp.Folder)
@@ -354,4 +474,27 @@ func (s *Service) Spaces() wire.CodeSpaces {
 		out.Loose = append(out.Loose, s.wireTerminal(t))
 	}
 	return out
+}
+
+// OpenWindow shows a target in the Gwen window: a tab such as project:<id>,
+// session:<id>, terminal:<address>, or a screen (Gwen's agent, plan.md 3.16).
+func (s *Service) OpenWindow(ctx context.Context, target string) error {
+	if strings.ContainsAny(target, " \t\n") || strings.HasPrefix(target, "-") {
+		return fail(wire.CodeInvalidRequest, "that isn't something Gwen's window can open")
+	}
+	return s.openWindow(ctx, target)
+}
+
+// TaskLabel is the terminal label that links a terminal to a task.
+const TaskLabel = "gwen.task"
+
+// LinkTask links a terminal to a task, as Hand it to an agent does.
+func (s *Service) LinkTask(ctx context.Context, terminal, taskID string) error {
+	s.mu.Lock()
+	c := s.core
+	s.mu.Unlock()
+	if c == nil {
+		return fail(wire.CodeUnavailable, "Gwen's terminal server isn't running")
+	}
+	return c.Label(ctx, terminal, map[string]string{TaskLabel: taskID})
 }

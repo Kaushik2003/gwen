@@ -41,9 +41,15 @@ func (s *Server) clockIn(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return s.do(w, r, func(at time.Time) timeengine.Input {
+	if err := s.do(w, r, func(at time.Time) timeengine.Input {
 		return timeengine.ClockIn{ProjectID: project, TaskID: task, At: at}
-	})
+	}); err != nil {
+		return err
+	}
+	if task != nil {
+		s.startRoutine(context.WithoutCancel(r.Context()), *task)
+	}
+	return nil
 }
 
 func (s *Server) switchTo(w http.ResponseWriter, r *http.Request) error {
@@ -55,9 +61,17 @@ func (s *Server) switchTo(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return s.do(w, r, func(at time.Time) timeengine.Input {
+	// Start runs the task's routine, once per start: switching to the task already tracked starts nothing.
+	before, _ := s.Tracker.Status(r.Context())
+	if err := s.do(w, r, func(at time.Time) timeengine.Input {
 		return timeengine.Switch{ProjectID: project, TaskID: task, At: at}
-	})
+	}); err != nil {
+		return err
+	}
+	if task != nil && (before.TaskID == nil || *before.TaskID != *task) {
+		s.startRoutine(context.WithoutCancel(r.Context()), *task)
+	}
+	return nil
 }
 
 // attribution checks that the ids exist and agree. A task given without a
@@ -121,6 +135,18 @@ func (s *Server) notifyPreview(w http.ResponseWriter, r *http.Request) error {
 // which then shows desktop nudges itself.
 func (s *Server) listNudges(w http.ResponseWriter, r *http.Request) error {
 	writeJSON(w, http.StatusOK, wire.NudgeList{Nudges: s.Notify.Nudges(r.URL.Query().Get("card") == "1")})
+	return nil
+}
+
+// windowFocus serves POST /v1/window/focus: the Gwen window has your focus,
+// or lost it.
+func (s *Server) windowFocus(w http.ResponseWriter, r *http.Request) error {
+	var body wire.WindowFocusRequest
+	if err := decode(r, &body); err != nil {
+		return err
+	}
+	s.Notify.WindowFocus(body.Focused)
+	w.WriteHeader(http.StatusNoContent)
 	return nil
 }
 

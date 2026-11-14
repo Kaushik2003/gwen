@@ -45,3 +45,41 @@ self.addEventListener("fetch", (event) => {
     ),
   );
 });
+
+// Notifications (plan.md 3.14.11): while you are away from the laptop it pushes when a session needs you, finishes, or
+// stops, or Gwen waits for your OK. A tap opens that place in the app, in the window already open when there is one.
+self.addEventListener("push", (event) => {
+  let m = {};
+  try {
+    m = event.data ? event.data.json() : {};
+  } catch {
+    m = { body: event.data ? event.data.text() : "" };
+  }
+  event.waitUntil(
+    self.registration.showNotification(m.title || "Gwen", {
+      body: m.body || "Something needs you.",
+      tag: m.tag || undefined,
+      renotify: !!m.tag,
+      icon: "/icon-192.png",
+      badge: "/icon-192.png",
+      data: { url: m.url || "/" },
+    }),
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = new URL((event.notification.data && event.notification.data.url) || "/", self.location.origin).href;
+  event.waitUntil(
+    (async () => {
+      const open = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      const win = open.find((c) => new URL(c.url).origin === self.location.origin);
+      if (win) {
+        await win.focus();
+        if (win.url !== url) await win.navigate(url).catch(() => self.clients.openWindow(url));
+        return;
+      }
+      await self.clients.openWindow(url);
+    })(),
+  );
+});

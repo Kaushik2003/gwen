@@ -108,7 +108,7 @@ function StepRow({ step: s, onEdit }: { step: wire.Task; onEdit: () => void }) {
           <button
             type="button"
             onClick={() => long && setOpen(!open)}
-            className={cx("mt-0.5 block w-full text-left text-xs leading-relaxed whitespace-pre-line text-ink-subtle", !open && "line-clamp-2", long ? "cursor-pointer" : "cursor-text")}
+            className={cx("mt-0.5 w-full text-left text-xs leading-relaxed whitespace-pre-line text-ink-subtle", open ? "block" : "line-clamp-2", long ? "cursor-pointer" : "cursor-text")}
             title={long ? (open ? "Show less" : "Show all") : undefined}
           >
             {s.notes}

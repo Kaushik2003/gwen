@@ -1,0 +1,125 @@
+/*
+Liquid Charts by Ojieame · https://liquid.ojieame.design · nathan@ojieame.design
+
+Liquid Charts adaptation. Original foundation: Evil Charts by Gurbinder.
+Upstream: ecbd6a5db7b25f9a7e070c02b2ef728c378eeb5c
+MIT License
+
+Copyright (c) 2026 Gurbinder
+Copyright (c) 2026 NATEPAY, LLC (Liquid Charts additions)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Includes shadcn-derived primitives:
+MIT License
+
+Copyright (c) 2023 shadcn
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+*/
+/* Pins: the labels a tilted ring carries, each on a quiet vertical stem from its slab (see
+ * pin-labels.ts). Plain text on the card, no boxes; the slab in focus brightens its stem and label,
+ * the rest stay quiet. Colours come from the frame's tokens, so dark and light follow the scheme. */
+.lc-pin-labels-stems {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.lc-pin-labels-stems polyline {
+  fill: none;
+  stroke: var(--chart-ink);
+  stroke-width: 1;
+  stroke-linejoin: miter;
+  stroke-linecap: butt;
+  opacity: 0.24;
+  transition: opacity 200ms ease-out;
+}
+.lc-pin-labels-stems polyline[data-dim="true"] {
+  opacity: 0.12;
+}
+.lc-pin-labels-stems polyline[data-active="true"] {
+  opacity: 0.62;
+}
+.lc-pin-labels-stems polyline[data-shown="false"] {
+  opacity: 0;
+}
+
+.lc-pin-labels-label {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  visibility: hidden;
+  color: var(--chart-ink-2);
+  line-height: 1.25;
+  white-space: nowrap;
+  pointer-events: none;
+  transition:
+    opacity 200ms ease-out,
+    color 200ms ease-out;
+}
+.lc-pin-labels-name,
+.lc-pin-labels-measure {
+  color: var(--chart-ink-3);
+  transition: color 200ms ease-out;
+}
+.lc-pin-labels-label[data-dim="true"] {
+  opacity: 0.45;
+}
+.lc-pin-labels-label[data-active="true"] {
+  color: var(--chart-ink);
+}
+.lc-pin-labels-label[data-active="true"] .lc-pin-labels-name,
+.lc-pin-labels-label[data-active="true"] .lc-pin-labels-measure {
+  color: var(--chart-ink-2);
+}
+.lc-pin-labels-label[data-shown="false"] {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lc-pin-labels-stems polyline,
+  .lc-pin-labels-label,
+  .lc-pin-labels-name,
+  .lc-pin-labels-measure {
+    transition: none;
+  }
+}

@@ -48,8 +48,8 @@ PlasmoidItem {
     readonly property string nudgeKey: nudge ? nudge.kind + "@" + nudge.at : ""
     property string dismissedKey: ""
     readonly property bool nudgeOpen: inPanel && nudgeKey !== "" && nudgeKey !== dismissedKey && !root.expanded
-    // Idle and long-break nudges wait for an answer; the rest pass.
-    readonly property bool nudgeSticky: nudge !== null && (nudge.kind === "idle" || nudge.kind === "break_long")
+    // Idle, long-break and Claude-needs-you nudges wait for an answer; the rest pass.
+    readonly property bool nudgeSticky: nudge !== null && (nudge.kind === "idle" || nudge.kind === "break_long" || nudge.kind === "code_session")
     function dismissNudge() { dismissedKey = nudgeKey; }
     function actOnNudge(id) {
         run("gwen notify act " + (nudge.preview ? "preview" : nudge.kind) + " " + id);

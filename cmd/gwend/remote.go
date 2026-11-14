@@ -62,7 +62,18 @@ func newRemote(db *store.DB, repos store.Repos, o options, l *loop, hub *api.Hub
 	}
 	phone := notify.NewNtfy(nil, credDir)
 	return remote.New(remote.Options{
-		DB: db, Repos: repos, Clock: o.clk, Config: l.Config, Publish: hub.Publish, Away: l.Away,
+		DB: db, Repos: repos, Clock: o.clk, Config: l.Config, Publish: hub.Publish, Away: l.Away, PhoneAway: l.PhoneAway,
+		Desktop: func(a remote.DesktopAlert) {
+			n := notify.Notification{Kind: "code_session", Title: a.Title, Body: "Claude " + a.Message}
+			if a.Detail != "" {
+				n.Body += ": " + a.Detail
+			}
+			for _, c := range a.Choices {
+				n.Actions = append(n.Actions, notify.Action{ID: a.Session + "@" + c.Key, Label: c.Label})
+			}
+			l.notifier.Send(n)
+		},
+		Resolved: func() { l.notifier.Withdraw("code_session") },
 		Push: func(ctx context.Context, title, message, click string) error {
 			phone.SetConfig(l.Config())
 			return phone.Notify(ctx, notify.Notification{Kind: "code", Title: title, Body: message, Click: click})
@@ -71,7 +82,7 @@ func newRemote(db *store.DB, repos store.Repos, o options, l *loop, hub *api.Hub
 		RemoteSocket: filepath.Join(runtime, remoteSocketName), HookSocket: filepath.Join(runtime, hookSocketName),
 		OwnDirs: []string{o.dataDir, filepath.Dir(o.configPath)},
 		GwenBin: gwen, SttBin: sibling("gwen-stt"), ModelsDir: filepath.Join(o.dataDir, "models"),
-		DataDir: o.dataDir, CredDir: credDir, WatchWindow: true,
+		DataDir: o.dataDir, CredDir: credDir,
 	})
 }
 

@@ -140,7 +140,7 @@ func TestPushPullAndRestore(t *testing.T) {
 	hub, _, srv := newHub(t)
 	ctx := context.Background()
 	laptop := newNode(t)
-	p, err := laptop.repos.Projects.Create(ctx, "Study", nil)
+	p, err := laptop.repos.Projects.Create(ctx, "Study", nil, nil)
 	require.NoError(t, err)
 	tk, _, err := laptop.repos.Tasks.Create(ctx, store.NewTask{Title: "Read", ProjectID: &p.ID})
 	require.NoError(t, err)
@@ -168,7 +168,7 @@ func TestPushPullAndRestore(t *testing.T) {
 	// A reinstalled device pulls the whole history, and not its own writes.
 	restored := newNode(t)
 	r := newClient(t, restored, srv.URL)
-	own, err := restored.repos.Projects.Create(ctx, "Chores", nil)
+	own, err := restored.repos.Projects.Create(ctx, "Chores", nil, nil)
 	require.NoError(t, err)
 	var applied []store.Applied
 	r.o.OnApplied = func(a store.Applied) { applied = append(applied, a) }
@@ -191,6 +191,40 @@ func TestPushPullAndRestore(t *testing.T) {
 	require.Equal(t, "Chores", gotOwn.Name)
 }
 
+// A sub-project's parent goes through the hub both ways, set and cleared.
+func TestSubProjectsSyncThroughTheHub(t *testing.T) {
+	t.Parallel()
+	_, _, srv := newHub(t)
+	ctx := context.Background()
+	laptop, phone := newNode(t), newNode(t)
+	parent, err := laptop.repos.Projects.Create(ctx, "Projects", nil, nil)
+	require.NoError(t, err)
+	child, err := laptop.repos.Projects.Create(ctx, "Kutumb", nil, &parent.ID)
+	require.NoError(t, err)
+	lc, pc := newClient(t, laptop, srv.URL), newClient(t, phone, srv.URL)
+	sync := func(c *Client) {
+		t.Helper()
+		st, err := c.Sync(ctx)
+		require.NoError(t, err)
+		require.Empty(t, st.LastError)
+	}
+	sync(lc)
+	sync(pc)
+	got, err := phone.repos.Projects.Get(ctx, child.ID)
+	require.NoError(t, err)
+	require.Equal(t, &parent.ID, got.ParentID)
+
+	phone.clk.Advance(time.Minute)
+	_, err = phone.repos.Projects.Update(ctx, child.ID, store.ProjectPatch{ParentID: store.Nullable[string]{Set: true}})
+	require.NoError(t, err)
+	sync(pc)
+	laptop.clk.Advance(time.Minute)
+	sync(lc)
+	got, err = laptop.repos.Projects.Get(ctx, child.ID)
+	require.NoError(t, err)
+	require.Nil(t, got.ParentID)
+}
+
 func TestClientUnavailableAndFailures(t *testing.T) {
 	t.Parallel()
 	n := newNode(t)
@@ -206,7 +240,7 @@ func TestClientUnavailableAndFailures(t *testing.T) {
 	require.NotNil(t, st.LastPushAt, "nothing to push is a successful push")
 	require.Nil(t, st.LastPullAt)
 
-	_, err = n.repos.Projects.Create(context.Background(), "P", nil)
+	_, err = n.repos.Projects.Create(context.Background(), "P", nil, nil)
 	require.NoError(t, err)
 	st, err = c.Sync(context.Background())
 	require.NoError(t, err)
@@ -347,7 +381,7 @@ func TestAnOldHubIsSentOnlyWhatItKnows(t *testing.T) {
 	}
 	remember(t, laptop)
 	advance()
-	_, err := laptop.repos.Projects.Create(ctx, "Study", nil)
+	_, err := laptop.repos.Projects.Create(ctx, "Study", nil, nil)
 	require.NoError(t, err)
 
 	c := newClient(t, laptop, hubURL)
@@ -359,7 +393,7 @@ func TestAnOldHubIsSentOnlyWhatItKnows(t *testing.T) {
 	require.Zero(t, count(t, hub.db, `SELECT count(*) FROM claims`))
 	_, err = store.GetLocal(ctx, laptop.db.SQL(), store.KeySyncPushSchema)
 	require.ErrorIs(t, err, store.ErrNotFound, "the hub's schema is the one assumed")
-	require.Equal(t, "11", g.pulls[0].Get("schema_version"), "every pull says the client's schema")
+	require.Equal(t, "17", g.pulls[0].Get("schema_version"), "every pull says the client's schema")
 
 	advance()
 	st, err = c.Sync(ctx)
@@ -414,7 +448,7 @@ func TestAHubPutBackGetsTheNewerTablesAgain(t *testing.T) {
 		laptop.clk.Advance(time.Hour)
 		hub.clk.Advance(time.Hour)
 		projects++
-		_, err := laptop.repos.Projects.Create(ctx, fmt.Sprint("P", projects), nil)
+		_, err := laptop.repos.Projects.Create(ctx, fmt.Sprint("P", projects), nil, nil)
 		require.NoError(t, err)
 		g.reset(schema)
 		st, err := c.Sync(ctx)
@@ -476,7 +510,7 @@ func TestTheHubHoldsBackTablesAClientCannotTake(t *testing.T) {
 	hub, _, srv := newHub(t)
 	laptop := newNode(t)
 	remember(t, laptop)
-	_, err := laptop.repos.Projects.Create(ctx, "Study", nil)
+	_, err := laptop.repos.Projects.Create(ctx, "Study", nil, nil)
 	require.NoError(t, err)
 	st, err := newClient(t, laptop, srv.URL).Sync(ctx)
 	require.NoError(t, err)
@@ -503,7 +537,7 @@ func TestAClientWhoseSchemaRoseStartsItsPullOver(t *testing.T) {
 	_, _, srv := newHub(t)
 	laptop := newNode(t)
 	remember(t, laptop)
-	_, err := laptop.repos.Projects.Create(ctx, "Study", nil)
+	_, err := laptop.repos.Projects.Create(ctx, "Study", nil, nil)
 	require.NoError(t, err)
 	_, err = newClient(t, laptop, srv.URL).Sync(ctx)
 	require.NoError(t, err)
@@ -530,7 +564,7 @@ func TestAClientWhoseSchemaRoseStartsItsPullOver(t *testing.T) {
 	require.Equal(t, 1, count(t, phone.db, `SELECT count(*) FROM chat_messages`))
 	pulled, err := store.GetLocal(ctx, phone.db.SQL(), store.KeySyncPullSchema)
 	require.NoError(t, err)
-	require.Equal(t, "11", pulled)
+	require.Equal(t, "17", pulled)
 
 	applied = nil
 	st, err = p.Sync(ctx)

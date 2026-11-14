@@ -1,0 +1,1198 @@
+/*
+Liquid Charts by Ojieame · https://liquid.ojieame.design · nathan@ojieame.design
+
+Liquid Charts adaptation. Original foundation: Evil Charts by Gurbinder.
+Upstream: ecbd6a5db7b25f9a7e070c02b2ef728c378eeb5c
+MIT License
+
+Copyright (c) 2026 Gurbinder
+Copyright (c) 2026 NATEPAY, LLC (Liquid Charts additions)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Includes shadcn-derived primitives:
+MIT License
+
+Copyright (c) 2023 shadcn
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+*/
+/* The chart frame and everything that rides on it: gridlines, axes, value labels, the tooltip,
+ * the legend and states. Colours are tokens on the frame, set per theme by `data-scheme`. */
+.lc-core-frame {
+  --chart-ink: #f3f3f3;
+  --chart-ink-2: #a9a9a9;
+  /* The quiet ink of ticks, axis labels, legends and units: WCAG AA (4.5:1) as small type on the
+   * card (#0c0c0c, 5.2:1) and on a raised plate (#141414, 4.9:1). */
+  --chart-ink-3: #838383;
+  --chart-hair: rgb(255 255 255 / 0.06);
+  --chart-edge: rgb(255 255 255 / 0.06);
+  --chart-zero: rgb(243 243 243 / 0.18);
+  --chart-gain: #9fdc5a;
+  --chart-loss: #ff7a7a;
+  --chart-focus: rgb(255 255 255 / 0.55);
+  --chart-glass: rgb(14 14 14 / 0.94);
+  --chart-glass-top: rgb(255 255 255 / 0.1);
+  --chart-tip-edge: rgb(255 255 255 / 0.11);
+  --chart-tip-neutral: #ffffff;
+  /* The tooltip's frosted glass: a dark fill the chart glows through, blurred, a little more
+   * saturated and slightly dimmed, with a fine static grain. Over a lit display the quiet inks
+   * need more light to stay AA, so inside the tooltip they are raised (only there). */
+  --chart-tip-fill: rgb(8 8 8 / 0.5);
+  --chart-tip-frost: blur(18px) saturate(150%) brightness(0.8);
+  --chart-tip-ink-2: #c8c8c8;
+  --chart-tip-ink-3: #adadad;
+  --chart-tip-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Cfilter id='f' x='0' y='0' width='100%' height='100%'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.7' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.09 0'/%3E%3C/filter%3E%3Crect width='100%' height='100%' filter='url(%23f)'/%3E%3C/svg%3E");
+  --chart-shadow: rgb(0 0 0 / 0.55);
+  /* Entrance timing (format.ts `ENTER`) for CSS entrances: marks start after --enter-delay and take
+   * --enter-mark; a label or key fades in over --enter-label once its marks are most of the way in
+   * (--enter-label-delay); what reads the finished shape waits for --enter-settled. */
+  --enter-delay: 250ms;
+  --enter-mark: 800ms;
+  --enter-label: 300ms;
+  --enter-tooltip: 160ms;
+  --enter-label-delay: calc(var(--enter-delay) + 0.6 * var(--enter-mark));
+  --enter-settled: calc(var(--enter-delay) + var(--enter-mark));
+  position: relative;
+  min-width: 0;
+  color: var(--chart-ink);
+  /* The chart sets all of its own type, so it reads the same inside any page or prose: the face
+   * (with the sized fallback in type.module.css), a 13px baseline, a 1.5 line box and no tracking.
+   * Label insets and rows are estimated with exactly these (`textWidth`, `lineBox` in format.ts),
+   * so a host's serif, leading or letter-spacing never pushes a label out of its room. */
+  font-family: var(--font-chart, "Sofia Sans Semi Condensed"), "Liquid Charts Fallback", sans-serif;
+  font-size: calc(13px * var(--lc-type-scale, 1));
+  font-style: normal;
+  font-weight: 400;
+  font-stretch: normal;
+  font-variant: normal;
+  font-kerning: normal;
+  font-variation-settings: normal;
+  font-synthesis: none;
+  line-height: 1.5;
+  letter-spacing: normal;
+  word-spacing: normal;
+  text-align: start;
+  text-indent: 0;
+  text-transform: none;
+  text-shadow: none;
+  overflow-wrap: normal;
+  word-break: normal;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+.lc-core-frame[data-scheme="light"] {
+  --chart-ink: #141414;
+  --chart-ink-2: #5f5f5f;
+  /* AA on white (5.1:1) and on the raised plate (#f4f4f4, 4.6:1). */
+  --chart-ink-3: #6e6e6e;
+  --chart-hair: rgb(20 20 20 / 0.07);
+  --chart-edge: rgb(20 20 20 / 0.07);
+  --chart-zero: rgb(20 20 20 / 0.18);
+  --chart-gain: #3f8f1a;
+  --chart-loss: #cf3d43;
+  --chart-focus: rgb(20 20 20 / 0.5);
+  --chart-glass: rgb(255 255 255 / 0.97);
+  --chart-glass-top: rgb(255 255 255 / 1);
+  --chart-tip-edge: rgb(0 0 0 / 0.1);
+  --chart-tip-neutral: #8c8c8c;
+  /* On white the glass is milky: the chart behind is lifted a little towards white, so marks read
+   * as soft tints, the grain is a touch fainter, and the quiet inks are deepened to match. */
+  --chart-tip-fill: rgb(255 255 255 / 0.58);
+  --chart-tip-frost: blur(18px) saturate(140%) brightness(1.3);
+  --chart-tip-ink-2: #4a4a4a;
+  --chart-tip-ink-3: #5c5c5c;
+  --chart-tip-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Cfilter id='f' x='0' y='0' width='100%' height='100%'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.7' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.04 0'/%3E%3C/filter%3E%3Crect width='100%' height='100%' filter='url(%23f)'/%3E%3C/svg%3E");
+  --chart-shadow: rgb(39 39 39 / 0.3);
+}
+
+/* The plot: one focusable group; the canvas bleeds past it so glow can fade. */
+.lc-core-plot {
+  position: relative;
+  min-width: 0;
+  touch-action: pan-y;
+}
+/* The plot's preferred width. A chart draws to its plot's width, so a parent that shrink-wraps (a
+ * centring flex column, auto margins) would leave it a sliver. This invisible strut asks for 480px
+ * and gives way to any narrower room: as a replaced element its percentage cap counts as zero in
+ * its minimum, so flex and grid still shrink the chart freely. Inside a parent of set width it
+ * changes nothing. */
+.lc-core-strut {
+  display: block;
+  width: 480px;
+  max-width: 100%;
+  height: 0;
+}
+/* The same focus treatment can be lent to an embedding host without changing
+ * that host's layout, touch behavior, focusability or event handlers. */
+.lc-core-plot,
+.lc-core-focusSurface {
+  border-radius: 2px;
+  outline: none;
+}
+.lc-core-plot:focus-visible,
+.lc-core-focusSurface:focus-visible {
+  outline: 1px solid var(--chart-focus);
+  outline-offset: 2px;
+}
+.lc-core-canvas {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* Gridlines and ticks, drawn in CSS from the same insets the marks use. */
+.lc-core-gridline {
+  position: absolute;
+  left: var(--plot-left);
+  right: var(--plot-right);
+  border-top: 1px dashed var(--chart-hair);
+  pointer-events: none;
+}
+.lc-core-gridline[data-zero="true"] {
+  border-top: 1px solid var(--chart-zero);
+}
+/* An etched axis: the numbers stay at the left, the lines live in the marks' glass. */
+.lc-core-gridline[data-etched="true"]:not([data-zero="true"]) {
+  border-top-color: transparent;
+}
+/* A quiet axis: solid hairlines, no dashes to count. */
+.lc-core-gridline[data-quiet="true"]:not([data-zero="true"]) {
+  border-top-style: solid;
+}
+/* Vertical gridlines on an x scale, with their ticks under the plot. */
+.lc-core-gridline[data-axis="x"] {
+  top: var(--plot-top);
+  bottom: var(--plot-bottom);
+  right: auto;
+  width: 0;
+  border-top: 0;
+  border-left: 1px dashed var(--chart-hair);
+}
+.lc-core-gridline[data-axis="x"][data-zero="true"] {
+  border-left: 1px solid var(--chart-zero);
+}
+/* A tick's currency sign, compact suffix or unit: smaller and quieter than its digits, as in a
+ * value label's figure, on a host's glass axis only. Core's own ticks stay plain. */
+[data-lc-names="glass"] .lc-core-tickUnit {
+  font-size: 0.82em;
+  opacity: 0.8;
+  margin: 0 0.04em;
+}
+.lc-core-gridline[data-axis="x"] .lc-core-tick {
+  top: calc(100% + 10px);
+  right: auto;
+  translate: -50% 0;
+}
+.lc-core-tick {
+  position: absolute;
+  right: calc(100% + 10px);
+  top: 0;
+  translate: 0 -50%;
+  color: var(--chart-ink-3);
+  white-space: nowrap;
+}
+
+/* Category axes: names under columns, or beside rows. */
+.lc-core-categories {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.lc-core-category {
+  position: absolute;
+  color: var(--chart-ink-3);
+  white-space: nowrap;
+  transition:
+    color 180ms ease-out,
+    opacity 180ms ease-out;
+}
+.lc-core-categories[data-orientation="bottom"] .lc-core-category {
+  bottom: 0;
+  translate: -50% 0;
+}
+.lc-core-categories[data-orientation="left"] .lc-core-category {
+  left: 0;
+  translate: 0 -50%;
+  color: var(--chart-ink-2);
+}
+.lc-core-category[data-active="true"] {
+  color: var(--chart-ink);
+}
+/* The category of a called-out value, tied to it at rest, where a host's axis asks for it. Core's
+ * own names stay as they are. */
+:is([data-lc-axis="editorial"], [data-lc-names="glass"], [data-lc-names="inside"])
+  .lc-core-category[data-strong="true"] {
+  color: var(--chart-ink);
+  font-weight: 620;
+}
+.lc-core-category[data-pill="true"] {
+  z-index: 1;
+}
+.lc-core-category[data-dim="true"] {
+  opacity: 0.5;
+}
+
+/* A name's trailing year ("Jan 2025"): read inline as written, unless an editorial axis below sets it
+ * on a line of its own. */
+.lc-core-nameGap {
+  white-space: pre;
+}
+.lc-core-nameYear {
+  font-variant-numeric: lining-nums;
+}
+
+/* Liquid's editorial axis, for a host that sets `data-lc-axis="editorial"` on an ancestor (the
+ * Canva card's newest look); nothing changes without it. Each value tick sits just above its own
+ * hairline at the frame's left edge, its line running under it, so a number is never adrift of the
+ * height it names; figures are set whole, at one size, in lining digits. Names under the
+ * plot take the ticks' size and weight, and a trailing year drops to a quieter line of its own. */
+[data-lc-axis="editorial"] .lc-core-gridline:not([data-axis="x"]):not([data-zero="true"]) {
+  left: 0;
+}
+[data-lc-axis="editorial"] .lc-core-gridline:not([data-axis="x"]) .lc-core-tick {
+  right: auto;
+  left: 0;
+  translate: 0 calc(-100% - 3px);
+}
+/* Etched: the lines live in the glass, so only the tick's own stub runs under its number. */
+[data-lc-axis="editorial"] .lc-core-gridline[data-etched="true"]:not([data-zero="true"]) {
+  right: calc(100% - var(--plot-left) + 8px);
+  border-top-color: var(--chart-hair);
+  border-top-style: solid;
+}
+/* The zero line keeps its own start: the marks stand on it, and zero is left unnamed. */
+[data-lc-axis="editorial"] .lc-core-tick,
+[data-lc-axis="editorial"] .lc-core-category {
+  font-size: calc(11.5px * var(--lc-type-scale, 1));
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  font-variant-numeric: lining-nums;
+}
+[data-lc-axis="editorial"] .lc-core-tickUnit {
+  font-size: 1em;
+  opacity: 1;
+  margin: 0;
+}
+[data-lc-axis="editorial"] .lc-core-category[data-strong="true"] {
+  font-weight: 620;
+}
+[data-lc-axis="editorial"] .lc-core-nameGap {
+  display: none;
+}
+[data-lc-axis="editorial"] .lc-core-nameYear {
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  translate: -50% 1px;
+  font-size: 0.9em;
+  font-weight: 450;
+  color: var(--chart-ink-3);
+  opacity: 0.8;
+}
+[data-lc-axis="editorial"] .lc-core-categories[data-orientation="left"] .lc-core-nameYear {
+  position: static;
+  translate: none;
+  margin-left: 0.3em;
+}
+
+/* A ruler's graduations between the ticks, at the plot's left edge; the middle one longer. */
+.lc-core-rulerMark {
+  position: absolute;
+  left: calc(var(--plot-left) - 6px);
+  width: 4px;
+  border-top: 1px solid var(--chart-hair);
+  pointer-events: none;
+}
+.lc-core-rulerMark[data-half="true"] {
+  left: calc(var(--plot-left) - 9px);
+  width: 7px;
+}
+
+/* Groups under the names (the years under months): a tier of its own, the names lifted above it,
+ * each group named once under a hairline the width of its columns. */
+.lc-core-categories[data-groups] .lc-core-category {
+  bottom: 20px;
+}
+.lc-core-group {
+  position: absolute;
+  bottom: 0;
+  height: 16px;
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  box-sizing: border-box;
+}
+.lc-core-group::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 4px;
+  right: 4px;
+  border-top: 1px solid var(--chart-hair);
+}
+[data-lc-names] .lc-core-group::after {
+  display: none;
+}
+.lc-core-groupLabel {
+  color: var(--chart-ink-3);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/* Axis-label treatments, for a host that sets them on an ancestor (Liquid's Canva card); nothing
+ * changes without the attribute. */
+[data-lc-names] .lc-core-category:empty {
+  display: none;
+}
+/* Part of the glass, quietly: the names debossed on a faint band under the columns, and the scale as
+ * graduations alone at the left. Nothing raised, glossy, tinted or outlined: the axis reads as part of
+ * the surface, below the marks in every way. */
+[data-lc-names="glass"] .lc-core-categories[data-orientation="bottom"]::before {
+  content: "";
+  position: absolute;
+  /* From under the scale's column, so a first name wider than its column ("Jan ’25") sits in it. */
+  left: calc(var(--plot-left) - 30px);
+  right: calc(var(--plot-right) - 10px);
+  top: calc(100% - var(--plot-bottom) + 1px);
+  height: 22px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--chart-ink) 2.5%, transparent);
+}
+[data-lc-names="glass"] .lc-core-categories[data-orientation="bottom"] .lc-core-category {
+  top: calc(100% - var(--plot-bottom) + 6px);
+  bottom: auto;
+  font-size: calc(10px * var(--lc-type-scale, 1));
+  font-weight: 540;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  line-height: 1.2;
+  color: color-mix(in srgb, var(--chart-ink) 52%, transparent);
+  text-shadow: 0 1px 0 color-mix(in srgb, var(--chart-glass-top, white) 75%, transparent);
+}
+[data-lc-names="glass"] .lc-core-category[data-strong="true"] {
+  font-weight: 600;
+  color: color-mix(in srgb, var(--chart-ink) 75%, transparent);
+}
+[data-lc-names="glass"] .lc-core-groupLabel {
+  font-size: calc(10px * var(--lc-type-scale, 1));
+  font-weight: 500;
+  color: color-mix(in srgb, var(--chart-ink) 46%, transparent);
+}
+/* No axis lines: the band under the columns is their base, and the scale is its graduations alone,
+ * uneven like a ruler's: a long mark at each tick, a middle one between, short ones either side. */
+[data-lc-ticks="tube"] .lc-core-gridline:not([data-axis="x"]) {
+  border-top-color: transparent;
+}
+/* An etched axis keeps its numbers and its graduations in the glass; its stubs give way to the marks. */
+[data-lc-ticks="tube"] .lc-core-gridline[data-etched="true"]:not([data-zero="true"]) {
+  border-top-color: transparent;
+}
+[data-lc-ticks="tube"] .lc-core-gridline:not([data-axis="x"]):not([data-zero="true"])::before {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  left: calc(var(--plot-left) - 18px);
+  width: 9px;
+  top: -1px;
+  border-top: 1px solid color-mix(in srgb, var(--chart-ink) 32%, transparent);
+}
+[data-lc-ticks="tube"] .lc-core-gridline:not([data-axis="x"]) .lc-core-tick {
+  left: auto;
+  right: calc(100% - var(--plot-left) + 24px);
+  translate: 0 -50%;
+  color: color-mix(in srgb, var(--chart-ink) 52%, transparent);
+}
+[data-lc-ticks="tube"] .lc-core-rulerMark {
+  z-index: 1;
+  left: calc(var(--plot-left) - 18px);
+  width: 3px;
+  border-top-color: color-mix(in srgb, var(--chart-ink) 18%, transparent);
+}
+[data-lc-ticks="tube"] .lc-core-rulerMark[data-half="true"] {
+  width: 6px;
+  border-top-color: color-mix(in srgb, var(--chart-ink) 24%, transparent);
+}
+/* Inside the marks: no rows of names; each column carries its name in its glass, low in the bar,
+ * set over the glass rather than behind it. */
+[data-lc-names="inside"] .lc-core-categories[data-orientation="bottom"] {
+  z-index: 3;
+}
+[data-lc-names="inside"] .lc-core-categories[data-orientation="bottom"] .lc-core-category {
+  bottom: calc(var(--plot-bottom) + 9px);
+  font-size: calc(9.5px * var(--lc-type-scale, 1));
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--lc-accent, #7198f7) 55%, var(--chart-ink));
+  text-shadow: 0 1px 0 color-mix(in srgb, white 70%, transparent);
+}
+[data-lc-names="inside"] .lc-core-category[data-strong="true"] {
+  color: white;
+  text-shadow: 0 1px 1px color-mix(in srgb, var(--chart-ink) 25%, transparent);
+}
+
+/* Value labels: placed by the collision solver every frame; hidden ones fade where they are. */
+.lc-core-label {
+  position: absolute;
+  left: 0;
+  top: 0;
+  visibility: hidden;
+  pointer-events: none;
+  white-space: nowrap;
+  transition: opacity 200ms ease-out;
+}
+.lc-core-label[data-shown="false"] {
+  opacity: 0;
+}
+.lc-core-label > * {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+/* A focused figure lifts away from its mark, towards the open side. */
+.lc-core-label[data-side="above"] > * {
+  transform-origin: 50% 100%;
+}
+.lc-core-label[data-side="below"] > * {
+  transform-origin: 50% 0;
+}
+.lc-core-label[data-side="right"] > * {
+  transform-origin: 0 50%;
+}
+.lc-core-label[data-side="left"] > * {
+  transform-origin: 100% 50%;
+}
+.lc-core-label {
+  color: var(--chart-ink-2);
+}
+.lc-core-label[data-figure-active="true"] {
+  color: var(--chart-ink);
+}
+/* The chart's key value (`KeyValue`): its figure over a short note, in the first ink. */
+.lc-core-label > .lc-core-keyValue {
+  flex-direction: column;
+  gap: 1px;
+  color: var(--chart-ink);
+}
+.lc-core-keyNote {
+  color: var(--chart-ink-3);
+}
+/* Secondary text inside a label or tooltip (a share, a comparison). */
+.lc-core-muted {
+  color: var(--chart-ink-3);
+}
+
+/* The tooltip, one surface for every family: frosted glass (a blurred, dimmed view of the chart
+ * through a tinted fill with a fine grain), 2px corners, a hairline edge and a light along its
+ * bottom. Families lay out what is inside (rows, columns, a breakdown) and never
+ * restyle the surface. It appears in place with a short fade and a 2px rise, then glides between
+ * items on a critically damped spring (no overshoot). `--tint` (the focused series' colour, which `ChartTooltip` sets from
+ * its first row) colours the light, so it reads as light from the data; neutral without one. */
+.lc-core-tooltip {
+  /* Text over the glass: the quiet inks take the tooltip's own (raised) values, for every
+   * family's rows, titles and notes inside it, and nowhere else. */
+  --chart-ink-2: var(--chart-tip-ink-2);
+  --chart-ink-3: var(--chart-tip-ink-3);
+  --tip-tint: var(--tint, var(--chart-tip-neutral));
+  /* The light: on dark cards a white-hot line in the series' hue with a faint glow rising from
+   * it; on light cards the hue itself at a moderate alpha, still a light rather than a rule. */
+  --tip-line: color-mix(in srgb, color-mix(in srgb, var(--tip-tint) 45%, white) 85%, transparent);
+  --tip-glow: color-mix(in srgb, var(--tip-tint) 16%, transparent);
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 2;
+  display: grid;
+  gap: 5px;
+  min-width: 160px;
+  padding: 9px 11px 10px;
+  box-sizing: border-box;
+  border-radius: 2px;
+  /* Frost: the grain (a static, cached SVG tile, clipped to the corners like any background) over
+   * the fill; the hairline edge and the bottom light draw above both, so they stay crisp. The tile
+   * is 100px so the noise stitches seamlessly (baseFrequency 1.7 x 100 is whole; at 96px it was
+   * 163.2 and every tile edge showed as a seam), and it lands on whole device px at 1.25x-2x. */
+  background-color: var(--chart-tip-fill);
+  background-image: var(--chart-tip-grain);
+  background-size: 100px 100px;
+  box-shadow:
+    inset 0 0 0 1px var(--chart-tip-edge),
+    0 10px 24px -12px var(--chart-shadow);
+  backdrop-filter: var(--chart-tip-frost);
+  visibility: hidden;
+  pointer-events: none;
+  /* No transition and no mount animation: moveTooltip (tooltip.tsx) owns its motion. Its first
+   * visible placement fades it in (ENTER.tooltip) while one shared spring glides it. */
+}
+.lc-core-frame[data-scheme="light"] .lc-core-tooltip,
+[data-scheme="light"] .lc-core-tooltip {
+  --tip-line: color-mix(in srgb, var(--tip-tint) 60%, transparent);
+  --tip-glow: color-mix(in srgb, var(--tip-tint) 10%, transparent);
+}
+/* Without backdrop-filter the glass would be a thin wash over the marks: the opaque surface. */
+@supports not (backdrop-filter: blur(1px)) {
+  .lc-core-tooltip {
+    background-color: var(--chart-glass);
+    background-image: none;
+  }
+}
+/* The bottom light: a 1px line one pixel inside the edge, so it never merges with the hairline,
+ * fading out towards both ends, and an 8px glow rising from it (also fading at the ends). */
+.lc-core-tooltip::before,
+.lc-core-tooltip::after {
+  content: "";
+  position: absolute;
+  left: 12%;
+  right: 12%;
+  pointer-events: none;
+}
+.lc-core-tooltip::before {
+  bottom: 2px;
+  height: 8px;
+  background: radial-gradient(50% 100% at 50% 100%, var(--tip-glow), transparent);
+}
+.lc-core-tooltip::after {
+  bottom: 1px;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--tip-line) 30%,
+    var(--tip-line) 70%,
+    transparent
+  );
+}
+/* The title reads like the casing's labels: the casing type role, set by the component. */
+.lc-core-tooltipTitle {
+  color: var(--chart-ink-3);
+}
+.lc-core-tooltipRow {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+}
+.lc-core-tooltipLabel {
+  color: var(--chart-ink-2);
+}
+.lc-core-tooltipFoot {
+  color: var(--chart-ink-3);
+}
+/* A host's words under the foot (TooltipExtra): set off by a hairline, wrapped to a short
+   measure so a sentence never stretches the card across the plot. */
+.lc-core-tooltipExtra {
+  display: grid;
+  gap: 3px;
+  max-width: 232px;
+  margin-top: 2px;
+  padding-top: 7px;
+  border-top: 1px solid var(--chart-hair);
+  color: var(--chart-ink-2);
+  white-space: normal;
+}
+
+/* Light lines: a canvas over the plot, under labels and the tooltip. */
+.lc-core-lightLines {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+}
+
+/* The focus marker: a black hole. A void in the card's colour (so the line falls into it), a
+ * photon ring of white-hot light, a soft corona and a faint lensing ring. Placed by translate on
+ * its centre. */
+.lc-core-focusMarker {
+  --void: var(--chart-void, #0c0c0c);
+  --ring: color-mix(in srgb, var(--marker) 45%, white);
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 1;
+  width: 10.5px;
+  height: 10.5px;
+  margin: -5.25px 0 0 -5.25px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    var(--void) 0 52%,
+    color-mix(in srgb, var(--marker) 22%, var(--void)) 68%,
+    var(--void) 100%
+  );
+  box-shadow:
+    0 0 0 1.25px var(--ring),
+    0 0 5px 1px color-mix(in srgb, var(--marker) 85%, transparent),
+    0 0 14px 3px color-mix(in srgb, var(--marker) 36%, transparent),
+    inset 0 0 2.5px 1px rgb(0 0 0 / 0.65);
+  pointer-events: none;
+  transition:
+    opacity 160ms ease-out,
+    transform 140ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.lc-core-focusMarker::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--marker) 26%, transparent);
+}
+.lc-core-focusMarker[data-visible="false"] {
+  opacity: 0;
+}
+.lc-core-focusMarker[data-variant="latest"] {
+  width: 7.5px;
+  height: 7.5px;
+  margin: -3.75px 0 0 -3.75px;
+}
+.lc-core-focusMarker[data-variant="latest"]::after {
+  display: none;
+}
+/* The latest marker's corona breathes: a brighter glow on its own layer that swells and settles.
+ * Its transform animates, with its opacity held in the keyframes: together Chromium composites
+ * them (a box-shadow, opacity-only or transform-only animation here restyled the page every frame).
+ * At rest it is the small, quiet glow. */
+.lc-core-focusMarker[data-variant="latest"]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  box-shadow:
+    0 0 7px 2px color-mix(in srgb, var(--marker) 60%, transparent),
+    0 0 18px 4px color-mix(in srgb, var(--marker) 16%, transparent);
+  opacity: 0.7;
+  transform: scale(0.5);
+  animation: lc-core-corona 1.2s ease-in-out infinite alternate;
+}
+.lc-core-focusMarker[data-visible="false"],
+.lc-core-focusMarker[data-visible="false"]::before {
+  animation: none;
+}
+.lc-core-focusMarker[data-onscreen="false"]::before {
+  animation-play-state: paused;
+}
+/* Data heads (lollipops, dumbbells): a smaller black hole with a quieter corona and no lensing
+ * ring; the focused head switches to the full marker. */
+.lc-core-focusMarker[data-variant="point"] {
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  box-shadow:
+    0 0 0 1.3px var(--ring),
+    0 0 5px 0 color-mix(in srgb, var(--marker) 70%, transparent),
+    0 0 12px 2px color-mix(in srgb, var(--marker) 22%, transparent),
+    inset 0 0 2px 1px rgb(0 0 0 / 0.6);
+}
+.lc-core-focusMarker[data-variant="point"]::after {
+  display: none;
+}
+@keyframes lc-core-corona {
+  from {
+    transform: scale(0.5);
+    opacity: 0.7;
+  }
+  to {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+}
+.lc-core-frame[data-scheme="light"] .lc-core-focusMarker[data-variant="point"],
+[data-scheme="light"] .lc-core-focusMarker[data-variant="point"] {
+  box-shadow:
+    0 0 0 1.4px var(--ring),
+    0 1px 4px 0 color-mix(in srgb, var(--marker) 34%, transparent),
+    inset 0 1px 2px rgb(20 20 20 / 0.16);
+}
+.lc-core-frame[data-scheme="light"] .lc-core-focusMarker,
+[data-scheme="light"] .lc-core-focusMarker {
+  --void: var(--chart-void, #ffffff);
+  --ring: color-mix(in srgb, var(--marker) 82%, #141414);
+  background: radial-gradient(circle at 50% 40%, #ffffff 0 45%, #f1f1f1 100%);
+  box-shadow:
+    0 0 0 1.4px var(--ring),
+    0 2px 5px 0 color-mix(in srgb, var(--marker) 40%, transparent),
+    0 0 11px 2px color-mix(in srgb, var(--marker) 16%, transparent),
+    inset 0 1px 2px rgb(20 20 20 / 0.18);
+}
+.lc-core-frame[data-scheme="light"] .lc-core-focusMarker[data-variant="latest"]::before,
+[data-scheme="light"] .lc-core-focusMarker[data-variant="latest"]::before {
+  box-shadow:
+    0 1px 6px 1px color-mix(in srgb, var(--marker) 34%, transparent),
+    0 0 14px 3px color-mix(in srgb, var(--marker) 10%, transparent);
+}
+@media (prefers-reduced-motion: reduce) {
+  /* Doubled class: wins over every variant's animation, whatever the order. */
+  .lc-core-focusMarker.lc-core-focusMarker {
+    transition: none;
+    animation: none;
+  }
+  /* The latest marker keeps only its quiet corona. */
+  .lc-core-focusMarker.lc-core-focusMarker[data-variant]::before {
+    animation: none;
+    opacity: 0;
+  }
+}
+
+/* References for flat and liquid charts: quieter than the data, with the axes. */
+.lc-core-referenceLine,
+.lc-core-referenceBand {
+  position: absolute;
+  left: var(--plot-left);
+  right: var(--plot-right);
+  pointer-events: none;
+  --reference: color-mix(in srgb, var(--chart-ink) 34%, transparent);
+}
+.lc-core-referenceLine {
+  border-top: 1px solid var(--reference);
+}
+.lc-core-referenceLine[data-dashed="true"] {
+  border-top-style: dashed;
+}
+.lc-core-referenceBand {
+  background: color-mix(in srgb, var(--reference) 22%, transparent);
+  border-block: 1px solid color-mix(in srgb, var(--reference) 35%, transparent);
+}
+/* Vertical references, up the plot from an x value. */
+.lc-core-referenceLine[data-axis="x"],
+.lc-core-referenceBand[data-axis="x"] {
+  top: var(--plot-top);
+  bottom: var(--plot-bottom);
+  right: auto;
+}
+.lc-core-referenceLine[data-axis="x"] {
+  width: 0;
+  border-top: 0;
+  border-left: 1px solid var(--reference);
+}
+.lc-core-referenceLine[data-axis="x"][data-dashed="true"] {
+  border-left-style: dashed;
+}
+.lc-core-referenceBand[data-axis="x"] {
+  border-block: 0;
+  border-inline: 1px solid color-mix(in srgb, var(--reference) 35%, transparent);
+}
+.lc-core-referenceLine[data-axis="x"] .lc-core-referenceLabel {
+  bottom: calc(100% + 3px);
+  right: auto;
+  left: 5px;
+}
+.lc-core-referenceLine[data-axis="x"] .lc-core-referenceLabel[data-side="left"] {
+  left: auto;
+  right: 5px;
+}
+[data-tone="good"].lc-core-referenceLine,
+[data-tone="good"].lc-core-referenceBand {
+  --reference: var(--chart-gain);
+}
+[data-tone="bad"].lc-core-referenceLine,
+[data-tone="bad"].lc-core-referenceBand {
+  --reference: var(--chart-loss);
+}
+/* A reference's name may sit over the marks (an area's fill at the plot's end): it stays above
+ * them, a halo in the card's glass knocking them out behind it. */
+.lc-core-referenceLabel {
+  position: absolute;
+  z-index: 2;
+  right: 0;
+  bottom: 3px;
+  color: color-mix(in srgb, var(--reference) 70%, var(--chart-ink-2));
+  white-space: nowrap;
+  text-shadow:
+    0 0 2px var(--chart-glass),
+    0 0 5px var(--chart-glass),
+    0 0 9px var(--chart-glass);
+}
+.lc-core-referenceBand .lc-core-referenceLabel {
+  bottom: auto;
+  top: 3px;
+}
+.lc-core-referenceLabel[data-side="left"] {
+  right: auto;
+  left: 0;
+}
+.lc-core-referenceLine .lc-core-referenceLabel[data-placement="below"] {
+  bottom: auto;
+  top: 3px;
+}
+/* In the tick column, level with the line: a tick of its own, never over the marks. */
+.lc-core-referenceLine .lc-core-referenceLabel[data-placement="axis"] {
+  left: auto;
+  right: calc(100% + 10px);
+  bottom: auto;
+  top: 0;
+  translate: 0 -50%;
+  text-shadow: none;
+}
+/* Past the plot's right end, level with the line: its name over its value, clear of the marks. */
+.lc-core-referenceLine .lc-core-referenceLabel[data-placement="end"] {
+  left: calc(100% + 10px);
+  right: auto;
+  bottom: auto;
+  top: 0;
+  translate: 0 -50%;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+  text-shadow: none;
+}
+/* A lit gap: the gap between two meter segments glows (stronger on dark). */
+.lc-core-litGap {
+  position: absolute;
+  width: 3px;
+  margin-left: -1.5px;
+  border-radius: 2px;
+  pointer-events: none;
+  background: linear-gradient(transparent, color-mix(in srgb, var(--gap) 60%, white), transparent);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--gap) 70%, transparent);
+}
+.lc-core-frame[data-scheme="light"] .lc-core-litGap,
+[data-scheme="light"] .lc-core-litGap {
+  background: linear-gradient(
+    transparent,
+    color-mix(in srgb, var(--gap) 65%, var(--chart-ink, #141414)),
+    transparent
+  );
+  box-shadow: 0 0 10px color-mix(in srgb, var(--gap) 45%, transparent);
+}
+.lc-core-event {
+  --event-line: color-mix(in srgb, var(--chart-ink) 22%, transparent);
+  position: absolute;
+  top: var(--plot-top);
+  bottom: var(--plot-bottom);
+  border-left: 1px solid var(--event-line);
+  pointer-events: none;
+}
+.lc-core-event[data-tone="good"] {
+  --event-line: color-mix(in srgb, var(--chart-gain) 55%, transparent);
+}
+.lc-core-event[data-tone="bad"] {
+  --event-line: color-mix(in srgb, var(--chart-loss) 55%, transparent);
+}
+/* A line that steps round the marks it would cross (its own session's candle): drawn in pieces. */
+.lc-core-event[data-broken] {
+  border-left-color: transparent;
+}
+.lc-core-eventPiece {
+  position: absolute;
+  left: -1px;
+  border-left: 1px solid var(--event-line);
+}
+.lc-core-eventLabel {
+  position: absolute;
+  top: -18px;
+  left: 0;
+  translate: -50% 0;
+  color: var(--chart-ink-2);
+  white-space: nowrap;
+}
+
+/* Legend: swatches that can switch a series off. It may sit outside a frame (a card's row), so it
+ * sets the frame's line box and tracking itself rather than taking the page's. */
+.lc-core-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  line-height: 1.5;
+  letter-spacing: normal;
+}
+.lc-core-legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--chart-ink-2);
+  font-family: inherit;
+  white-space: nowrap;
+  cursor: default;
+}
+button.lc-core-legendItem {
+  cursor: pointer;
+}
+button.lc-core-legendItem:focus-visible {
+  border-radius: 2px;
+  outline: 1px solid var(--chart-focus);
+  outline-offset: 2px;
+}
+.lc-core-legendItem[aria-pressed="false"] {
+  color: var(--chart-ink-3);
+}
+/* The chart's credit: its last line, under the plot or under a ChartScope's legend. The mark centres
+   itself on it and keeps its own look. */
+.lc-core-creditLine {
+  display: block;
+}
+.lc-core-creditLine:empty {
+  display: none;
+}
+.lc-core-swatch {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 2px;
+}
+.lc-core-swatch[data-muted="true"],
+.lc-core-legendItem[aria-pressed="false"] .lc-core-swatch {
+  opacity: 0.45;
+}
+
+/* Height note: what a tilted slab's height means, as plain text along the plot's top. The chart
+   writes its opacity each frame as the camera tilts, so it carries no transition of its own. */
+.lc-core-heightNote {
+  position: absolute;
+  left: 0;
+  top: 2px;
+  color: var(--chart-ink-3);
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+}
+
+/* Delta: a change, coloured by direction. */
+/* A change reads as plain coloured text, as on the cards: no chip. */
+.lc-core-delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  justify-self: start;
+  color: var(--chart-gain);
+  white-space: nowrap;
+}
+.lc-core-delta[data-trend="down"] {
+  color: var(--chart-loss);
+}
+
+/* States: loading shimmer, empty and error notes, centred on the plot. */
+.lc-core-state {
+  position: absolute;
+  inset: var(--plot-top) var(--plot-right) var(--plot-bottom) var(--plot-left);
+  display: grid;
+  place-items: center;
+  color: var(--chart-ink-3);
+  text-align: center;
+}
+.lc-core-skeleton {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-around;
+  gap: 8%;
+  padding: 0 4%;
+}
+.lc-core-skeleton span {
+  flex: 1;
+  border-radius: 2px;
+  background: linear-gradient(
+    100deg,
+    var(--chart-hair) 20%,
+    color-mix(in srgb, var(--chart-ink) 9%, transparent) 50%,
+    var(--chart-hair) 80%
+  );
+  background-size: 300% 100%;
+  animation: lc-core-shimmer 1.4s ease-in-out 3;
+}
+.lc-core-skeleton[data-shape="rows"] {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: space-around;
+  padding: 4% 0;
+}
+.lc-core-skeleton[data-shape="rows"] span {
+  flex: none;
+  height: 10px;
+}
+.lc-core-skeleton[data-shape="points"] {
+  display: block;
+  padding: 0;
+}
+.lc-core-skeleton[data-shape="points"] span {
+  position: absolute;
+  flex: none;
+  border-radius: 50%;
+}
+.lc-core-ringSkeleton,
+.lc-core-lineSkeleton {
+  width: min(70%, 220px);
+  max-height: 100%;
+}
+.lc-core-lineSkeleton {
+  width: 100%;
+  height: 60%;
+  overflow: visible;
+}
+.lc-core-ringSkeleton path {
+  fill: var(--chart-hair);
+  animation: lc-core-breathe 1.4s ease-in-out 3 alternate;
+}
+.lc-core-lineSkeleton path {
+  fill: none;
+  stroke: color-mix(in srgb, var(--chart-ink) 14%, transparent);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+  animation: lc-core-breathe 1.4s ease-in-out 3 alternate;
+}
+@keyframes lc-core-breathe {
+  from {
+    opacity: 0.5;
+  }
+  to {
+    opacity: 1;
+  }
+}
+/* A family's own skeleton (states.tsx `SkeletonShape`): the family gives the geometry, the core
+ * gives every part one tone, 2px corners and the same pulse, three breaths and then rest. */
+.lc-core-skeletonShape {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.lc-core-skeletonShape svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.lc-core-skeletonShape path,
+.lc-core-skeletonBlock,
+.lc-core-skeletonDot,
+.lc-core-skeletonGrid span,
+.lc-core-skeletonFill {
+  fill: color-mix(in srgb, var(--chart-ink) 8%, transparent);
+  background: color-mix(in srgb, var(--chart-ink) 8%, transparent);
+  animation: lc-core-shimmer 1.4s ease-in-out 3;
+}
+.lc-core-skeletonShape .lc-core-skeletonFlow {
+  fill: color-mix(in srgb, var(--chart-ink) 4%, transparent);
+}
+.lc-core-skeletonShape .lc-core-skeletonLine {
+  fill: none;
+  stroke: color-mix(in srgb, var(--chart-ink) 12%, transparent);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+.lc-core-skeletonBlock,
+.lc-core-skeletonDot {
+  position: absolute;
+  border-radius: 2px;
+}
+.lc-core-skeletonDot {
+  translate: -50% -50%;
+  border-radius: 50%;
+}
+.lc-core-skeletonGrid {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  gap: 3px;
+}
+.lc-core-skeletonGrid span,
+.lc-core-skeletonFill {
+  border-radius: 2px;
+}
+.lc-core-skeletonFill {
+  position: absolute;
+  inset: 0;
+}
+/* Compact states: one line, for readouts and tiles. */
+.lc-core-compactLoading {
+  display: inline-block;
+  width: 96px;
+  height: 12px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--chart-hair);
+  vertical-align: middle;
+}
+.lc-core-shimmerLine {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    100deg,
+    transparent 20%,
+    color-mix(in srgb, var(--chart-ink) 10%, transparent) 50%,
+    transparent 80%
+  );
+  background-size: 300% 100%;
+  animation: lc-core-shimmer 1.4s ease-in-out 3;
+}
+.lc-core-compactText {
+  color: var(--chart-ink-3);
+}
+.lc-core-compactText[data-kind="error"] {
+  color: var(--chart-loss);
+}
+/* Skeletons pulse in opacity (composited, no repaint) for a few seconds, then rest. */
+@keyframes lc-core-shimmer {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.lc-core-srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lc-core-tooltip {
+    transition: none;
+    animation: none;
+  }
+  .lc-core-label,
+  .lc-core-category,
+  .lc-core-skeleton span,
+  .lc-core-ringSkeleton path,
+  .lc-core-lineSkeleton path,
+  .lc-core-skeletonShape path,
+  .lc-core-skeletonBlock,
+  .lc-core-skeletonDot,
+  .lc-core-skeletonGrid span,
+  .lc-core-skeletonFill,
+  .lc-core-shimmerLine {
+    transition: none;
+    animation: none;
+  }
+}

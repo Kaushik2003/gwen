@@ -1125,8 +1125,10 @@ review shallow, so G1 is three PRs, each useful on its own:
    `kernel.Invoke`.
 3. **PR3, agent.** A new Messages client (`internal/llm/messages`: tool use, multi-turn content, `cache_control`, usage
    reporting, with a fake for tests; the existing `Planner` jobs stay), and the agent loop with the four meta-tools
-   (`find` over the catalog with FTS5), behind `[agent] enabled = false`, so today's chat keeps working. With the
-   `claude_code` provider the agent stays off until `gwen mcp` exists (G4b).
+   (`find` over the catalog with FTS5), behind `[agent] enabled = false`, so today's chat keeps working. Since
+   2026-11-13 the chat's first agent is plan.md W32 (section 3.16): Claude Code headless on your subscription, with
+   Gwen's tools over `gwen mcp` and Gwen answering every permission request. This loop becomes a second engine
+   for API and local models, and W32's policy moves into the kernel when PR2 lands.
 
 Left out of G1 on purpose: programs calling programs, `ask` suspensions longer than a request, cross-node routing, and
 multi-file bundling (single-file `main.ts` only).

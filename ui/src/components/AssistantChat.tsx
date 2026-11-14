@@ -1,8 +1,8 @@
-import { AudioLines, BookMarked, Check, CircleAlert, CircleCheck, CircleX, Download, Drama, EyeOff, History, LoaderCircle, MessageSquarePlus, NotebookPen, PhoneOff, SendHorizontal, Settings as SettingsIcon, Square, ThumbsDown, Trash2, Volume2, VolumeX } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { AudioLines, BookMarked, Check, CircleAlert, CircleCheck, CircleX, Download, Drama, EyeOff, History, LoaderCircle, MessageSquarePlus, NotebookPen, PhoneOff, SendHorizontal, Settings as SettingsIcon, Sparkles, Square, ThumbsDown, Trash2, Volume2, VolumeX } from "lucide-react";
+import { Fragment, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { App, apiError, isHub, wire } from "../api";
 import { useDaemon } from "../daemon";
-import { formatAgo, formatTime } from "../format";
+import { addDays, formatAgo, formatClock, formatDate, formatDay, formatTime } from "../format";
 import { useNav } from "../nav";
 import { attitudeOf, type AssistantMessage as ChatTurn, type AssistantOutput, type Mood, type RunError } from "../llm";
 import { claimIdOf, toConfirm, useMemoryVersion, type MessageMemory } from "../memory";
@@ -12,7 +12,7 @@ import Face from "./Face";
 import { useConfirm, useToast } from "./feedback";
 import MemoryDetail, { useClaimActions } from "./MemoryDetail";
 import { useAloud, useSpeech } from "./Speech";
-import { Badge, Button, Callout, IconButton, TextArea, cx } from "./ui";
+import { Badge, Button, Callout, IconButton, cx } from "./ui";
 import { DownloadProgress, useDictation } from "./Voice";
 
 /** How long a pause in hands-free talk ends what you are saying. */
@@ -87,12 +87,28 @@ export default function AssistantChat({
   openThread,
   call,
   onHangUp,
+  panel,
+  screen,
+  control,
+  onState,
+  headerExtra,
 }: {
   initial?: string | null;
   onInitialUsed?: () => void;
   openThread?: string | null;
   call?: boolean;
   onHangUp?: () => void;
+  /** Drawn in the Gwen window's side panel: it fills the panel's height, without a card around it. */
+  panel?: boolean;
+  /**
+   * Drawn by the Gwen › Chat screen: it fills its parent, without a card around it, and leaves the past
+   * chats to the screen, which lists them beside it and works the chat through control and onState.
+   */
+  screen?: boolean;
+  control?: RefObject<ChatControl | null>;
+  onState?: (s: ChatState) => void;
+  /** Drawn at the start of the screen's header, such as the button that shows the past chats on a narrow window. */
+  headerExtra?: ReactNode;
 }) {
   const d = useDaemon();
   const [thread, setThread] = useState<Thread | null>(null);
@@ -124,6 +140,7 @@ export default function AssistantChat({
   const [offerSpeech, setOfferSpeech] = useState(false);
   // How she has chosen to treat you, which outlives the chat.
   const [attitude, setAttitude] = useState("");
+  const [attitudeSince, setAttitudeSince] = useState<number | null>(null);
   const quiet = useRef(0); // sends what was said once a pause in talk lasts
   // What the box held when the mic opened; the words said follow it.
   const before = useRef("");
@@ -147,7 +164,14 @@ export default function AssistantChat({
   );
 
   useEffect(() => {
-    if (!isHub) App.AssistantSelf().then((s) => setAttitude(s.attitude), () => {});
+    if (!isHub)
+      App.AssistantSelf().then(
+        (s) => {
+          setAttitude(s.attitude);
+          setAttitudeSince(s.since ?? null);
+        },
+        () => {},
+      );
   }, []);
 
   // A call starts as soon as the mic and her voice are known.
@@ -295,7 +319,10 @@ export default function AssistantChat({
         setThread((t) => ({ id: out.thread_id, messages: [...(t?.id === out.thread_id ? t.messages : []), ...turn] }));
         remember(out.thread_id);
         const reply = turn.at(-1);
-        if (reply?.attitude) setAttitude(reply.attitude);
+        if (reply?.attitude) {
+          setAttitude(reply.attitude);
+          setAttitudeSince(reply.at || Date.now());
+        }
         if (reply?.role === "assistant" && (aloud || talkingRef.current)) read(reply);
       }
     } catch (e) {
@@ -380,15 +407,15 @@ export default function AssistantChat({
     forget: (r) => claims.forget(claimOf(r)),
   };
 
-  /** Deletes a chat: its words are erased, and she no longer recalls them. */
-  async function forget(t: wire.ChatThread) {
+  /** Deletes a chat: its words are erased, and she no longer recalls them. Says whether it was deleted. */
+  async function forget(t: wire.ChatThread): Promise<boolean> {
     const ok = await confirm({
       title: `Delete "${t.title || "Untitled chat"}"?`,
       body: `Its messages are erased, and ${name} no longer remembers them. What she changed in your tasks stays, and so does her note to herself.`,
       confirm: "Delete chat",
       danger: true,
     });
-    if (!ok) return;
+    if (!ok) return false;
     const id = t.id;
     try {
       await App.DeleteThread(id);
@@ -397,10 +424,24 @@ export default function AssistantChat({
         remember(null);
         setThread(null);
       }
+      return true;
     } catch (e) {
       d.fail(e);
+      return false;
     }
   }
+
+  // The screen that draws the past chats opens, starts, and deletes chats through control, and follows the one on screen.
+  if (control) control.current = { open, startOver, forget };
+  const busy = !!asking || talking;
+  useEffect(() => {
+    onState?.({ thread: thread?.id ?? null, messages: thread?.messages.length ?? 0, busy });
+  }, [thread?.id, thread?.messages.length, busy]);
+  // Back from talk, the chat opens at its newest message.
+  useEffect(() => {
+    const el = scroller.current;
+    if (screen && !talking && el) el.scrollTop = el.scrollHeight;
+  }, [talking]);
 
   // Why something stopped, or what her voice needs, wherever it is shown.
   const notices = (
@@ -480,7 +521,7 @@ export default function AssistantChat({
         onHangUp?.();
       }}
       onStart={startTalk}
-      className={call ? "h-full" : "min-h-[min(40rem,70vh)]"}
+      className={call ? "h-full" : screen ? "min-h-0 flex-1" : "min-h-[min(40rem,70vh)]"}
     >
       {!talking && (
         <>
@@ -492,69 +533,264 @@ export default function AssistantChat({
   );
   if (call) return callView;
 
+  if (screen) {
+    const llm = d.config?.llm;
+    const noProvider = llm?.provider === "none";
+    const mode = attitudeOf(attitude);
+    // A new chat offers every starter; one under way, the three that help any time.
+    const ideas = messages.length ? starters.filter((_, i) => i === 0 || i === 1 || i === 5) : starters;
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+        <div className="flex shrink-0 items-center gap-3.5 border-b border-chrome-line px-5 py-3">
+          {headerExtra}
+          {!talking && <Face mood={mood} react talking={!!saying && speech.sounding === saying.id} className="size-16" />}
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+              <h2 className="text-[16px] font-semibold text-ink">{name}</h2>
+              {mode && (
+                <span
+                  title={mode.means}
+                  className={cx(
+                    "inline-flex h-6 max-w-full min-w-0 items-center rounded-full px-2.5 text-[11.5px] font-medium",
+                    attitude === "angry" ? "bg-danger/15 text-danger" : "bg-accent/15 text-accent-hover",
+                  )}
+                >
+                  <span className="truncate">
+                    {mode.label} with you{attitudeSince ? ` · ${sinceText(attitudeSince)}` : ""}
+                  </span>
+                </span>
+              )}
+            </div>
+            <div className="mt-0.5 line-clamp-2 text-[12px] leading-4 text-ink-subtle">{noProvider ? "No AI provider set up yet" : `${providerTitle(llm)} · changes your tasks and plan as you talk`}</div>
+          </div>
+          {!isHub && (
+            <div className="flex shrink-0 items-center gap-2">
+              <IconButton
+                icon={aloud ? Volume2 : VolumeX}
+                label={aloud ? "Stop reading replies aloud" : "Read replies aloud"}
+                tone={aloud ? "secondary" : "ghost"}
+                onClick={toggleAloud}
+                disabled={talking}
+              />
+              <Button tone={talking ? "destroy" : noProvider ? "secondary" : "primary"} icon={talking ? PhoneOff : AudioLines} onClick={talking ? endTalk : startTalk}>
+                {talking ? "End talk" : "Talk"}
+              </Button>
+            </div>
+          )}
+        </div>
+
+        {talking ? (
+          callView
+        ) : (
+          <>
+            <div ref={scroller} className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-5 py-4" aria-live="polite">
+              {messages.length === 0 && !asking ? (
+                <div className="m-auto flex max-w-md flex-col items-center gap-3 py-4 text-center">
+                  <Face mood={noProvider ? "smiling" : "winking"} react className="size-28" />
+                  {noProvider ? (
+                    <>
+                      <p className="text-[14px] font-medium text-ink">{name} needs an AI to talk with you</p>
+                      <p className="text-[13px] leading-relaxed text-ink-subtle">Use your Claude subscription through Claude Code, an Anthropic API key, or a local model such as Ollama.</p>
+                      <Button tone="primary" size="sm" icon={SettingsIcon} onClick={() => go("settings", "ai")} className="mt-1">
+                        Set up AI
+                      </Button>
+                    </>
+                  ) : (
+                    <p className="text-[13px] leading-relaxed text-ink-subtle">
+                      Talk to {name} like you would to a person. Tell her about new work, ask what to do next, or say "move the report to tomorrow afternoon": she adds, moves, reschedules,
+                      and reassigns tasks for you, and tells you what she changed.
+                    </p>
+                  )}
+                </div>
+              ) : (
+                messages.map((m, i) => (
+                  <Fragment key={m.id ?? i}>
+                    {m.at > 0 && (i === 0 || formatDay(new Date(messages[i - 1].at)) !== formatDay(new Date(m.at))) && <p className="text-center text-[11px] text-ink-subtle">{dayMark(m.at)}</p>}
+                    <ScreenTurn
+                      name={name}
+                      message={m}
+                      chips={isHub ? undefined : chips}
+                      latest={m === last}
+                      reading={saying?.at === m.at ? (speech.sounding === saying.id ? "sounding" : "preparing") : null}
+                      onRead={speech.ready && m.role === "assistant" ? () => read(m) : undefined}
+                      onStop={speech.stop}
+                    />
+                  </Fragment>
+                ))
+              )}
+              {asking && <ScreenTurn name={name} message={{ role: "user", text: asking.message, at: asking.since }} pending />}
+            </div>
+
+            <div className="flex shrink-0 flex-col gap-2.5 border-t border-chrome-line px-5 pt-3 pb-4">
+              {asking && <AiProgress since={asking.since} doing={`${name} is thinking`} />}
+              {notices}
+              {saying && <Speaking name={name} sounding={speech.sounding === saying.id} onStop={speech.stop} />}
+              {voice.panel}
+              {!noProvider && !voice.listening && (
+                <div className="flex flex-wrap gap-1.5" role="group" aria-label="Things to ask">
+                  {ideas.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => send(s)}
+                      disabled={!!asking}
+                      className="h-[26px] rounded-full border border-line bg-surface-2 px-3 text-[12px] text-ink-muted transition-colors hover:border-line-strong hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div>
+                <form
+                  className={cx(
+                    "flex items-end gap-1.5 rounded-xl border bg-surface-2 py-2 pr-2 pl-3 transition-colors focus-within:border-accent",
+                    voice.listening ? "border-accent/60" : "border-line-strong hover:border-line-3",
+                    asking && "opacity-60",
+                  )}
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    submit();
+                  }}
+                >
+                  <textarea
+                    ref={input}
+                    rows={2}
+                    value={text}
+                    onChange={(e) => setText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        submit();
+                      }
+                    }}
+                    placeholder={messages.length ? "Reply, or ask for a change" : `Tell ${name} what's on your mind`}
+                    aria-label={`Message to ${name}`}
+                    maxLength={2000}
+                    disabled={!!asking}
+                    readOnly={voice.listening}
+                    className="max-h-40 min-h-[2.75rem] min-w-0 flex-1 resize-none self-center bg-transparent py-0.5 text-[13.5px] leading-5 text-ink placeholder:text-ink-faint focus:outline-none"
+                  />
+                  {voice.button}
+                  <Button type="submit" size="sm" icon={SendHorizontal} disabled={!text.trim() || !!asking}>
+                    Send
+                  </Button>
+                </form>
+                <p className="mt-1.5 truncate px-1 text-[11px] text-ink-faint">
+                  {voice.listening ? "Words appear as you talk · Enter sends · Esc cancels" : "Enter sends · Shift+Enter adds a line · she can add, move, schedule and finish tasks, and set goals"}
+                </p>
+              </div>
+            </div>
+          </>
+        )}
+        {memory && <MemoryDetail refId={memory.ref} threadId={memory.thread} onClose={() => setMemory(null)} />}
+        {claims.editor}
+      </div>
+    );
+  }
+
   return (
-    <div className="lift flex flex-col overflow-hidden rounded-xl border border-line bg-surface-1">
-      <div className="flex items-center gap-3 border-b border-line px-5 py-3">
-        {!talking && <Face mood={mood} react talking={!!saying && speech.sounding === saying.id} className="-my-3 size-14" />}
+    <div className={panel ? "flex h-full min-h-0 flex-col" : "lift flex flex-col overflow-hidden rounded-xl border border-line bg-surface-1"}>
+      <div className={cx("flex shrink-0 items-center border-b", panel ? "h-14 gap-2.5 border-chrome-line pr-2.5 pl-3.5" : "gap-3 border-line px-5 py-3")}>
+        {!talking && <Face mood={mood} react talking={!!saying && speech.sounding === saying.id} className={panel ? "size-9 shrink-0" : "-my-3 size-14"} />}
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 text-sm font-semibold text-ink">
-            {name}
+          <div className="flex min-w-0 items-center gap-1.5 text-[13.5px] font-semibold text-ink">
+            <span className="truncate">{name}</span>
             {attitudeOf(attitude) && (
-              <Badge tone={attitude === "angry" ? "danger" : "accent"} title={attitudeOf(attitude)!.means}>
+              <Badge tone={attitude === "angry" ? "danger" : "accent"} title={attitudeOf(attitude)!.means} className={panel ? "h-[18px] px-1.5 text-[11px]" : undefined}>
                 {attitudeOf(attitude)!.label}
               </Badge>
             )}
           </div>
-          <div className="text-xs text-ink-subtle">{providerName(d.config?.llm)} · changes your tasks and plan as you talk</div>
+          <div className="truncate text-[11.5px] text-ink-subtle">{panel ? providerName(d.config?.llm) : `${providerName(d.config?.llm)} · changes your tasks and plan as you talk`}</div>
         </div>
-        {!isHub && (
-          <>
-            <IconButton icon={aloud ? Volume2 : VolumeX} label={aloud ? "Stop reading replies aloud" : "Read replies aloud"} tone={aloud ? "secondary" : "ghost"} onClick={toggleAloud} disabled={talking} />
-            <Button size="sm" tone={talking ? "destroy" : "secondary"} icon={talking ? PhoneOff : AudioLines} onClick={talking ? endTalk : startTalk}>
-              {talking ? "End talk" : "Talk"}
-            </Button>
-          </>
-        )}
-        {!isHub && (
-          <IconButton icon={History} label="Past chats" active={!!past} onClick={browse} disabled={!!asking || talking} />
-        )}
-        {(thread || failure) && (
-          <Button size="sm" tone="ghost" icon={MessageSquarePlus} onClick={startOver} disabled={!!asking}>
-            New chat
-          </Button>
-        )}
+        <div className={cx("flex shrink-0 items-center", panel ? "gap-0.5" : "gap-1.5")}>
+          {!isHub && (
+            <>
+              <IconButton
+                size={panel ? "sm" : "md"}
+                icon={aloud ? Volume2 : VolumeX}
+                label={aloud ? "Stop reading replies aloud" : "Read replies aloud"}
+                tone={aloud ? "secondary" : "ghost"}
+                onClick={toggleAloud}
+                disabled={talking}
+              />
+              {panel && !talking ? (
+                <IconButton size="sm" icon={AudioLines} label={`Talk with ${name}`} onClick={startTalk} />
+              ) : (
+                <Button size="sm" tone={talking ? "destroy" : "secondary"} icon={talking ? PhoneOff : AudioLines} onClick={talking ? endTalk : startTalk}>
+                  {talking ? (panel ? "End" : "End talk") : "Talk"}
+                </Button>
+              )}
+              <IconButton size={panel ? "sm" : "md"} icon={History} label="Past chats" active={!!past} onClick={browse} disabled={!!asking || talking} />
+            </>
+          )}
+          {(thread || failure) &&
+            (panel ? (
+              <IconButton size="sm" icon={MessageSquarePlus} label="New chat" onClick={startOver} disabled={!!asking} />
+            ) : (
+              <Button size="sm" tone="ghost" icon={MessageSquarePlus} onClick={startOver} disabled={!!asking}>
+                New chat
+              </Button>
+            ))}
+        </div>
       </div>
 
       {talking ? (
         callView
       ) : (
         <>
-          <div ref={scroller} className="flex max-h-[min(34rem,58vh)] min-h-72 flex-col gap-4 overflow-y-auto px-5 py-5" aria-live={past ? "off" : "polite"}>
+          <div ref={scroller} className={cx("flex flex-col overflow-y-auto", panel ? "min-h-0 flex-1 gap-3.5 px-3.5 py-4" : "max-h-[min(34rem,58vh)] min-h-72 gap-4 px-5 py-5")} aria-live={past ? "off" : "polite"}>
             {past ? (
               <PastChats threads={past.threads} current={thread?.id ?? null} name={name} onOpen={open} onForget={forget} onMore={past.more ? older : undefined} />
             ) : messages.length === 0 && !asking ? (
-              <div className="my-auto flex flex-col items-center gap-4 py-4 text-center">
-                <Face mood="winking" react className="size-40" />
-                <p className="max-w-md text-[13px] leading-relaxed text-ink-subtle">
-                  Talk to {name} like you would to a person. Tell it about new work, ask what to do next, or say "move the report to tomorrow afternoon": it adds, moves, reschedules, and reassigns tasks for you, and tells you what it changed.
-                </p>
-                <div className="flex max-w-xl flex-wrap justify-center gap-2">
-                  {starters.map((s) => (
-                    <button
-                      key={s}
-                      type="button"
-                      onClick={() => send(s)}
-                      className="rounded-full border border-line-strong bg-surface-2 px-3 py-1.5 text-xs text-ink-muted transition-colors hover:border-line-3 hover:text-ink"
-                    >
-                      {s}
-                    </button>
-                  ))}
+              panel ? (
+                <div className="my-auto flex flex-col gap-4">
+                  <div className="flex flex-col items-center gap-3 text-center">
+                    <Face mood="winking" react className="size-28" />
+                    <p className="text-[12.5px] leading-relaxed text-ink-subtle">
+                      Tell {name} about new work, ask what to do next, or say "move the report to tomorrow afternoon". She changes your tasks and plan, and says what she changed.
+                    </p>
+                  </div>
+                  <div className="flex flex-col overflow-hidden rounded-[10px] border border-chrome-line">
+                    {starters.map((s, i) => (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => send(s)}
+                        className={cx("flex items-center gap-2 px-3 py-2 text-left text-[12.5px] text-ink-muted transition-colors hover:bg-surface-1 hover:text-ink", i > 0 && "border-t border-chrome-line")}
+                      >
+                        <Sparkles size={12} className="shrink-0 text-ink-faint" aria-hidden />
+                        <span className="min-w-0 flex-1 truncate">{s}</span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="my-auto flex flex-col items-center gap-4 py-4 text-center">
+                  <Face mood="winking" react className="size-40" />
+                  <p className="max-w-md text-[13px] leading-relaxed text-ink-subtle">
+                    Talk to {name} like you would to a person. Tell it about new work, ask what to do next, or say "move the report to tomorrow afternoon": it adds, moves, reschedules, and reassigns tasks for you, and tells you what it changed.
+                  </p>
+                  <div className="flex max-w-xl flex-wrap justify-center gap-2">
+                    {starters.map((s) => (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => send(s)}
+                        className="rounded-full border border-line-strong bg-surface-2 px-3 py-1.5 text-xs text-ink-muted transition-colors hover:border-line-3 hover:text-ink"
+                      >
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )
             ) : (
               messages.map((m, i) => (
                 <Turn
                   key={m.id ?? i}
+                  compact={panel}
                   name={name}
                   message={m}
                   chips={isHub ? undefined : chips}
@@ -565,22 +801,26 @@ export default function AssistantChat({
                 />
               ))
             )}
-            {asking && !past && <Turn message={{ role: "user", text: asking.message, at: asking.since }} pending />}
+            {asking && !past && <Turn compact={panel} message={{ role: "user", text: asking.message, at: asking.since }} pending />}
           </div>
 
-          <div className="flex flex-col gap-3 border-t border-line bg-surface-2/40 px-5 py-4">
+          <div className={cx("flex shrink-0 flex-col gap-2.5 border-t", panel ? "border-chrome-line px-3 py-3" : "border-line bg-surface-2/40 px-5 py-4")}>
             {asking && <AiProgress since={asking.since} doing={`${name} is thinking`} />}
             {notices}
             {saying && <Speaking name={name} sounding={speech.sounding === saying.id} onStop={speech.stop} />}
             {voice.panel}
             <form
-              className="flex items-end gap-2"
+              className={cx(
+                "flex flex-col rounded-[10px] border bg-surface-2 transition-colors focus-within:border-accent",
+                voice.listening ? "border-accent/60" : "border-line-strong hover:border-line-3",
+                asking && "opacity-60",
+              )}
               onSubmit={(e) => {
                 e.preventDefault();
                 submit();
               }}
             >
-              <TextArea
+              <textarea
                 ref={input}
                 rows={2}
                 value={text}
@@ -596,20 +836,152 @@ export default function AssistantChat({
                 maxLength={2000}
                 disabled={!!asking}
                 readOnly={voice.listening}
-                className="min-w-0 flex-1 resize-none"
+                className="max-h-40 min-h-[2.75rem] w-full resize-none bg-transparent px-3 pt-2.5 text-[13.5px] leading-5 text-ink placeholder:text-ink-faint focus:outline-none"
               />
-              {voice.button}
-              <IconButton type="submit" tone="primary" icon={SendHorizontal} label="Send" disabled={!text.trim() || !!asking} />
+              <div className="flex items-center gap-1 px-1.5 pb-1.5">
+                <span className="min-w-0 flex-1 truncate pl-1.5 text-[11px] text-ink-faint">
+                  {voice.listening ? "Words appear as you talk · Enter sends · Esc cancels" : "Enter sends · Shift+Enter for a new line"}
+                </span>
+                {voice.button}
+                <IconButton type="submit" size="sm" tone="primary" icon={SendHorizontal} label="Send" disabled={!text.trim() || !!asking} />
+              </div>
             </form>
-            <p className="text-xs text-ink-faint">
-              {voice.listening ? "Talk, and your words appear as you go. Enter sends them, Esc cancels." : `Enter sends, Shift+Enter starts a new line${voice.button ? ", the mic lets you speak instead" : ""}.`}
-            </p>
           </div>
         </>
       )}
       {memory && <MemoryDetail refId={memory.ref} threadId={memory.thread} onClose={() => setMemory(null)} />}
       {claims.editor}
     </div>
+  );
+}
+
+/** What the Gwen › Chat screen does to the chat beside its list: open one, start a new one, delete one (true once deleted). */
+export interface ChatControl {
+  open: (id: string) => void;
+  startOver: () => void;
+  forget: (t: wire.ChatThread) => Promise<boolean>;
+}
+
+/** The chat on screen, for the list beside it: its id (null before the first reply), its length, and whether a turn or talk is under way. */
+export interface ChatState {
+  thread: string | null;
+  messages: number;
+  busy: boolean;
+}
+
+/** The provider and its model as a title: "Claude Code, sonnet". */
+function providerTitle(llm?: wire.LLMConfig | null): string {
+  const model = llm?.model ? `, ${llm.model}` : "";
+  switch (llm?.provider) {
+    case "claude_code":
+      return `Claude Code${model}`;
+    case "anthropic":
+      return `Anthropic API${model}`;
+    case "openai_compatible":
+      return `OpenAI-compatible API${model}`;
+    default:
+      return "No AI provider";
+  }
+}
+
+/** Since when her attitude holds: "since 2 pm", "since yesterday", "since Fri 9 Oct". */
+function sinceText(at: number): string {
+  const today = formatDay(new Date());
+  const day = formatDay(new Date(at));
+  if (day === today) {
+    const t = new Date(at);
+    return `since ${formatClock(t.getHours() * 60 + t.getMinutes(), true)}`;
+  }
+  return day === addDays(today, -1) ? "since yesterday" : `since ${formatDate(day)}`;
+}
+
+/** The mark over a day's first message: "Today, 2:31 pm". */
+function dayMark(at: number): string {
+  const today = formatDay(new Date());
+  const day = formatDay(new Date(at));
+  const label = day === today ? "Today" : day === addDays(today, -1) ? "Yesterday" : formatDate(day);
+  return `${label}, ${formatTime(at)}`;
+}
+
+/**
+ * A message on the Gwen › Chat screen: your words on the right; hers on the left beside her face, with the
+ * changes she made as chips, then what she remembered and noted, then the time and Read aloud.
+ */
+function ScreenTurn({
+  name,
+  message,
+  chips,
+  latest,
+  pending,
+  reading,
+  onRead,
+  onStop,
+}: {
+  name: string;
+  message: AssistantMessage;
+  chips?: Chips;
+  latest?: boolean;
+  pending?: boolean;
+  reading?: "preparing" | "sounding" | null;
+  onRead?: () => void;
+  onStop?: () => void;
+}) {
+  const user = message.role === "user";
+  const actions = message.actions ?? [];
+  const switched = attitudeOf(message.attitude);
+  return (
+    <>
+      <div className={cx("flex min-w-0 items-start gap-2.5", user ? "max-w-[72%] self-end" : "max-w-[84%]")}>
+        {!user && <Face mood={turnMood(message)} talking={reading === "sounding"} breathe={latest} className="size-9" />}
+        <div className={cx("flex min-w-0 flex-col gap-1.5", user && "items-end")}>
+          <div
+            className={cx(
+              "rounded-[14px] px-3.5 py-2.5 text-[13px] leading-relaxed whitespace-pre-line text-ink",
+              user ? "rounded-br-[4px] bg-accent/15" : "rounded-bl-[4px] bg-surface-2",
+              pending && "opacity-70",
+            )}
+          >
+            {message.text}
+          </div>
+          {actions.length > 0 && (
+            <ul className="flex flex-wrap gap-1.5" aria-label="What she changed">
+              {actions.map((a, i) => (
+                <li
+                  key={i}
+                  className={cx(
+                    "inline-flex max-w-full items-start gap-1.5 rounded-xl border px-2.5 py-1 text-[11.5px] leading-4 text-ink-muted",
+                    a.ok ? "border-success/25 bg-success/10" : "border-danger/30 bg-danger/10",
+                  )}
+                >
+                  {a.ok ? <Check size={12} strokeWidth={3} className="mt-0.5 shrink-0 text-success" aria-hidden /> : <CircleX size={12} className="mt-0.5 shrink-0 text-danger" aria-hidden />}
+                  <span className="min-w-0">
+                    {a.summary}
+                    {!a.ok && a.error && <span className="text-ink-subtle"> — not done: {a.error}</span>}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {chips && <MemoryChips name={name} message={message} chips={chips} />}
+          {message.at > 0 && !pending && (
+            <span className="flex items-center gap-2.5 px-1 text-[11px] text-ink-faint tabular-nums">
+              {formatTime(message.at)}
+              {onRead && (
+                <button type="button" onClick={reading ? onStop : onRead} className={cx("inline-flex items-center gap-1 transition-colors hover:text-ink", reading ? "text-accent-hover" : "text-ink-subtle")}>
+                  {reading === "preparing" ? <LoaderCircle size={11} className="animate-spin" aria-hidden /> : reading ? <Square size={11} aria-hidden /> : <Volume2 size={11} aria-hidden />}
+                  {reading ? "Stop reading" : "Read aloud"}
+                </button>
+              )}
+            </span>
+          )}
+        </div>
+      </div>
+      {switched && (
+        <p className="text-center text-[11.5px] text-ink-subtle" title={switched.means}>
+          {name} is {switched.label.toLowerCase()} with you now
+        </p>
+      )}
+    </>
   );
 }
 
@@ -686,6 +1058,7 @@ function Speaking({ name, sounding, onStop }: { name: string; sounding: boolean;
 }
 
 function Turn({
+  compact,
   name,
   message,
   chips,
@@ -695,6 +1068,8 @@ function Turn({
   onRead,
   onStop,
 }: {
+  /** In the narrow side panel: a smaller face and a wider bubble. */
+  compact?: boolean;
   name?: string;
   message: AssistantMessage;
   /** What the memory chips under it do; none, no chips. */
@@ -711,11 +1086,12 @@ function Turn({
   const switched = attitudeOf(message.attitude);
   return (
     <div className={cx("flex items-start gap-2.5", user && "flex-row-reverse")}>
-      {!user && <Face mood={turnMood(message)} talking={reading === "sounding"} breathe={latest} className="-mt-2 size-14" />}
-      <div className={cx("flex max-w-[85%] min-w-0 flex-col gap-2", user && "items-end")}>
+      {!user && <Face mood={turnMood(message)} talking={reading === "sounding"} breathe={latest} className={compact ? "size-8 shrink-0" : "-mt-2 size-14"} />}
+      <div className={cx("flex min-w-0 flex-col gap-2", compact ? (user ? "max-w-[88%] items-end" : "flex-1") : "max-w-[85%]", !compact && user && "items-end")}>
         <div
           className={cx(
-            "rounded-xl px-3.5 py-2.5 text-[13px] leading-relaxed whitespace-pre-line",
+            "rounded-xl text-[13px] leading-relaxed whitespace-pre-line",
+            compact ? "px-3 py-2" : "px-3.5 py-2.5",
             user ? "rounded-tr-sm bg-accent/15 text-ink" : "rounded-tl-sm border border-line bg-surface-2 text-ink-muted",
             pending && "opacity-70",
           )}
@@ -731,10 +1107,10 @@ function Turn({
           </div>
         )}
         {actions.length > 0 && (
-          <ul className="flex flex-col gap-1">
+          <ul className="flex flex-col overflow-hidden rounded-lg border border-line bg-surface-1">
             {actions.map((a, i) => (
-              <li key={i} className={cx("flex items-start gap-2 rounded-md border px-2.5 py-1.5 text-xs", a.ok ? "border-working/25 bg-working/8 text-ink" : "border-danger/25 bg-danger/8 text-ink-muted")}>
-                {a.ok ? <CircleCheck size={13} className="mt-px shrink-0 text-working" aria-hidden /> : <CircleX size={13} className="mt-px shrink-0 text-danger" aria-hidden />}
+              <li key={i} className={cx("flex items-start gap-2 px-2.5 py-1.5 text-xs leading-relaxed", i > 0 && "border-t border-chrome-line", a.ok ? "text-ink-muted" : "bg-danger/8 text-ink-muted")}>
+                {a.ok ? <CircleCheck size={13} className="mt-[3px] shrink-0 text-working" aria-hidden /> : <CircleX size={13} className="mt-[3px] shrink-0 text-danger" aria-hidden />}
                 <span className="min-w-0">
                   {a.summary}
                   {!a.ok && a.error && <span className="text-ink-subtle"> — not done: {a.error}</span>}

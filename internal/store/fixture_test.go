@@ -85,7 +85,7 @@ func (f *fx) closeDay(hms string) model.WorkDay {
 
 func (f *fx) project(name string) model.Project {
 	f.t.Helper()
-	p, err := f.r.Projects.Create(f.ctx, name, nil)
+	p, err := f.r.Projects.Create(f.ctx, name, nil, nil)
 	require.NoError(f.t, err)
 	return p
 }

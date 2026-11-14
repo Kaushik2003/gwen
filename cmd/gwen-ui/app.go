@@ -120,6 +120,38 @@ func (a *App) DeleteTasks(req wire.DeleteTasksRequest) (*wire.DeletedTasks, erro
 	return call(a.api.DeleteTasks(a.ctx, req))
 }
 
+func (a *App) ListAttachments(taskID string) (*wire.AttachmentList, error) {
+	return call(a.api.ListAttachments(a.ctx, taskID))
+}
+
+func (a *App) CreateAttachment(taskID string, req wire.CreateAttachmentRequest) (*wire.Attachment, error) {
+	return call(a.api.CreateAttachment(a.ctx, taskID, req))
+}
+
+func (a *App) PatchAttachment(id string, req wire.PatchAttachmentRequest) (*wire.Attachment, error) {
+	return call(a.api.PatchAttachment(a.ctx, id, req))
+}
+
+func (a *App) DeleteAttachment(id string) error {
+	return wrap(a.api.DeleteAttachment(a.ctx, id))
+}
+
+func (a *App) RefreshAttachment(id string) (*wire.Attachment, error) {
+	return call(a.api.RefreshAttachment(a.ctx, id))
+}
+
+func (a *App) ListConnectors() (*wire.ConnectorList, error) {
+	return call(a.api.ListConnectors(a.ctx))
+}
+
+func (a *App) SearchConnector(app, q string) (*wire.ConnectorItems, error) {
+	return call(a.api.SearchConnector(a.ctx, app, q))
+}
+
+func (a *App) LinkConnector(app string) (*wire.ConnectorLink, error) {
+	return call(a.api.LinkConnector(a.ctx, app))
+}
+
 func (a *App) StatsSummary(from, to string) (*wire.StatsSummary, error) {
 	return call(a.api.StatsSummary(a.ctx, from, to))
 }
@@ -137,6 +169,10 @@ func (a *App) NotifyTest() (*wire.NotifyTestResult, error) { return call(a.api.N
 func (a *App) NotifyPreview() (*wire.NotifyPreview, error) { return call(a.api.NotifyPreview(a.ctx)) }
 
 func (a *App) Nudges(card bool) (*wire.NudgeList, error) { return call(a.api.Nudges(a.ctx, card)) }
+
+// WindowFocus tells gwend whether this window has your focus, so nudges
+// show here alone while it does.
+func (a *App) WindowFocus(focused bool) error { return wrap(a.api.WindowFocus(a.ctx, focused)) }
 
 func (a *App) ActOnNudge(kind, action string) error {
 	return wrap(a.api.ActOnNudge(a.ctx, kind, action))
@@ -202,13 +238,12 @@ func (a *App) IsNowCard() bool { return a.nowCard }
 // conversation with Gwen opened from the panel widget.
 func (a *App) IsTalk() bool { return a.talk }
 
-// OpenDashboard shows the Gwen window on a screen, or "" for Today
-// (plan.md 3.15).
-func (a *App) OpenDashboard(screen string) error { return wrap(openGwen(a.api, screen)) }
+// OpenDashboard shows the Gwen window on a target (see screenArg), or ""
+// for Today (plan.md 3.15). The now card and Talk use it.
+func (a *App) OpenDashboard(target string) error { return wrap(openGwen(target)) }
 
-// OpenApp is the client's OpenApp: it fails while gwend is down, where
-// OpenDashboard starts the window anyway.
-func (a *App) OpenApp(screen string) error { return wrap(a.api.OpenApp(a.ctx, screen)) }
+// OpenApp is OpenDashboard, kept for older callers.
+func (a *App) OpenApp(target string) error { return a.OpenDashboard(target) }
 
 // Version is the GUI's own version.
 func (a *App) Version() string { return version }
@@ -222,6 +257,9 @@ func (a *App) SetCredential(name, value string) error { return wrap(a.host.setCr
 
 // OpenURL opens a link in the default browser.
 func (a *App) OpenURL(url string) error { return wrap(a.host.openURL(url)) }
+
+// OpenFile opens a file attached to a task in its usual app.
+func (a *App) OpenFile(path string) error { return wrap(a.host.openFile(path)) }
 
 // EnableService starts gwend now and at every login, as gwen setup service.
 func (a *App) EnableService() error { return wrap(a.host.enableService(a.ctx)) }

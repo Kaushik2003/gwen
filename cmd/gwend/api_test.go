@@ -24,7 +24,7 @@ func TestHealth(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, h.OK)
 	require.Equal(t, "1.0.0-test", h.Version)
-	require.Equal(t, int64(11), h.SchemaVersion)
+	require.Equal(t, int64(17), h.SchemaVersion)
 	require.NotZero(t, h.PID)
 }
 
@@ -132,6 +132,99 @@ func TestDayAndSegmentEdits(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, day.Segments, 1)
 	require.Equal(t, int64(90*60_000), day.Summary.WorkedMs)
+}
+
+func TestProjectFolder(t *testing.T) {
+	t.Parallel()
+	d := startDaemon(t, setup{})
+	dir := t.TempDir()
+	p, err := d.c.CreateProject(d.ctx, wire.CreateProjectRequest{Name: "gwen", Folder: testutil.Ptr(dir + "/")})
+	require.NoError(t, err)
+	require.Equal(t, dir, p.Folder, "kept clean")
+
+	up, err := d.c.PatchProject(d.ctx, p.ID, wire.PatchProjectRequest{Folder: testutil.Ptr("")})
+	require.NoError(t, err)
+	require.Equal(t, "", up.Folder)
+	require.Equal(t, p.Rev, up.Rev, "a folder alone changes nothing that syncs")
+
+	ae := apiErr(t, ignore(d.c.PatchProject(d.ctx, p.ID, wire.PatchProjectRequest{Folder: testutil.Ptr("relative/dir")})), wire.CodeInvalidRequest)
+	require.Equal(t, "folder", ae.Details["field"])
+	apiErr(t, ignore(d.c.PatchProject(d.ctx, p.ID, wire.PatchProjectRequest{Folder: testutil.Ptr(dir + "/missing")})), wire.CodeInvalidRequest)
+
+	up, err = d.c.PatchProject(d.ctx, p.ID, wire.PatchProjectRequest{Name: testutil.Ptr("Gwen"), Folder: testutil.Ptr(dir), Rev: &up.Rev})
+	require.NoError(t, err)
+	require.Equal(t, "Gwen", up.Name)
+	require.Equal(t, dir, up.Folder)
+}
+
+func ignore[T any](_ T, err error) error { return err }
+
+func TestSubProjects(t *testing.T) {
+	t.Parallel()
+	d := startDaemon(t, setup{})
+	parent := d.project("Projects")
+	require.Nil(t, parent.ParentID)
+	kutumb, err := d.c.CreateProject(d.ctx, wire.CreateProjectRequest{Name: "Kutumb", ParentID: &parent.ID})
+	require.NoError(t, err)
+	require.Equal(t, &parent.ID, kutumb.ParentID)
+	veer := d.project("Veer")
+	veer, err = d.c.PatchProject(d.ctx, veer.ID, wire.PatchProjectRequest{ParentID: wire.Some(parent.ID), Rev: &veer.Rev})
+	require.NoError(t, err)
+	require.Equal(t, &parent.ID, veer.ParentID)
+	list, err := d.c.ListProjects(d.ctx, "")
+	require.NoError(t, err)
+	for _, p := range list.Projects {
+		require.Equal(t, p.ID != parent.ID, p.ParentID != nil, p.Name)
+	}
+
+	other := d.project("Other")
+	refused := func(req wire.PatchProjectRequest, id, code, message string) {
+		t.Helper()
+		ae := apiErr(t, ignore(d.c.PatchProject(d.ctx, id, req)), code)
+		require.Equal(t, message, ae.Message)
+		require.Equal(t, "parent_id", ae.Details["field"])
+	}
+	refused(wire.PatchProjectRequest{ParentID: wire.Some(other.ID)}, other.ID, wire.CodeInvalidRequest,
+		"a project cannot be its own parent")
+	refused(wire.PatchProjectRequest{ParentID: wire.Some(kutumb.ID)}, other.ID, wire.CodeInvalidRequest,
+		"a sub-project cannot have sub-projects of its own")
+	refused(wire.PatchProjectRequest{ParentID: wire.Some(other.ID)}, parent.ID, wire.CodeInvalidRequest,
+		"a project with sub-projects cannot become a sub-project")
+	missing := "01926d2e-7a4b-7c3d-8e9f-000000000000"
+	refused(wire.PatchProjectRequest{ParentID: wire.Some(missing)}, other.ID, wire.CodeNotFound, "no project "+missing)
+	ae := apiErr(t, ignore(d.c.CreateProject(d.ctx, wire.CreateProjectRequest{Name: "Deeper", ParentID: &kutumb.ID})),
+		wire.CodeInvalidRequest)
+	require.Equal(t, "parent_id", ae.Details["field"])
+
+	// As the dashboard sends it: an absent parent_id keeps the parent, and
+	// null moves the project to the top level.
+	patch := func(body string) string {
+		t.Helper()
+		c := http.Client{Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			var dialer net.Dialer
+			return dialer.DialContext(ctx, "unix", d.socket)
+		}}}
+		req, err := http.NewRequest(http.MethodPatch, "http://gwend/v1/projects/"+veer.ID, strings.NewReader(body))
+		require.NoError(t, err)
+		resp, err := c.Do(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		require.Equal(t, http.StatusOK, resp.StatusCode, string(b))
+		return string(b)
+	}
+	require.Contains(t, patch(`{"name": "Veer!"}`), `"parent_id":"`+parent.ID+`"`)
+	require.Contains(t, patch(`{"parent_id": null}`), `"parent_id":null`)
+
+	archived, err := d.c.PatchProject(d.ctx, parent.ID, wire.PatchProjectRequest{Archived: testutil.Ptr(true)})
+	require.NoError(t, err)
+	got, err := d.c.GetProject(d.ctx, kutumb.ID)
+	require.NoError(t, err)
+	require.Equal(t, kutumb, got, "archiving a parent leaves its sub-projects alone")
+	require.NoError(t, d.c.DeleteProject(d.ctx, archived.ID))
+	got, err = d.c.GetProject(d.ctx, kutumb.ID)
+	require.NoError(t, err)
+	require.Nil(t, got.ParentID, "deleting a parent moves its sub-projects to the top level")
 }
 
 func TestProjectsAndTasks(t *testing.T) {

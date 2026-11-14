@@ -71,7 +71,7 @@ func (c *cli) projectCmd() *cobra.Command {
 		},
 	}
 
-	var color string
+	var color, parent string
 	add := &cobra.Command{
 		Use:   "add NAME",
 		Short: "Create a project",
@@ -81,6 +81,10 @@ func (c *cli) projectCmd() *cobra.Command {
 			if cmd.Flags().Changed("color") {
 				req.Color = &color
 			}
+			var err error
+			if req.ParentID, err = c.projectFlag(cmd.Context(), parent); err != nil {
+				return err
+			}
 			p, err := c.api.CreateProject(cmd.Context(), req)
 			if err != nil {
 				return err
@@ -89,11 +93,12 @@ func (c *cli) projectCmd() *cobra.Command {
 		},
 	}
 	add.Flags().StringVar(&color, "color", "", "colour like #10b981 (default: the next palette colour)")
+	add.Flags().StringVar(&parent, "parent", "", "put it under this project")
 
-	var name, eColor string
+	var name, eColor, eParent string
 	edit := &cobra.Command{
 		Use:   "edit P",
-		Short: "Rename or recolour a project",
+		Short: "Rename, recolour, or move a project",
 		Args:  args(1),
 		RunE: func(cmd *cobra.Command, a []string) error {
 			var req wire.PatchProjectRequest
@@ -103,14 +108,22 @@ func (c *cli) projectCmd() *cobra.Command {
 			if cmd.Flags().Changed("color") {
 				req.Color = &eColor
 			}
-			if req.Name == nil && req.Color == nil {
-				return usagef("give --name or --color")
+			if cmd.Flags().Changed("parent") {
+				p, err := c.projectFlag(cmd.Context(), eParent)
+				if err != nil {
+					return err
+				}
+				req.ParentID = wire.FromPtr(p)
+			}
+			if req.Name == nil && req.Color == nil && !req.ParentID.Set {
+				return usagef("give --name, --color, or --parent")
 			}
 			return c.patchProject(cmd.Context(), a[0], req)
 		},
 	}
 	edit.Flags().StringVar(&name, "name", "", "new name")
 	edit.Flags().StringVar(&eColor, "color", "", "new colour like #10b981")
+	edit.Flags().StringVar(&eParent, "parent", "", "put it under this project; none for the top level")
 
 	archive := &cobra.Command{
 		Use:   "archive P",

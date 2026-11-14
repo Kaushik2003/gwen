@@ -1,15 +1,17 @@
-// Command gwen-ui is Gwen's small windows: the tray's now card (--now) and
-// the Talk window (--talk), Wails windows over the React frontend in ui/,
-// talking to the daemon through the same client as the CLI. Gwen's screens
-// live in the Gwen window (plan.md 3.15): with no flag, gwen-ui opens that
-// on the screen --screen names. `gwen-ui host ...` answers Settings about
-// voice without a window.
+// Command gwen-ui is the Gwen app (plan.md 3.15): with no flag the Gwen
+// window, which holds every screen and the workbench (projects, terminals
+// from Gwen's herdr-core, files, and history); with --now the tray's now
+// card, and with --talk the Talk window. All are Wails windows over the
+// React frontend in ui/, talking to the daemon through the same client as
+// the CLI. `--open TARGET` (or the older `--screen NAME`) shows a screen, a
+// project, a session, or a terminal; a second launch hands it to the window
+// already open. `gwen-ui host ...` answers Settings about voice without a
+// window.
 package main
 
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io/fs"
 	"net/http"
@@ -71,30 +73,59 @@ func run() error {
 	if app.nowCard {
 		return wails.Run(nowCardOptions(app, api, assets))
 	}
-	if app.talk || bindingsBuild {
+	if app.talk {
 		return wails.Run(talkOptions(app, api, assets))
 	}
-	// Gwen's screens live in the Gwen window now (plan.md 3.15): with no
-	// flag, gwen-ui shows it on the screen asked for, as `gwen open` does.
-	return openGwen(api, app.screen)
+	return wails.Run(mainOptions(app, api, assets))
 }
 
-// openGwen shows the Gwen window on a screen, "" for Today: gwend opens it
-// and makes its Gwen space; without gwend the window still starts, and its
-// Gwen tabs offer to start her.
-func openGwen(api client.API, screen string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	err := api.OpenApp(ctx, screen)
-	if !errors.Is(err, client.ErrDaemonNotRunning) {
+// openGwen starts this program as the Gwen window on a target; when the
+// window is already open, the new process hands it the target and exits.
+func openGwen(target string) error {
+	exe, err := os.Executable()
+	if err != nil {
 		return err
 	}
-	bin, lookErr := exec.LookPath("gwen-term")
-	if lookErr != nil {
-		home, _ := os.UserHomeDir()
-		bin = filepath.Join(home, ".local", "bin", "gwen-term")
+	if target == "" {
+		return startCommand(exe)
 	}
-	return startCommand(bin)
+	return startCommand(exe, "--open", target)
+}
+
+// mainOptions is the Gwen window (plan.md 3.15). It has one instance: a
+// second launch hands its --open target to this one, which shows it.
+func mainOptions(app *App, api client.API, assets fs.FS) *options.App {
+	return &options.App{
+		Title:            "Gwen",
+		Width:            1440,
+		Height:           900,
+		MinWidth:         960,
+		MinHeight:        600,
+		BackgroundColour: &options.RGBA{R: 13, G: 16, B: 18, A: 255},
+		AssetServer:      &assetserver.Options{Assets: assets},
+		OnStartup: func(ctx context.Context) {
+			app.ctx = ctx
+			go forwardEvents(ctx, api)
+			// The terminal bridge (term.go) follows Gwen's herdr-core while the window is open.
+			app.startTerminals(ctx)
+		},
+		OnShutdown: func(context.Context) {
+			app.voice.cancel()
+			app.speech.stop()
+		},
+		Bind: []any{app},
+		SingleInstanceLock: &options.SingleInstanceLock{
+			UniqueId: "dev.gwen.ui",
+			OnSecondInstanceLaunch: func(data options.SecondInstanceData) {
+				runtime.WindowUnminimise(app.ctx)
+				runtime.WindowShow(app.ctx)
+				if target := screenArg(data.Args); target != "" {
+					runtime.EventsEmit(app.ctx, "gwen:navigate", target)
+				}
+			},
+		},
+		Linux: &linux.Options{ProgramName: "gwen-ui", WindowIsTranslucent: false},
+	}
 }
 
 // newDictation is voice input with its models under root. The model is freed
@@ -218,15 +249,18 @@ func decode(raw json.RawMessage) any {
 	return v
 }
 
-// screenArg is the screen named by --screen NAME or --screen=NAME, such as
-// the tray's "assistant" or "inbox", or "".
+// screenArg is the target named by --open TARGET, --open=TARGET, or the
+// older --screen NAME: a screen such as "inbox" or "settings/phone",
+// "project:<id>", "session:<id>", or "terminal:<address>"; "" for none.
 func screenArg(args []string) string {
 	for i, a := range args {
-		switch {
-		case a == "--screen" && i+1 < len(args):
-			return args[i+1]
-		case strings.HasPrefix(a, "--screen="):
-			return strings.TrimPrefix(a, "--screen=")
+		for _, flag := range []string{"--open", "--screen"} {
+			switch {
+			case a == flag && i+1 < len(args):
+				return args[i+1]
+			case strings.HasPrefix(a, flag+"="):
+				return strings.TrimPrefix(a, flag+"=")
+			}
 		}
 	}
 	return ""

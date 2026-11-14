@@ -3,6 +3,7 @@ package remote
 import (
 	"bytes"
 	"context"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -119,6 +120,11 @@ func changes(ctx context.Context, s store.CodeSession) wire.CodeChanges {
 	}
 	out.Git, out.Branch = true, gitBranch(ctx, root)
 	base := gitBase(ctx, root)
+	if base == "HEAD" {
+		if raw, err := git(ctx, root, "rev-parse", "--short", "HEAD"); err == nil {
+			out.Head = strings.TrimSpace(string(raw))
+		}
+	}
 	byPath := map[string]*wire.CodeChange{}
 	var order []string
 	add := func(c wire.CodeChange) *wire.CodeChange {
@@ -189,21 +195,115 @@ func changes(ctx context.Context, s store.CodeSession) wire.CodeChanges {
 			if c.Status != "untracked" {
 				continue
 			}
-			data, err := os.ReadFile(filepath.Join(root, c.Path))
+			binary, lines, err := untrackedStat(filepath.Join(root, c.Path))
 			if err != nil {
 				continue
 			}
-			if bytes.IndexByte(data[:min(len(data), 8000)], 0) >= 0 {
-				c.Binary = true
-			} else {
-				c.Added = countLines(string(data))
-			}
+			c.Binary, c.Added = binary, lines
 		}
 	}
 	for _, p := range order {
 		out.Files = append(out.Files, *byPath[p])
 	}
 	return out
+}
+
+// untrackedStat reads an untracked file a piece at a time: binary when its
+// first 8000 bytes hold a NUL (as git decides), else its line count, counted
+// as countLines does. Reading it whole held any large stray file (a build
+// output in the repo, say) in memory on every scan, which pushed gwend past its
+// MemoryHigh and left it thrashing.
+func untrackedStat(path string) (binary bool, lines int, err error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return false, 0, err
+	}
+	defer f.Close()
+	buf := make([]byte, 32<<10)
+	read, last := 0, byte(0)
+	for {
+		n, rerr := f.Read(buf)
+		if n > 0 {
+			chunk := buf[:n]
+			if read < 8000 && bytes.IndexByte(chunk[:min(n, 8000-read)], 0) >= 0 {
+				return true, 0, nil
+			}
+			lines += bytes.Count(chunk, []byte{'\n'})
+			read, last = read+n, chunk[n-1]
+		}
+		if rerr == io.EOF {
+			break
+		}
+		if rerr != nil {
+			return false, 0, rerr
+		}
+	}
+	if read > 0 && last != '\n' {
+		lines++
+	}
+	return false, lines, nil
+}
+
+// statOf totals the files a session changed, leaving out those that were
+// already changed when it started.
+func statOf(c wire.CodeChanges) wire.CodeStat {
+	var st wire.CodeStat
+	for _, f := range c.Files {
+		if f.BeforeSession {
+			continue
+		}
+		st.Files++
+		st.Added += f.Added
+		st.Removed += f.Removed
+	}
+	return st
+}
+
+// countChanges counts a session's changes again for its card, off the
+// event loop; a count asked for while one runs makes one more after it.
+// s.mu is held.
+func (s *Service) countChanges(sess *session) {
+	if sess.counting {
+		sess.recount = true
+		return
+	}
+	sess.counting = true
+	go s.count(sess.ID)
+}
+
+func (s *Service) count(id string) {
+	for {
+		s.mu.Lock()
+		sess := s.sessions[id]
+		if sess == nil {
+			s.mu.Unlock()
+			return
+		}
+		sess.recount = false
+		row := sess.CodeSession
+		s.mu.Unlock()
+
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		st := statOf(changes(ctx, row))
+		cancel()
+
+		s.mu.Lock()
+		sess = s.sessions[id]
+		if sess == nil {
+			s.mu.Unlock()
+			return
+		}
+		again := sess.recount
+		sess.counting = again
+		if sess.stat == nil || *sess.stat != st {
+			sess.stat = &st
+			s.opts.Publish(wire.EventCodeSession, s.wireSession(sess))
+		}
+		s.mu.Unlock()
+		if !again {
+			return
+		}
+	}
 }
 
 // diff is one file's unified diff against the last commit.

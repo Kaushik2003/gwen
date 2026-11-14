@@ -60,11 +60,8 @@ type options struct {
 	// remote runs Gwen on the phone and the code sessions of Gwen Terminal
 	// (plan.md 3.14).
 	remote bool
-	// app serves the API to Gwen's screens inside Gwen Terminal, on
-	// 127.0.0.1 with a token (plan.md 3.15).
-	app bool
-	// termHome, when set, is Gwen Terminal's folder: gwend puts the mod that
-	// draws Gwen's screens, her themes, and her key there at start.
+	// termHome, when set, is Gwen Terminal's folder: gwend puts Gwen's
+	// themes there at start (term.Install).
 	termHome string
 	// remotePeer overrides who may speak on the remote socket; tests use it.
 	remotePeer func(uid int) bool
@@ -142,8 +139,10 @@ func run(ctx context.Context, o options) (err error) {
 	if o.onLoop != nil {
 		o.onLoop(l)
 	}
+	conns := newConnectors()
 	srv := &api.Server{DB: db, Repos: repos, Tracker: l, Hub: hub, Notify: n, Clock: o.clk, Loc: o.loc,
-		ConfigPath: o.configPath, CredDir: config.CredentialsDir(o.dataDir), Version: o.version, PID: os.Getpid()}
+		ConfigPath: o.configPath, CredDir: config.CredentialsDir(o.dataDir), Version: o.version, PID: os.Getpid(),
+		Connectors: conns, Apps: conns.c}
 
 	if o.llm {
 		credDir := config.CredentialsDir(o.dataDir)
@@ -180,7 +179,20 @@ func run(ctx context.Context, o options) (err error) {
 		}
 		srv.Code = code
 		l.watchAway.Store(true)
+		l.answerCode = func(ctx context.Context, session, key string) {
+			ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+			defer cancel()
+			if res, err := code.Answer(ctx, session, wire.CodeAnswer{Key: key}); err != nil || !res.OK {
+				slog.Debug("notification answer", "session", session, "key", key, "err", err, "result", res.Message)
+			}
+		}
 	}
+	srv.Harness = newHarness(ctx, repos, srv, cal, o.clk, hub.Publish)
+	defer srv.Harness.Close()
+	if srv.Agent, err = newAgent(ctx, repos, srv, l, hub, o); err != nil {
+		return fmt.Errorf("agent: %w", err)
+	}
+	defer srv.Agent.Close()
 
 	ln, err := bindSocket(ctx, o.socketPath)
 	if err != nil {
@@ -230,18 +242,14 @@ func run(ctx context.Context, o options) (err error) {
 	httpSrv := &http.Server{Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	if o.termHome != "" {
 		if changed, err := term.Install(o.termHome); err != nil {
-			slog.Warn("Gwen's screens could not be put in the Gwen window", "err", err)
+			slog.Warn("Gwen's themes could not be put in Gwen Terminal", "err", err)
 		} else if changed {
-			slog.Info("put Gwen's screens in the Gwen window", "home", o.termHome)
+			slog.Info("updated Gwen's files in Gwen Terminal", "home", o.termHome)
 		}
 	}
-	var appLn *appListener
-	if o.app {
-		// Without it Gwen's screens show "Gwen isn't running"; everything else works.
-		var appErr error
-		if appLn, appErr = startApp(filepath.Dir(o.socketPath), srv.Handler()); appErr != nil {
-			slog.Error("Gwen's screens cannot reach this daemon", "err", appErr)
-		}
+	agentSrv, err := serveAgent(srv, o)
+	if err != nil {
+		slog.Error("agent socket", "err", err)
 	}
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- httpSrv.Serve(ln) }()
@@ -264,8 +272,9 @@ func run(ctx context.Context, o options) (err error) {
 	if sockets != nil {
 		sockets.close()
 	}
-	if appLn != nil {
-		appLn.close()
+	if agentSrv != nil {
+		_ = agentSrv.Close()
+		os.Remove(agentSocketPath(o))
 	}
 	stopLoop()
 	<-codeDone // the remote saves its sessions before the database closes

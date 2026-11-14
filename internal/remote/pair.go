@@ -11,7 +11,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -226,4 +228,42 @@ func servePublished(ctx context.Context, port int, socket string) bool {
 		}
 	}
 	return false
+}
+
+// phoneOrigin keeps the laptop's tailnet name for the WebSocket origin
+// check, so a terminal view doesn't wait on `tailscale status` each time.
+type phoneOrigin struct {
+	mu   sync.Mutex
+	host string
+	at   time.Time
+}
+
+// PhoneOrigin reports whether origin is the address the phone app is
+// published at: https://<this laptop's tailnet name>:<port>. Tailscale
+// Serve hands requests on to the remote socket with Host "localhost", so a
+// page's origin can't be compared with the request's Host there.
+func (s *Service) PhoneOrigin(ctx context.Context, origin string) bool {
+	u, err := url.Parse(origin)
+	if err != nil || u.Scheme != "https" || u.Hostname() == "" {
+		return false
+	}
+	port := u.Port()
+	if port == "" {
+		port = "443"
+	}
+	if port != strconv.Itoa(s.cfg().Remote.Port) {
+		return false
+	}
+	o := &s.origin
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	// A name that doesn't match is looked up again, at most once a minute,
+	// in case the machine was renamed in the tailnet.
+	if o.host == "" || !strings.EqualFold(o.host, u.Hostname()) && s.clk.Now().Sub(o.at) > time.Minute {
+		if host := tailscaleStatus(ctx).Host; host != "" {
+			o.host = host
+		}
+		o.at = s.clk.Now()
+	}
+	return o.host != "" && strings.EqualFold(o.host, u.Hostname())
 }

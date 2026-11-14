@@ -1,0 +1,481 @@
+/*
+Liquid Charts by Ojieame · https://liquid.ojieame.design · nathan@ojieame.design
+
+Liquid Charts
+Copyright (c) 2026 NATEPAY, LLC. This file is source-available under the Liquid Charts
+Source-Available Licence 1.0, not under MIT: https://liquid.ojieame.design/docs/licence
+
+Free to use and change in anything you make, commercial products and client work included, as
+long as the Liquid credit stays visible where the charts show it and this notice stays. You may
+not redistribute or sell it as a chart library, component library, UI kit, template, registry
+or other developer tool.
+
+The notices below, and any later in this file, are kept word for word. The work each one
+names keeps its own licence: the MIT notices below apply only to portions derived from the
+projects they name, and a font keeps its font licence.
+
+Liquid Charts adaptation. Original foundation: Evil Charts by Gurbinder.
+Upstream: ecbd6a5db7b25f9a7e070c02b2ef728c378eeb5c
+MIT License
+
+Copyright (c) 2026 Gurbinder
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Includes shadcn-derived primitives:
+MIT License
+
+Copyright (c) 2023 shadcn
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+*/
+/* The time family's own parts. Colours are the core frame's tokens (--chart-*), so both themes and
+ * any page that sets them agree. Series colours arrive as custom properties from ChartConfig. */
+
+.lc-time-frame {
+  container-type: inline-size;
+}
+
+/* Mark layers fill the plot; canvases bleed past it so the glow can fade. */
+.lc-time-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.lc-time-canvas {
+  position: absolute;
+  pointer-events: none;
+}
+.lc-time-flat {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.lc-time-marks {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* ——— Candlestick ——— */
+
+/* Wicks: fine flat strokes in the candle's colour, fading in once each body has filled. */
+.lc-time-wicks {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.lc-time-wick {
+  fill: none;
+  stroke: color-mix(in srgb, var(--wick) 78%, transparent);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+  transition:
+    stroke 200ms ease-out,
+    opacity 200ms ease-out;
+  animation: lc-time-wickIn var(--enter-label) ease-out var(--enter-delay) both;
+}
+.lc-time-frame[data-scheme="light"] .lc-time-wick,
+[data-scheme="light"] .lc-time-wick {
+  stroke: color-mix(in srgb, var(--wick) 82%, var(--chart-ink));
+}
+.lc-time-wick[data-dim="true"] {
+  opacity: 0.45;
+}
+@keyframes lc-time-wickIn {
+  from {
+    opacity: 0;
+  }
+}
+
+/* The volume pane's floor and its one tick. */
+.lc-time-paneRule {
+  position: absolute;
+  left: var(--plot-left);
+  right: var(--plot-right);
+  border-top: 1px solid var(--chart-zero);
+  pointer-events: none;
+}
+.lc-time-paneTick {
+  position: absolute;
+  translate: 0 -50%;
+  color: var(--chart-ink-3);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* The crosshair: a hairline through both panes and a quiet rule at the close. */
+.lc-time-crossX,
+.lc-time-crossY {
+  position: absolute;
+  pointer-events: none;
+}
+.lc-time-crossX {
+  width: 0;
+  border-left: 1px solid color-mix(in srgb, var(--chart-ink) 26%, transparent);
+}
+.lc-time-crossY {
+  height: 0;
+  border-top: 1px dashed color-mix(in srgb, var(--chart-ink) 30%, transparent);
+}
+
+/* The latest close: a quiet rule to the edge, the black hole, and the price in a tag. */
+.lc-time-latest {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  transition: opacity 180ms ease-out;
+}
+.lc-time-latest[data-visible="false"] {
+  opacity: 0.35;
+}
+.lc-time-latestRule {
+  position: absolute;
+  height: 0;
+  border-top: 1px dashed color-mix(in srgb, var(--latest) 55%, transparent);
+}
+/* Plain text on the rule: a halo in the card's glass knocks the dashes out behind it. */
+.lc-time-priceTag {
+  position: absolute;
+  translate: 0 -50%;
+  color: var(--chart-ink);
+  white-space: nowrap;
+  line-height: 18px;
+  text-shadow:
+    0 0 2px var(--chart-glass),
+    0 0 5px var(--chart-glass),
+    0 0 9px var(--chart-glass);
+}
+
+/* The period's high and low. */
+.lc-time-extreme {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+}
+
+/* The candle tooltip: a grid of open, high, low and close, then volume and the change. */
+.lc-time-candleTip {
+  min-width: 196px;
+  gap: 7px;
+}
+.lc-time-ohlc {
+  display: grid;
+  grid-template-columns: repeat(4, auto);
+  gap: 2px 14px;
+  align-items: end;
+}
+.lc-time-ohlcCell {
+  display: grid;
+  gap: 1px;
+  justify-items: start;
+}
+.lc-time-ohlcCell[data-close="true"] {
+  color: var(--chart-ink);
+}
+.lc-time-tipRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+}
+.lc-time-averageName {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.lc-time-averageSwatch {
+  width: 10px;
+  height: 2px;
+  border-radius: 1px;
+}
+.lc-time-tipFoot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--chart-hair);
+}
+.lc-time-tipNote {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--chart-ink-2);
+}
+.lc-time-tipNote::before {
+  content: "";
+  width: 1px;
+  height: 10px;
+  background: color-mix(in srgb, var(--chart-ink) 45%, transparent);
+}
+
+/* ——— Timeline ——— */
+
+.lc-time-timeline {
+  min-width: 0;
+}
+
+/* Vertical gridlines at the zoom level's ticks, with the label under the plot. */
+.lc-time-vgrid {
+  position: absolute;
+  width: 0;
+  border-left: 1px dashed var(--chart-hair);
+  pointer-events: none;
+}
+.lc-time-vtick {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  translate: -50% 0;
+  color: var(--chart-ink-3);
+  white-space: nowrap;
+}
+
+/* Lane names beside the rows; a group's name heads its lanes with a hairline. */
+.lc-time-rowLabel {
+  position: absolute;
+  left: 0;
+  translate: 0 -50%;
+  overflow: hidden;
+  color: var(--chart-ink-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+  transition:
+    color 180ms ease-out,
+    opacity 180ms ease-out;
+}
+.lc-time-rowLabel[data-active="true"] {
+  color: var(--chart-ink);
+}
+.lc-time-rowLabel[data-dim="true"] {
+  opacity: 0.45;
+}
+.lc-time-groupHeader {
+  position: absolute;
+  left: 0;
+  right: var(--plot-right);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  pointer-events: none;
+}
+.lc-time-groupHeader::after {
+  content: "";
+  flex: 1;
+  height: 0;
+  border-top: 1px solid var(--chart-hair);
+}
+.lc-time-groupName {
+  color: var(--chart-ink-3);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+/* The focused task's row, faintly raised. */
+.lc-time-rowBand {
+  position: absolute;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--chart-ink) 4%, transparent);
+  pointer-events: none;
+}
+
+/* Dependencies: quiet flat elbows; lit in the ink when they touch the task in focus. */
+.lc-time-connectors {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.lc-time-connector {
+  fill: none;
+  stroke: color-mix(in srgb, var(--chart-ink) 30%, transparent);
+  stroke-width: 1;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition:
+    stroke 180ms ease-out,
+    opacity 180ms ease-out;
+  animation: lc-time-connectorIn var(--enter-label) ease-out var(--enter-label-delay) both;
+}
+.lc-time-connector[data-lit="true"] {
+  stroke: color-mix(in srgb, var(--chart-ink) 78%, transparent);
+  stroke-width: 1.25;
+}
+.lc-time-connector[data-dim="true"] {
+  opacity: 0.35;
+}
+@keyframes lc-time-connectorIn {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Names on bars that share a row: inside the glass when they fit, else beside it. */
+.lc-time-barName {
+  position: absolute;
+  translate: 0 -50%;
+  color: var(--chart-ink-2);
+  white-space: nowrap;
+  pointer-events: none;
+  transition: opacity 180ms ease-out;
+  animation: lc-time-connectorIn var(--enter-label) ease-out var(--enter-label-delay) both;
+}
+.lc-time-barName[data-inside="true"] {
+  color: var(--chart-ink);
+  text-shadow: 0 1px 6px rgb(0 0 0 / 0.45);
+}
+.lc-time-frame[data-scheme="light"] .lc-time-barName[data-inside="true"] {
+  text-shadow: 0 1px 4px rgb(255 255 255 / 0.85);
+}
+.lc-time-barName[data-dim="true"] {
+  opacity: 0.35;
+}
+
+/* Flat diamonds (no WebGL, or forced flat). */
+.lc-time-flatDiamond {
+  stroke-width: 1.25;
+  transition: opacity 180ms ease-out;
+  animation: lc-time-connectorIn var(--enter-label) ease-out var(--enter-delay) both;
+}
+.lc-time-flatDiamond[data-dim="true"] {
+  opacity: 0.35;
+}
+
+/* The task tooltip. */
+.lc-time-taskTip {
+  min-width: 200px;
+  max-width: 280px;
+  gap: 5px;
+}
+.lc-time-taskTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--chart-ink);
+  font-weight: 600;
+}
+.lc-time-taskSwatch {
+  width: 10px;
+  height: 6px;
+  flex: none;
+  border-radius: 2px;
+  background: var(--tint);
+}
+.lc-time-taskSwatch[data-milestone="true"] {
+  width: 7px;
+  height: 7px;
+  border-radius: 1.5px;
+  rotate: 45deg;
+}
+.lc-time-progressRow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.lc-time-progressTrack {
+  position: relative;
+  width: 64px;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 2px;
+  /* The bar in small: the share done solid, the rest hatched as on the bar. */
+  background-color: color-mix(in srgb, var(--chart-ink) 8%, transparent);
+  background-image: repeating-linear-gradient(
+    -45deg,
+    color-mix(in srgb, var(--tint) 60%, transparent) 0 1.2px,
+    transparent 1.2px 3px
+  );
+}
+.lc-time-progressTrack > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: var(--tint);
+}
+.lc-time-slip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--chart-gain);
+}
+.lc-time-slip[data-late="true"] {
+  color: var(--chart-loss);
+}
+/* The slip's swatch: the bar's colour, etched like the stretch past the plan. */
+.lc-time-slipMark {
+  width: 10px;
+  height: 6px;
+  flex: none;
+  border-radius: 2px;
+  background-color: var(--tint);
+  background-image: repeating-linear-gradient(
+    -45deg,
+    rgb(255 255 255 / 0.55) 0 1.2px,
+    transparent 1.2px 3px
+  );
+}
+
+/* A narrow card keeps the tooltip small: the session's prices, volume and change. */
+@container (max-width: 440px) {
+  .lc-time-candleTip {
+    min-width: 0;
+  }
+  .lc-time-ohlc {
+    gap: 2px 10px;
+  }
+  .lc-time-averageRow,
+  .lc-time-onTheDay {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lc-time-wick,
+  .lc-time-connector,
+  .lc-time-barName,
+  .lc-time-flatDiamond {
+    animation: none;
+  }
+}

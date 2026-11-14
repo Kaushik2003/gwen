@@ -100,8 +100,9 @@ func daySummaryWire(d store.DaySummary) wire.DaySummary {
 
 func projectWire(p model.Project) wire.Project {
 	return wire.Project{
-		ID: p.ID, Name: p.Name, Color: p.Color, ArchivedAt: wire.MillisPtr(p.ArchivedAt),
-		CreatedAt: wire.Millis(p.CreatedAt), UpdatedAt: wire.Millis(p.UpdatedAt), Rev: p.Rev,
+		ID: p.ID, Name: p.Name, Color: p.Color, ArchivedAt: wire.MillisPtr(p.ArchivedAt), Folder: p.Folder,
+		ParentID: p.ParentID, AgentAutonomy: p.AgentAutonomy, CreatedAt: wire.Millis(p.CreatedAt),
+		UpdatedAt: wire.Millis(p.UpdatedAt), Rev: p.Rev,
 	}
 }
 

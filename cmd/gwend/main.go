@@ -37,7 +37,7 @@ func mainErr(args []string, stderr io.Writer) int {
 	dataDir := fs.String("data-dir", "", "database and credentials location (default $XDG_DATA_HOME/gwen)")
 	configPath := fs.String("config", "", "config file (default $XDG_CONFIG_HOME/gwen/config.toml)")
 	hub := fs.Bool("hub", false, "run as the sync hub")
-	installTerm := fs.Bool("install-term", false, "put Gwen's screens, themes and key in the Gwen window's folder, then exit")
+	installTerm := fs.Bool("install-term", false, "put Gwen's themes in Gwen Terminal's folder, then exit")
 	listen := fs.String("listen", ":7777", "hub listen address; only with --hub")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -102,7 +102,6 @@ func mainErr(args []string, stderr io.Writer) int {
 		keeper:     true,
 		memory:     true,
 		remote:     true,
-		app:        true,
 		termHome:   gwenTermHome(),
 	})
 	if err != nil {

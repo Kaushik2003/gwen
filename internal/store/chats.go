@@ -46,6 +46,22 @@ type ChatRepo interface {
 	// Search returns up to limit messages of live threads that share words
 	// with text, the best match first, leaving out the messages in skip.
 	Search(ctx context.Context, text string, limit int, skip []string) ([]model.ChatHit, error)
+	// Create starts an empty thread with a title, in a project or (nil) for
+	// everywhere (plan.md 3.16).
+	Create(ctx context.Context, title string, projectID *string) (model.ChatThread, error)
+	// ListIn is List for one place: a project's threads (project), the
+	// threads of no project (everywhere), or every thread (all).
+	ListIn(ctx context.Context, place ChatPlace, limit int) ([]model.ChatThread, error)
+	// Rename sets a live thread's title.
+	Rename(ctx context.Context, id, title string) (model.ChatThread, error)
+}
+
+// ChatPlace picks threads by where they belong: All, or Everywhere (no
+// project), or the threads of Project.
+type ChatPlace struct {
+	All        bool
+	Everywhere bool
+	Project    string
 }
 
 type chatRepo struct{ db *DB }
@@ -55,7 +71,7 @@ func NewChatRepo(db *DB) ChatRepo { return chatRepo{db} }
 
 // chatThreadCols reads a thread as t, with when its newest message was said
 // (its creation when it has none) and how many it has.
-const chatThreadCols = `t.id, t.title,
+const chatThreadCols = `t.id, t.title, t.project_id,
 	COALESCE((SELECT MAX(m.at) FROM chat_messages m WHERE m.thread_id = t.id AND m.deleted_at IS NULL), t.created_at)
 		AS last_at,
 	(SELECT COUNT(*) FROM chat_messages m WHERE m.thread_id = t.id AND m.deleted_at IS NULL),
@@ -63,14 +79,15 @@ const chatThreadCols = `t.id, t.title,
 
 func scanChatThread(s scanner) (model.ChatThread, error) {
 	var (
-		t    model.ChatThread
-		last int64
-		env  envelopeScan
+		t       model.ChatThread
+		project sql.NullString
+		last    int64
+		env     envelopeScan
 	)
-	if err := s.Scan(append([]any{&t.ID, &t.Title, &last, &t.Messages}, env.dest()...)...); err != nil {
+	if err := s.Scan(append([]any{&t.ID, &t.Title, &project, &last, &t.Messages}, env.dest()...)...); err != nil {
 		return model.ChatThread{}, err
 	}
-	t.LastAt, t.Envelope = timeOf(last), env.envelope()
+	t.ProjectID, t.LastAt, t.Envelope = stringPtr(project), timeOf(last), env.envelope()
 	return t, nil
 }
 
@@ -241,9 +258,10 @@ func (r chatRepo) append(ctx context.Context, tx *sql.Tx, threadID string, msgs 
 }
 
 func insertChatThread(ctx context.Context, q Querier, t model.ChatThread) error {
-	const qInsertChatThread = `INSERT INTO chat_threads (id, title, ` + envelopeCols + `) VALUES (?, ?, ?, ?, ?, ?, ?)`
-	_, err := q.ExecContext(ctx, qInsertChatThread, t.ID, t.Title, t.CreatedAt.UnixMilli(), t.UpdatedAt.UnixMilli(),
-		nullMillis(t.DeletedAt), t.DeviceID, t.Rev)
+	const qInsertChatThread = `INSERT INTO chat_threads (id, title, project_id, ` + envelopeCols + `)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+	_, err := q.ExecContext(ctx, qInsertChatThread, t.ID, t.Title, t.ProjectID, t.CreatedAt.UnixMilli(),
+		t.UpdatedAt.UnixMilli(), nullMillis(t.DeletedAt), t.DeviceID, t.Rev)
 	if err != nil {
 		return fmt.Errorf("insert chat: %w", classify(err))
 	}
@@ -444,3 +462,78 @@ var stopWords = func() map[string]bool {
 	}
 	return m
 }()
+
+func (r chatRepo) Create(ctx context.Context, title string, projectID *string) (model.ChatThread, error) {
+	var t model.ChatThread
+	err := r.db.InTx(ctx, func(tx *sql.Tx) error {
+		if projectID != nil {
+			if _, err := getProject(ctx, tx, *projectID); err != nil {
+				return err
+			}
+		}
+		now := r.db.Now()
+		id := model.NewID()
+		if err := insertChatThread(ctx, tx, model.ChatThread{ID: id, Title: chatTitle(title), ProjectID: projectID,
+			Envelope: model.Envelope{CreatedAt: now, UpdatedAt: now, DeviceID: r.db.DeviceID(), Rev: 1}}); err != nil {
+			return err
+		}
+		var err error
+		t, err = getChatThread(ctx, tx, id)
+		return err
+	})
+	if err != nil {
+		return model.ChatThread{}, fmt.Errorf("start a chat: %w", err)
+	}
+	return t, nil
+}
+
+func (r chatRepo) ListIn(ctx context.Context, place ChatPlace, limit int) ([]model.ChatThread, error) {
+	where, args := "", []any{}
+	switch {
+	case place.All:
+	case place.Everywhere:
+		where = " AND t.project_id IS NULL"
+	default:
+		where, args = " AND t.project_id = ?", append(args, place.Project)
+	}
+	q := `SELECT ` + chatThreadCols + ` FROM chat_threads t WHERE t.deleted_at IS NULL` + where +
+		` ORDER BY last_at DESC, t.id DESC LIMIT ?`
+	rows, err := r.db.sql.QueryContext(ctx, q, append(args, limit)...)
+	if err != nil {
+		return nil, fmt.Errorf("list chats: %w", err)
+	}
+	defer rows.Close()
+	out := []model.ChatThread{}
+	for rows.Next() {
+		t, err := scanChatThread(rows)
+		if err != nil {
+			return nil, fmt.Errorf("list chats: %w", err)
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+func (r chatRepo) Rename(ctx context.Context, id, title string) (model.ChatThread, error) {
+	title = chatTitle(title)
+	if title == "" {
+		return model.ChatThread{}, FailField(ErrInvalid, "title", "a chat needs a name")
+	}
+	var t model.ChatThread
+	err := r.db.InTx(ctx, func(tx *sql.Tx) error {
+		if _, err := getChatThread(ctx, tx, id); err != nil {
+			return err
+		}
+		const qRenameChat = `UPDATE chat_threads SET title = ?, updated_at = ?, device_id = ?, rev = rev + 1 WHERE id = ?`
+		if _, err := tx.ExecContext(ctx, qRenameChat, title, r.db.Now().UnixMilli(), r.db.DeviceID(), id); err != nil {
+			return classify(err)
+		}
+		var err error
+		t, err = getChatThread(ctx, tx, id)
+		return err
+	})
+	if err != nil {
+		return model.ChatThread{}, fmt.Errorf("rename chat %s: %w", id, err)
+	}
+	return t, nil
+}

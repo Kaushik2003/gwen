@@ -20,9 +20,9 @@ DATA_HOME := $(or $(XDG_DATA_HOME),$(HOME)/.local/share)
 SHERPA_LIB = $(shell $(GO) list -m -f '{{.Dir}}' github.com/k2-fsa/sherpa-onnx-go-linux)/lib/x86_64-unknown-linux-gnu
 VOICE_LIBS := libsherpa-onnx-c-api.so libonnxruntime.so
 
-.PHONY: build ui build-hub check docs-check package install-dev clean ui-stub term term-update
+.PHONY: build ui ui-fresh build-hub check docs-check package install-dev clean ui-stub term term-update
 
-build: ui-stub
+build: ui-fresh
 	@mkdir -p bin
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags '$(LDFLAGS)' -o bin/ ./cmd/gwend ./cmd/gwen ./cmd/gwen-tray
 	cd cmd/gwen-ui && CGO_LDFLAGS='-Wl,-rpath,$$ORIGIN/../lib/gwen' $(GO) tool wails build -tags $(TAGS) -trimpath -ldflags '$(LDFLAGS)' -o gwen-ui
@@ -33,6 +33,15 @@ build: ui-stub
 
 ui:
 	cd ui && npm ci && npm run build && npm run build:mobile
+
+# Every web part a build embeds, made fresh so an install never ships an old copy: the npm packages when
+# package-lock.json changed, and the phone app and hub page, which gwend embeds. The Gwen window's ui/dist is
+# built by Wails itself (cmd/gwen-ui/wails.json), with the type check.
+ui-fresh: ui-stub
+	@if [ ! -d ui/node_modules ] || [ ui/package-lock.json -nt ui/node_modules/.package-lock.json ]; then \
+		(cd ui && npm ci); \
+	fi
+	cd ui && npm run build:mobile && npm run build:hub
 
 # Gwen Terminal: gwen-term, the fork of Herdr's app in its own checkout
 # ($(TERM_DIR), default ~/Documents/coding/gwen-term), and herdr-core at the
@@ -74,10 +83,10 @@ install-dev: build
 	install -m 0644 $(addprefix bin/lib/,$(VOICE_LIBS)) $(HOME)/.local/lib/gwen/
 	sed 's|^ExecStart=.*|ExecStart=%h/.local/bin/gwend|' packaging/gwend.service > $(CONFIG_HOME)/systemd/user/gwend.service
 	systemctl --user daemon-reload
-	@# One "Gwen" in the launcher: it opens the Gwen window on Today (plan.md 3.15). This
-	@# copy also hides an older packaged entry of the same name, which opened the old dashboard.
+	@# One "Gwen" in the launcher: it opens the Gwen window (gwen-ui) on Today (plan.md 3.15).
+	@# This copy also hides an older packaged entry of the same name, and Gwen Terminal's own entry.
 	install -d $(DATA_HOME)/applications
-	sed -e 's|^Exec=gwen |Exec=$(HOME)/.local/bin/gwen |' -e 's|^Icon=gwen$$|Icon=gwen-term|' packaging/gwen.desktop > $(DATA_HOME)/applications/gwen.desktop
+	sed -e 's|^Exec=gwen |Exec=$(HOME)/.local/bin/gwen |' packaging/gwen.desktop > $(DATA_HOME)/applications/gwen.desktop
 	@if [ -f $(DATA_HOME)/applications/gwen-term.desktop ] && ! grep -q '^NoDisplay=true' $(DATA_HOME)/applications/gwen-term.desktop; then \
 		echo "NoDisplay=true" >> $(DATA_HOME)/applications/gwen-term.desktop; \
 	fi
@@ -85,12 +94,17 @@ install-dev: build
 	@if command -v kpackagetool6 >/dev/null; then \
 		kpackagetool6 -t Plasma/Applet -u packaging/plasma/dev.gwen.panel 2>/dev/null || kpackagetool6 -t Plasma/Applet -i packaging/plasma/dev.gwen.panel; \
 	fi
+	@# Gwen's terminals: herdr-core and Gwen Terminal, built only when missing or not at the pinned release.
+	@scripts/term.sh ensure
+	@# A running gwend switches to the new build now; a stopped one stays stopped.
+	systemctl --user try-restart gwend
+	@echo "Installed. Close and reopen the Gwen window to use its new build."
 
 clean:
 	rm -rf bin dist
 
-# Package ui embeds ui/dist and ui/dist-mobile, which only `make ui` builds,
-# and ui/dist-hub, which only `make build-hub` builds. Until then placeholder pages let every
+# Package ui embeds ui/dist, ui/dist-mobile and ui/dist-hub, which `make ui`, `make build`
+# (ui-fresh and Wails) and `make build-hub` build. Until then placeholder pages let every
 # Go package compile.
 ui-stub:
 	@if [ -f ui/embed.go ] && [ ! -e ui/dist/index.html ]; then \

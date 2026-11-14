@@ -1,0 +1,122 @@
+/* Today on the phone (the phone redo, P1) and the add-a-task sheet (P6): Now, Needs you, today's agenda, and +. */
+
+.td { padding: 0 12px 96px; display: flex; flex-direction: column; gap: 14px; }
+.td-head { display: flex; align-items: center; gap: 10px; padding: calc(var(--safe-top) + 14px) 4px 2px; }
+.td-head h1 { font-size: 21px; font-weight: 600; letter-spacing: -0.2px; line-height: 27px; }
+.td-head .status { margin-top: 0; font-size: 12.5px; }
+.td-face { width: 44px; height: 44px; border-radius: 22px; overflow: hidden; background: #f2f1ed; flex: none; display: block; }
+.td-face img { width: 44px; height: 44px; object-fit: cover; display: block; }
+
+.td-eyebrow { display: flex; align-items: center; gap: 8px; padding: 0 4px 6px; min-height: 22px; }
+.td-eyebrow b { font-size: 11.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); }
+.td-eyebrow .td-count { font-size: 11.5px; font-weight: 600; height: 20px; min-width: 20px; padding: 0 7px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; background: var(--amber-bg); color: var(--amber); }
+.td-eyebrow .td-meta { font-size: 12px; color: var(--faint); }
+
+.td-card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+.td-card > * + * { border-top: 1px solid var(--divider); }
+
+/* Now */
+.td-now { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 12px 12px 12px 14px; display: flex; flex-direction: column; gap: 2px; }
+.td-now.td-on { background: linear-gradient(0deg, rgba(39, 166, 68, 0.07), rgba(39, 166, 68, 0.07)), var(--card); border-color: rgba(39, 166, 68, 0.28); }
+.td-now.td-brk { background: linear-gradient(0deg, rgba(242, 179, 61, 0.07), rgba(242, 179, 61, 0.07)), var(--card); border-color: var(--amber-line); }
+.td-now-top { display: flex; align-items: center; gap: 8px; }
+.td-now-top .td-state { font-size: 11.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+.td-now-top .td-clock { margin-left: auto; font-family: var(--mono); font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.td-now-top .td-clock small { font-size: 15px; color: var(--dim); font-weight: 500; }
+.td-now-title { font-size: 16px; font-weight: 600; line-height: 22px; margin-top: 2px; }
+.td-now-sub { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); min-width: 0; }
+.td-bar { height: 3px; border-radius: 2px; background: var(--divider); margin-top: 8px; overflow: hidden; }
+.td-bar i { display: block; height: 100%; background: var(--green-dot); border-radius: 2px; }
+.td-now-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+.td-now-actions .btn { padding: 0 8px; font-size: 13px; height: 44px; }
+.td-now-actions.one { grid-template-columns: 1fr; }
+.td-now-actions.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+.td-dot { width: 8px; height: 8px; border-radius: 4px; flex: none; }
+.td-sq { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+
+/* Needs you */
+.td-need { padding: 11px 12px; display: flex; flex-direction: column; gap: 8px; }
+.td-need-head { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+.td-need-ic { width: 30px; height: 30px; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.td-need-ic.face { border-radius: 15px; overflow: hidden; background: #f2f1ed; }
+.td-need-ic.face img { width: 30px; height: 30px; object-fit: cover; }
+.td-need-ic.amber { background: var(--amber-bg); color: var(--amber); }
+.td-need-ic.green { background: var(--green-bg); color: var(--green); }
+.td-need-text { flex: 1; min-width: 0; font-size: 13.5px; line-height: 19px; }
+.td-need-text b { font-weight: 600; }
+.td-need-text .muted { color: var(--muted); }
+.td-need-text .td-why { display: block; font-size: 12px; color: var(--faint); margin-top: 1px; }
+.td-need-title { display: block; color: var(--fg); font-weight: 500; margin-top: 1px; }
+.td-risk { display: inline-flex; align-items: center; gap: 4px; margin-top: 4px; font-size: 11.5px; font-weight: 500; height: 22px; padding: 0 8px; border-radius: 11px; background: var(--red-bg); color: var(--red); }
+.td-risk.calm { background: var(--card-2); color: var(--muted); }
+.td-kv { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; margin: 0; padding: 9px 10px; border-radius: 9px; background: var(--term); border: 1px solid var(--divider); font-size: 13px; line-height: 18px; max-height: 168px; overflow-y: auto; }
+.td-kv dt { color: var(--faint); }
+.td-kv dd { margin: 0; color: var(--text-2); white-space: pre-wrap; word-break: break-word; }
+.td-kv dd.mono { font-size: 12.5px; }
+.td-buttons { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.td-buttons.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.td-buttons .btn { padding: 0 8px; }
+.td-done-row { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 54px; padding: 8px 12px; text-align: left; }
+.td-done-row .td-open { font-size: 13px; font-weight: 500; color: var(--fg); flex: none; }
+.td-empty { display: flex; align-items: center; gap: 10px; padding: 14px; font-size: 13.5px; color: var(--muted); }
+.td-empty svg { color: var(--green); flex: none; }
+
+/* The agenda and the task lists */
+.td-ag { display: flex; align-items: center; gap: 6px; min-height: 58px; padding: 6px 8px 6px 4px; }
+.td-ag.done .td-ag-title { color: var(--faint); text-decoration: line-through; }
+.td-tick { width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.td-tick i { width: 20px; height: 20px; border-radius: 6px; border: 1.5px solid var(--border-2); display: inline-flex; align-items: center; justify-content: center; color: #101418; }
+.td-tick.on i { background: var(--green-dot); border-color: var(--green-dot); }
+.td-ag-text { flex: 1; min-width: 0; }
+.td-ag-title { font-size: 14px; line-height: 19px; }
+.td-ag-sub { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--faint); min-width: 0; margin-top: 1px; }
+.td-chip { flex: none; font-size: 11.5px; font-weight: 500; height: 22px; padding: 0 8px; border-radius: 11px; display: inline-flex; align-items: center; gap: 5px; }
+.td-chip.blue { background: var(--blue-bg); color: var(--blue); }
+.td-chip.green { background: var(--green-bg); color: var(--green); }
+.td-start { width: 44px; height: 44px; border-radius: 11px; background: var(--card-2); border: 1px solid var(--border); display: inline-flex; align-items: center; justify-content: center; flex: none; color: var(--fg); }
+.td-group { padding: 10px 14px 2px; display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; color: var(--text-2); }
+.td-none { padding: 14px; font-size: 13.5px; line-height: 19px; color: var(--muted); }
+
+.td-fab {
+  position: fixed; right: 16px; bottom: calc(var(--tabbar-h) + 16px); z-index: 31; width: 56px; height: 56px; border-radius: 18px;
+  background: var(--accent); color: #fff; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 10px 24px rgba(215, 38, 56, 0.35);
+}
+.td-fab:active { background: #b81f30; }
+
+/* Sheets */
+.td-sheet-list { display: flex; flex-direction: column; }
+.td-pick { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 50px; padding: 4px 18px; text-align: left; font-size: 15px; }
+.td-pick:active { background: var(--card-2); }
+.td-pick.on { background: var(--picked); }
+.td-pick .td-ag-sub { margin: 0; }
+.td-pick-head { padding: 12px 18px 4px; display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--faint); }
+
+/* The task sheet */
+.ts { display: flex; flex-direction: column; gap: 14px; padding: 0 16px; }
+.ts-label { display: block; font-size: 12px; font-weight: 500; color: var(--faint); margin-bottom: 6px; }
+.ts-title { font-size: 16px; font-weight: 600; line-height: 22px; }
+.ts-pills { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; margin: 0 -16px; padding: 0 16px 2px; }
+.ts-pills::-webkit-scrollbar { display: none; }
+.ts-pill {
+  flex: none; height: 40px; padding: 0 13px; border-radius: 20px; border: 1px solid var(--border-2); background: var(--card-2); color: var(--text-2);
+  font-size: 13.5px; display: inline-flex; align-items: center; gap: 7px; white-space: nowrap;
+}
+.ts-pill[aria-pressed="true"] { background: var(--fg); border-color: var(--fg); color: #101418; font-weight: 500; }
+.ts-choices { display: flex; gap: 8px; }
+.ts-choice { flex: 1; min-width: 0; height: 44px; border-radius: 10px; border: 1px solid var(--border-2); background: var(--card-2); color: var(--muted); font-size: 13.5px; font-weight: 500; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.ts-choice[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-bg); color: var(--accent-text); }
+.ts-date { margin-top: 8px; }
+.ts-gwen { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12.5px; color: var(--muted); }
+.ts-gwen img { width: 22px; height: 22px; border-radius: 11px; object-fit: cover; background: #f2f1ed; flex: none; }
+.ts-brief { padding: 12px; border-radius: 12px; background: var(--bg); border: 1px solid var(--border); display: flex; flex-direction: column; gap: 10px; }
+.ts-brief-head { display: flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 500; }
+.ts-brief-head span { margin-left: auto; font-size: 12px; font-weight: 400; color: var(--faint); }
+.ts-brief textarea { font-size: 15px; min-height: 92px; }
+.ts-warn { font-size: 12.5px; line-height: 18px; color: var(--amber); }
+.ts-actions { display: grid; grid-template-columns: 1fr 1.3fr; gap: 8px; padding-top: 2px; }
+.ts-actions.one { grid-template-columns: 1fr; }
+.ts-actions .btn { height: 48px; border-radius: 12px; font-size: 14.5px; }
+
+/* An inline action in a sheet's note, a full finger wide. */
+.ts-link { display: inline-flex; align-items: center; min-height: 44px; color: var(--accent-text); font-weight: 500; text-decoration: underline; text-underline-offset: 3px; }

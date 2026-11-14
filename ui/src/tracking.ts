@@ -34,6 +34,12 @@ export function useTracking() {
     },
     /** Whether the clock is running on this task right now. */
     isTracking: (taskId: string) => working && d.status?.task_id === taskId,
+    /** Its tracked time now: what the daemon counted when tasks loaded, plus the running segment since. */
+    trackedNow(task: { id: string; tracked_ms: number }): number {
+      const seg = d.status?.open_segment;
+      if (!working || d.status?.task_id !== task.id || !seg) return task.tracked_ms;
+      return task.tracked_ms + Math.max(0, d.now() - Math.max(d.tasksAt, seg.started_at));
+    },
     breakStart: () => d.act(() => App.BreakStart()),
     breakEnd: () => d.act(() => App.BreakEnd()),
     snooze: () => d.act(() => App.Snooze()),

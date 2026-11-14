@@ -54,7 +54,7 @@ func TestDefaultsMatchTheSpec(t *testing.T) {
 	t.Parallel()
 	w := config.Defaults().Wire()
 	require.Equal(t, wire.Config{
-		Tracking: wire.TrackingConfig{DailyTarget: "8h", SoftIdle: "3m", HardIdle: "10m", DayRollover: "04:00"},
+		Tracking: wire.TrackingConfig{DailyTarget: "8h", SoftIdle: "3m", HardIdle: "10m", DayRollover: "04:00", FollowTabs: true},
 		Nudge:    wire.NudgeConfig{Desktop: true, Phone: false, BreakReminder: "15m", Repeat: "10m", Snooze: "10m"},
 		Ntfy:     wire.NtfyConfig{Server: "https://ntfy.sh", FallbackServer: "", Topic: ""},
 		Planner:  wire.PlannerConfig{DayStart: "09:00", DayEnd: "23:00", Buffer: "30m", EatTheFrog: true},
@@ -66,7 +66,8 @@ func TestDefaultsMatchTheSpec(t *testing.T) {
 		Sync: wire.SyncConfig{HubURL: "", Interval: "5m"},
 		Remote: wire.RemoteConfig{Enabled: false, Port: 8443, Roots: []string{"~"}, KeepAwake: "working", Push: true,
 			SandboxExtra: []string{}, CoreSocket: ""},
-		Log: wire.LogConfig{Level: "info"},
+		Agent: wire.AgentConfig{Enabled: true, Autonomy: "balanced", IdleStop: "10m", MaxLive: 3, TurnTimeout: "20m"},
+		Log:   wire.LogConfig{Level: "info"},
 	}, w)
 }
 

@@ -1,0 +1,259 @@
+/*
+Liquid Charts by Ojieame · https://liquid.ojieame.design · nathan@ojieame.design
+
+Liquid Charts adaptation. Original foundation: Evil Charts by Gurbinder.
+Upstream: ecbd6a5db7b25f9a7e070c02b2ef728c378eeb5c
+MIT License
+
+Copyright (c) 2026 Gurbinder
+Copyright (c) 2026 NATEPAY, LLC (Liquid Charts additions)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Includes shadcn-derived primitives:
+MIT License
+
+Copyright (c) 2023 shadcn
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+*/
+/* The chart type system: Sofia Sans Semi Condensed at its natural width, in five roles. Colours
+   come from the surrounding text, so the roles work on dark and light cards alike.
+   The face never depends on the page: `--font-chart` (next/font) or an installed Sofia Sans Semi
+   Condensed, else Arial sized to the same average advance (the metrics next/font's own fallback
+   uses), so labels measured by `textWidth` fit with or without the chart font. Weights up to 599
+   use the regular face (bold Arial runs about 8% wider), heavier figures a bold face sized down
+   to the same widths. */
+@font-face {
+  font-family: "Liquid Charts Fallback";
+  src:
+    local("Arial"), local("ArialMT"), local("Helvetica"), local("Liberation Sans"), local("Arimo");
+  font-weight: 1 599;
+  ascent-override: 98.1%;
+  descent-override: 32.7%;
+  line-gap-override: 0%;
+  size-adjust: 91.75%;
+}
+@font-face {
+  font-family: "Liquid Charts Fallback";
+  src:
+    local("Arial Bold"), local("Arial-BoldMT"), local("Helvetica Bold"),
+    local("Liberation Sans Bold"), local("Arimo Bold");
+  font-weight: 600 1000;
+  ascent-override: 105.5%;
+  descent-override: 35.2%;
+  line-gap-override: 0%;
+  size-adjust: 85.3%;
+}
+.lc-type-root {
+  font-family: var(--font-chart, "Sofia Sans Semi Condensed"), "Liquid Charts Fallback", sans-serif;
+  font-feature-settings: "lnum" 1;
+}
+
+/* A figure: the whole part leads; currency, unit and cents are smaller and quieter. */
+.lc-type-figure,
+.lc-type-figureFace {
+  display: inline-flex;
+  align-items: baseline;
+  white-space: nowrap;
+}
+
+/* Rolling digits at the face's own widths. */
+.lc-type-digits {
+  display: inline-flex;
+}
+.lc-type-digit,
+.lc-type-glyph {
+  display: inline-block;
+  height: 1.15em;
+  line-height: 1.15em;
+}
+.lc-type-digit {
+  overflow: hidden;
+  text-align: center;
+  -webkit-mask-image: linear-gradient(transparent, #000 18%, #000 82%, transparent);
+  mask-image: linear-gradient(transparent, #000 18%, #000 82%, transparent);
+}
+.lc-type-strip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.lc-type-strip > span {
+  display: block;
+  height: 1.15em;
+}
+.lc-type-digits[data-ready="true"] .lc-type-digit {
+  transition: width 520ms cubic-bezier(0.2, 1.2, 0.35, 1);
+}
+.lc-type-digits[data-ready="true"] .lc-type-strip {
+  transition: transform 520ms cubic-bezier(0.2, 1.2, 0.35, 1);
+}
+.lc-type-srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+@media (prefers-reduced-motion: reduce) {
+  .lc-type-digits[data-ready="true"] .lc-type-digit,
+  .lc-type-digits[data-ready="true"] .lc-type-strip {
+    transition: none;
+  }
+}
+.lc-type-sign {
+  margin-right: 0.04em;
+}
+.lc-type-unit {
+  margin: 0 0.05em;
+  font-size: 0.7em;
+  opacity: 0.66;
+}
+/* A unit after the number sits a thin space away. */
+.lc-type-suffix {
+  margin-left: 0.18em;
+}
+/* Cents, quieter than the whole units: the chart's quiet ink inside a chart, else the figure's own
+ * ink at 70%. Both clear WCAG AA (4.5:1) as small type on paper and card; the old 45% opacity was
+ * 3.0–4.2:1. */
+.lc-type-minor {
+  font-size: 0.7em;
+  color: var(--chart-ink-3, color-mix(in srgb, currentColor 70%, transparent));
+}
+/* Only cents are minor; a percent's decimals are part of the reading. */
+.lc-type-figure[data-kind="percent"] .lc-type-minor,
+.lc-type-figure[data-kind="number"] .lc-type-minor,
+.lc-type-figure[data-kind="currencyCompact"] .lc-type-minor,
+.lc-type-figure[data-kind="compact"] .lc-type-minor {
+  font-size: inherit;
+  color: inherit;
+}
+
+/* Every figure is set in the chart face, whatever page or wrapper it sits in. The doubled class
+   outranks single-class overrides elsewhere; Figure measures its own digit widths, so it takes
+   default (not tabular) figures. */
+.lc-type-figure.lc-type-figure[data-kind] {
+  font-family: var(--font-chart, "Sofia Sans Semi Condensed"), "Liquid Charts Fallback", sans-serif;
+  font-feature-settings: "lnum" 1;
+  font-variant-numeric: normal;
+}
+
+/* Roles carry the face themselves, so a role keeps it however the text inherits. */
+.lc-type-figureXL,
+.lc-type-figureL,
+.lc-type-figureM,
+.lc-type-figureS,
+.lc-type-label,
+.lc-type-caption,
+.lc-type-micro {
+  font-family: var(--font-chart, "Sofia Sans Semi Condensed"), "Liquid Charts Fallback", sans-serif;
+}
+
+/* Roles, on one scale (about 1.25 between figure steps): micro 11.5, caption 12.5, label 13,
+   figure S 14, M 18, L 22, XL 32. Bigger figures tighten slightly and grow heavier. A host drawing
+   pictures for slides sets `--lc-type-scale` (with `setTypeScale`, type-scale.ts) to set them all
+   larger at once. */
+.lc-type-figureXL {
+  font-size: calc(32px * var(--lc-type-scale, 1));
+  font-weight: 640;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+}
+.lc-type-figureXL .lc-type-unit {
+  margin-right: 0.08em;
+}
+.lc-type-figureL {
+  font-size: calc(22px * var(--lc-type-scale, 1));
+  font-weight: 630;
+  line-height: 1.1;
+  letter-spacing: -0.015em;
+}
+.lc-type-figureM {
+  font-size: calc(18px * var(--lc-type-scale, 1));
+  font-weight: 620;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+}
+.lc-type-figureS {
+  font-size: calc(14px * var(--lc-type-scale, 1));
+  font-weight: 580;
+}
+.lc-type-label {
+  font-size: calc(13px * var(--lc-type-scale, 1));
+  font-weight: 580;
+}
+/* On a chart's own frame (a ChartScope given the role), the role outranks the frame's base size
+ * whichever stylesheet loads last. */
+.lc-type-caption,
+.lc-type-root.lc-type-caption {
+  font-size: calc(12.5px * var(--lc-type-scale, 1));
+  font-weight: 460;
+}
+.lc-type-micro {
+  font-size: calc(11.5px * var(--lc-type-scale, 1));
+  font-weight: 540;
+  letter-spacing: 0.01em;
+}
+/* The casing's engraving: small mono capitals, the one style for tooltip titles, toggle keys, the
+   reset key and the Replay key. The stack never depends on a page variable being set. */
+.lc-type-casing {
+  font-family:
+    var(--font-geist-mono, ui-monospace), ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: calc(10px * var(--lc-type-scale, 1));
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* Hover emphasis without a size jump: a figure marked .lift grows by transform (no reflow, so
+   nothing beside it moves) and brightens when an ancestor marks it active. */
+.lc-type-lift {
+  transform-origin: 0 70%;
+  transition:
+    transform 260ms cubic-bezier(0.3, 1.2, 0.4, 1),
+    color 200ms ease-out;
+}
+[data-figure-active="true"] .lc-type-lift {
+  transform: scale(1.22);
+}
+@media (prefers-reduced-motion: reduce) {
+  .lc-type-lift {
+    transition: none;
+  }
+}

@@ -1,0 +1,342 @@
+/*
+Liquid Charts by Ojieame · https://liquid.ojieame.design · nathan@ojieame.design
+
+Liquid Charts
+Copyright (c) 2026 NATEPAY, LLC. This file is source-available under the Liquid Charts
+Source-Available Licence 1.0, not under MIT: https://liquid.ojieame.design/docs/licence
+
+Free to use and change in anything you make, commercial products and client work included, as
+long as the Liquid credit stays visible where the charts show it and this notice stays. You may
+not redistribute or sell it as a chart library, component library, UI kit, template, registry
+or other developer tool.
+
+The notices below, and any later in this file, are kept word for word. The work each one
+names keeps its own licence: the MIT notices below apply only to portions derived from the
+projects they name, and a font keeps its font licence.
+
+Liquid Charts adaptation. Original foundation: Evil Charts by Gurbinder.
+Upstream: ecbd6a5db7b25f9a7e070c02b2ef728c378eeb5c
+MIT License
+
+Copyright (c) 2026 Gurbinder
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Includes shadcn-derived primitives:
+MIT License
+
+Copyright (c) 2023 shadcn
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+*/
+/* Radial charts: the glass canvas, its flat twin, the light lines, and everything that rides round
+ * the circle (tracks, spokes, rings, names, values, leaders, the centre reading). Colours come from
+ * the frame's tokens (core.module.css), so dark and light follow `data-scheme`. */
+.lc-radial-chart {
+  position: relative;
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+.lc-radial-canvas {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+}
+.lc-radial-lights {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+}
+.lc-radial-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+/* Etched tracks: a quiet groove in each track's own colour, under the glass. */
+.lc-radial-track {
+  fill: color-mix(in srgb, var(--track) 9%, transparent);
+  stroke: color-mix(in srgb, var(--track) 16%, transparent);
+  stroke-width: 1;
+  transition:
+    fill 200ms ease-out,
+    stroke 200ms ease-out;
+}
+[data-scheme="light"] .lc-radial-track {
+  fill: color-mix(in srgb, var(--track) 10%, transparent);
+  stroke: color-mix(in srgb, var(--track) 20%, transparent);
+}
+.lc-radial-track[data-active="true"] {
+  fill: color-mix(in srgb, var(--track) 15%, transparent);
+}
+
+/* Axes: spokes and rings, flat and quiet, with the data. */
+.lc-radial-axis {
+  fill: none;
+  stroke: color-mix(in srgb, var(--chart-ink) 9%, transparent);
+  stroke-width: 1;
+}
+.lc-radial-axis[data-strong="true"] {
+  stroke: color-mix(in srgb, var(--chart-ink) 16%, transparent);
+}
+.lc-radial-axis[data-dashed="true"] {
+  stroke-dasharray: 2 3;
+}
+.lc-radial-spoke[data-active="true"] {
+  stroke: color-mix(in srgb, var(--chart-ink) 34%, transparent);
+}
+/* A reference ring (a target, an average): quiet, dashed, with the axes. */
+.lc-radial-reference {
+  fill: none;
+  stroke: color-mix(in srgb, var(--chart-ink) 34%, transparent);
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+}
+
+/* A target notch in an etched track, before the bar reaches it: cool frost. */
+.lc-radial-notch {
+  stroke: color-mix(in srgb, var(--chart-ink) 62%, transparent);
+  stroke-width: 2;
+  stroke-linecap: round;
+  transition: opacity 200ms ease-out;
+}
+.lc-radial-notch[data-shown="false"] {
+  opacity: 0;
+}
+.lc-radial-notch[data-reached="true"] {
+  stroke: color-mix(in srgb, white 85%, var(--track));
+}
+[data-scheme="light"] .lc-radial-notch[data-reached="true"] {
+  stroke: color-mix(in srgb, var(--chart-ink) 70%, var(--track));
+}
+
+/* Text placed round the circle by translate. */
+.lc-radial-placed {
+  position: absolute;
+  left: 0;
+  top: 0;
+  visibility: hidden;
+  line-height: 1.25;
+  pointer-events: none;
+  white-space: nowrap;
+  transition:
+    opacity 200ms ease-out,
+    color 200ms ease-out;
+}
+.lc-radial-placed[data-shown="false"] {
+  opacity: 0;
+}
+.lc-radial-placed[data-dim="true"] {
+  opacity: 0.45;
+}
+.lc-radial-placed[data-dim="true"][data-shown="false"] {
+  opacity: 0;
+}
+
+/* Scale ticks and rim labels: the quietest text. */
+.lc-radial-tick {
+  color: var(--chart-ink-3);
+}
+.lc-radial-tick[data-active="true"] {
+  color: var(--chart-ink);
+}
+/* Value rings' labels sit on their ring with a halo in the card's colour, strong enough to knock
+   out a stroke that passes under them. */
+.lc-radial-ringLabel {
+  color: var(--chart-ink-3);
+  text-shadow:
+    0 0 2px var(--chart-void, #0c0c0c),
+    0 0 4px var(--chart-void, #0c0c0c),
+    0 0 8px var(--chart-void, #0c0c0c);
+}
+[data-scheme="light"] .lc-radial-ringLabel {
+  text-shadow:
+    0 0 2px var(--chart-void, #ffffff),
+    0 0 4px var(--chart-void, #ffffff),
+    0 0 8px var(--chart-void, #ffffff);
+}
+
+/* Names: track starts, radar axes, slices. */
+.lc-radial-name {
+  color: var(--chart-ink-2);
+}
+.lc-radial-name[data-active="true"] {
+  color: var(--chart-ink);
+}
+.lc-radial-nameRow {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.lc-radial-swatch {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  align-self: center;
+  border-radius: 2px;
+}
+
+/* Values at the ends of radial bars, and leader labels. A focused figure lifts. */
+.lc-radial-value {
+  color: var(--chart-ink-2);
+}
+.lc-radial-value[data-figure-active="true"] {
+  color: var(--chart-ink);
+}
+.lc-radial-reading {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.lc-radial-outside .lc-radial-reading {
+  transform-origin: 0 50%;
+}
+.lc-radial-outside[data-side="left"] .lc-radial-reading {
+  flex-direction: row-reverse;
+  transform-origin: 100% 50%;
+}
+.lc-radial-reading .lc-radial-caption {
+  color: var(--chart-ink-3);
+}
+[data-figure-active="true"] .lc-radial-reading .lc-radial-caption {
+  color: var(--chart-ink-2);
+}
+
+/* Leaders: hairlines from a slice's rim to its label. */
+.lc-radial-leaders polyline {
+  fill: none;
+  stroke: var(--chart-ink-3);
+  stroke-width: 1;
+  stroke-linejoin: round;
+  opacity: 0.55;
+  transition: opacity 200ms ease-out;
+}
+.lc-radial-leaders polyline[data-active="true"] {
+  stroke: var(--chart-ink-2);
+  opacity: 0.9;
+}
+.lc-radial-leaders polyline[data-shown="false"] {
+  opacity: 0;
+}
+
+/* The centre reading: what the hole says at rest, or the item in focus. */
+.lc-radial-centre {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: grid;
+  justify-items: center;
+  gap: 1px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  text-align: center;
+  white-space: nowrap;
+}
+.lc-radial-centre:not([data-placed]) {
+  visibility: hidden;
+}
+.lc-radial-centreCaption {
+  color: var(--chart-ink-3);
+}
+.lc-radial-centreValue {
+  color: var(--chart-ink);
+}
+
+/* The flat / tilt switch. */
+.lc-radial-switch {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 3;
+}
+
+/* A flat translucent body under a light edge: the honest area when liquid can't be poured. */
+.lc-radial-body {
+  transition: opacity 200ms ease-out;
+}
+
+.lc-radial-srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lc-radial-placed,
+  .lc-radial-track,
+  .lc-radial-notch,
+  .lc-radial-leaders polyline,
+  .lc-radial-body {
+    transition: none;
+  }
+}
+
+/* Semi radial bars: the names in a row under the baseline, outermost track first. */
+.lc-radial-names {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 14px;
+  margin: -4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.lc-radial-nameItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--chart-ink-2);
+  white-space: nowrap;
+  transition:
+    color 160ms ease-out,
+    opacity 160ms ease-out;
+}
+.lc-radial-nameItem[data-active="true"] {
+  color: var(--chart-ink);
+}
+.lc-radial-nameItem[data-dim="true"] {
+  opacity: 0.5;
+}

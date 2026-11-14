@@ -80,7 +80,7 @@ func (d *Desktop) Available() bool { return d.bus != nil }
 // Actions delivers clicked buttons; "default" becomes the kind's first action.
 func (d *Desktop) Actions() <-chan ActionEvent { return d.actions }
 
-// Notify shows n. The idle and break_long nudges persist until dismissed.
+// Notify shows n. The idle, break_long and code_session nudges persist until dismissed.
 func (d *Desktop) Notify(ctx context.Context, n Notification) error {
 	if d.bus == nil {
 		if n.Kind == KindTest {
@@ -97,10 +97,12 @@ func (d *Desktop) Notify(ctx context.Context, n Notification) error {
 		for _, a := range n.Actions {
 			actions = append(actions, a.ID, a.Label)
 		}
-		actions = append(actions, "default", n.Actions[0].Label)
+		if n.Kind != "code_session" { // a click on the body must never pick an answer
+			actions = append(actions, "default", n.Actions[0].Label)
+		}
 	}
 	expire := int32(-1)
-	if n.Kind == "idle" || n.Kind == "break_long" {
+	if n.Kind == "idle" || n.Kind == "break_long" || n.Kind == "code_session" {
 		expire = 0
 	}
 	hints := map[string]dbus.Variant{

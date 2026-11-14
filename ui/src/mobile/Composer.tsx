@@ -1,20 +1,41 @@
 import { ArrowUp, ImagePlus, Mic } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ApiError, api, idem } from "./api";
 import { useStore } from "./store";
-import { record, type Recording } from "./voice";
+import { useHoldToTalk } from "./voice";
+
+/** Chips that only fill the composer, for you to edit and send (plan.md 3.14.13). */
+export interface Ask { label: string; text: string }
 
 /**
  * Compose: what you write is pasted into the terminal and submitted as one message. A photo is saved beside the terminal on the
- * laptop and its path is added to the text. Hold the mic to talk; the words land here for you to check and send.
+ * laptop and its path is added to the text; so is a pasted screenshot. Hold the mic to talk; the words land here for you to check.
+ * It draws the two lines of a session's footer: the mode chip or the chips with a short note, then the field, the mic and Send.
  */
-export function Composer({ terminal, send, placeholder, disabled }: { terminal: string; send: (text: string, key: string) => Promise<string | void>; placeholder: string; disabled?: string }) {
+export function Composer({
+  terminal, send, placeholder, disabled, chip, lead, asks, seed, autoFocus,
+}: {
+  terminal: string;
+  /** Sends the text; what it returns is said in a short note. */
+  send: (text: string, key: string) => Promise<string | void>;
+  placeholder: string;
+  /** Why nothing can be sent now, e.g. "Answer Claude first"; the field stays, greyed. */
+  disabled?: string;
+  /** Shown first on the top line, e.g. the permission mode. */
+  chip?: ReactNode;
+  /** An action shown before the chips, e.g. Stop. */
+  lead?: ReactNode;
+  /** Chips on the top line that put their text in the field. */
+  asks?: Ask[];
+  /** Text put in the box for you to edit and send; a new `n` puts it again. */
+  seed?: { text: string; n: number };
+  autoFocus?: boolean;
+}) {
   const { toast } = useStore();
   const [text, setText] = useState("");
   const [busy, setBusy] = useState("");
-  const [recording, setRecording] = useState(false);
-  const rec = useRef<Recording | null>(null);
-  const wantStop = useRef(false);
+  const talk = useHoldToTalk((heard) => setText((t) => (t && !/\s$/.test(t) ? t + " " : t) + heard), toast, !!busy || !!disabled);
+  const recording = talk.state === "listening";
   const key = useRef(idem());
   const area = useRef<HTMLTextAreaElement>(null);
   const file = useRef<HTMLInputElement>(null);
@@ -23,13 +44,24 @@ export function Composer({ terminal, send, placeholder, disabled }: { terminal: 
     const el = area.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = `${Math.min(132, el.scrollHeight)}px`;
+    // An empty box stays one line: the placeholder is cut short rather than making it taller.
+    if (text) el.style.height = `${Math.min(132, el.scrollHeight)}px`;
   }, [text]);
-  useEffect(() => () => rec.current?.cancel(), []);
+  const put = (t: string) => {
+    setText(t);
+    requestAnimationFrame(() => {
+      const el = area.current;
+      el?.focus();
+      el?.setSelectionRange(t.length, t.length);
+    });
+  };
+  useEffect(() => {
+    if (seed) put(seed.text);
+  }, [seed]);
 
   const submit = async () => {
     const body = text.trim();
-    if (!body || busy) return;
+    if (!body || busy || disabled) return;
     // The laptop waits for you to finish typing in that terminal before it pastes; say so if it takes a moment.
     const slow = window.setTimeout(() => setBusy("Waiting for you to finish typing on the laptop"), 1500);
     setBusy("Sending");
@@ -62,67 +94,58 @@ export function Composer({ terminal, send, placeholder, disabled }: { terminal: 
     }
   };
 
-  const stopTalking = async () => {
-    wantStop.current = true;
-    const r = rec.current;
-    if (!r) return; // still asking for the microphone; startTalking stops it when it arrives
-    rec.current = null;
-    setRecording(false);
-    const pcm = await r.stop();
-    if (!pcm) return;
-    setBusy("Turning that into text");
-    try {
-      const { text: heard } = await api.transcribe(pcm);
-      if (heard) setText((t) => (t && !/\s$/.test(t) ? t + " " : t) + heard);
-      else toast("Gwen didn't catch any words.");
-    } catch (e) {
-      toast(e instanceof ApiError ? e.message : "Voice didn't work this time.");
-    } finally {
-      setBusy("");
-    }
-  };
-
-  const startTalking = async () => {
-    if (rec.current || busy) return;
-    wantStop.current = false;
-    try {
-      const r = await record(() => stopTalking());
-      rec.current = r;
-      setRecording(true);
-      if (wantStop.current) stopTalking();
-    } catch (e) {
-      toast((e as Error).message);
-    }
-  };
-
-  if (disabled) return <div className="hint" style={{ padding: "12px 14px calc(var(--safe-bottom) + 12px)", borderTop: "1px solid var(--border)" }}>{disabled}</div>;
+  const note = recording ? (talk.tapped ? "Listening… tap the mic to stop" : "Listening… let go to stop") : talk.state === "hearing" ? "Turning that into text…" : busy ? busy + "…" : disabled ?? "";
+  const off = !!disabled;
   return (
     <>
-      {(busy || recording) && <div className="hint">{recording ? "Listening… let go to stop" : busy + "…"}</div>}
-      <div className="composer">
-        <input ref={file} type="file" accept="image/*" hidden onChange={(e) => attach(e.target.files?.[0])} />
-        <button className="round" aria-label="Attach a photo" disabled={!!busy} onClick={() => file.current?.click()}>
-          <ImagePlus size={19} />
+      {((asks && asks.length > 0) || lead) && !note ? (
+        <div className="chips" role="group" aria-label="Ask Claude">
+          {lead}
+          {asks?.map((a) => (
+            <button key={a.label} className="chip hit" disabled={off} onClick={() => put(a.text)}>{a.label}</button>
+          ))}
+          {chip}
+        </div>
+      ) : (
+        (chip || note) && (
+          <div className="dock-line">
+            {chip}
+            {note && <span className="clip" role="status">{note}</span>}
+          </div>
+        )
+      )}
+      <div className="compose">
+        <div className={`input ${off ? "off" : ""}`}>
+          <label className="sr" htmlFor={`say-${terminal}`}>Message to Claude</label>
+          <textarea
+            id={`say-${terminal}`}
+            ref={area}
+            rows={1}
+            value={text}
+            disabled={off}
+            autoFocus={autoFocus}
+            placeholder={placeholder}
+            onChange={(e) => setText(e.target.value)}
+            onPaste={(e) => {
+              // A pasted screenshot goes to the laptop like a photo.
+              const image = Array.from(e.clipboardData.files).find((f) => f.type.startsWith("image/"));
+              if (image) {
+                e.preventDefault();
+                attach(image);
+              }
+            }}
+          />
+          <input ref={file} type="file" accept="image/*" hidden onChange={(e) => attach(e.target.files?.[0])} />
+          <button className="attach" aria-label="Attach a photo" disabled={!!busy || off} onClick={() => file.current?.click()}>
+            <ImagePlus size={18} />
+          </button>
+        </div>
+        <button className={`round ${recording ? "rec" : ""}`} aria-label="Hold to talk" {...talk.bind}>
+          {talk.state === "hearing" ? <span className="spin" /> : <Mic size={20} />}
         </button>
-        <textarea ref={area} rows={1} value={text} placeholder={placeholder} onChange={(e) => setText(e.target.value)} />
-        {text.trim() ? (
-          <button className="round send" aria-label="Send" disabled={!!busy} onClick={submit}>
-            <ArrowUp size={20} />
-          </button>
-        ) : (
-          <button
-            className={`round ${recording ? "rec" : ""}`}
-            aria-label="Hold to talk"
-            disabled={!!busy}
-            onPointerDown={(e) => (e.preventDefault(), startTalking())}
-            onPointerUp={stopTalking}
-            onPointerCancel={stopTalking}
-            onContextMenu={(e) => e.preventDefault()}
-            style={{ touchAction: "none" }}
-          >
-            <Mic size={19} />
-          </button>
-        )}
+        <button className="round send" aria-label="Send" disabled={!!busy || off || !text.trim()} onClick={submit}>
+          {busy === "Sending" ? <span className="spin" /> : <ArrowUp size={19} strokeWidth={2.2} />}
+        </button>
       </div>
     </>
   );

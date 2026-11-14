@@ -129,14 +129,14 @@ func SetHooks(path, gwenBin string, on bool) error {
 			if ev.matcher != "" {
 				group["matcher"] = ev.matcher
 			}
-			raw, _ := json.Marshal(group)
+			raw, _ := marshalPlain(group)
 			groups = append(groups, raw)
 		}
 		if len(groups) == 0 {
 			hooks.remove(ev.name)
 			continue
 		}
-		raw, _ := json.Marshal(groups)
+		raw, _ := marshalPlain(groups)
 		hooks.set(ev.name, raw)
 	}
 	if len(hooks.keys) == 0 {
@@ -220,7 +220,7 @@ func withoutCommand(groups []json.RawMessage, command string) []json.RawMessage 
 		if len(kept) == 0 {
 			continue
 		}
-		h, _ := json.Marshal(kept)
+		h, _ := marshalPlain(kept)
 		g.set("hooks", h)
 		if enc, err := g.encode(); err == nil {
 			out = append(out, enc)
@@ -311,7 +311,7 @@ func (o *ordered) encode() ([]byte, error) {
 		if i > 0 {
 			b.WriteByte(',')
 		}
-		key, err := json.Marshal(k)
+		key, err := marshalPlain(k)
 		if err != nil {
 			return nil, err
 		}
@@ -321,4 +321,17 @@ func (o *ordered) encode() ([]byte, error) {
 	}
 	b.WriteByte('}')
 	return b.Bytes(), nil
+}
+
+// marshalPlain is json.Marshal without HTML escaping: a hook command such as
+// `a 2>&1 && b` stays as the person wrote it instead of turning into \u003e
+// and \u0026.
+func marshalPlain(v any) ([]byte, error) {
+	var b bytes.Buffer
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	return bytes.TrimSuffix(b.Bytes(), []byte("\n")), nil
 }

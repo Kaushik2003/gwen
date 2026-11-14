@@ -1,0 +1,145 @@
+/* Gwen on the phone (the phone redo, P5): her chat between a header with her face and the composer with the mic. Uses the theme
+   tokens of mobile.css; every class here starts with g- so it stays out of the other screens' way. */
+
+.g-screen { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+.g-head {
+  display: flex; align-items: center; gap: 8px; flex: none;
+  padding: calc(var(--safe-top) + 10px) 8px 10px 14px; border-bottom: 1px solid var(--divider);
+}
+.g-face { width: 38px; height: 38px; border-radius: 50%; object-fit: cover; background: #f2f1ed; flex: none; }
+.g-face.big { width: 88px; height: 88px; }
+.g-name { font-size: 16px; font-weight: 600; line-height: 20px; }
+.g-state { font-size: 12.5px; color: var(--muted); line-height: 17px; }
+.g-state.warn { color: var(--amber); }
+.g-state.bad { color: var(--red); }
+.g-place {
+  display: inline-flex; align-items: center; gap: 6px; height: 44px; max-width: 132px; padding: 0 10px; border-radius: 22px;
+  border: 1px solid var(--border-2); background: var(--card); color: var(--text-2); font-size: 13px; flex: none;
+}
+.g-place svg { flex: none; color: var(--muted); }
+.g-dot { width: 8px; height: 8px; border-radius: 2px; flex: none; background: transparent; border: 1px solid var(--border-2); }
+.g-dot[style] { border: 0; }
+.g-dot.big { width: 10px; height: 10px; border-radius: 3px; }
+
+.g-scroll {
+  flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 12px;
+  padding: 14px 14px 18px; -webkit-overflow-scrolling: touch;
+}
+
+.g-you { align-self: flex-end; max-width: 84%; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+.g-bubble {
+  padding: 9px 12px; border-radius: 16px 16px 4px 16px; background: var(--picked); border: 1px solid #4a262d;
+  font-size: 15px; line-height: 21px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--fg);
+}
+.g-bubble.dim { opacity: 0.6; }
+.g-when { font-size: 11.5px; color: var(--faint); padding: 0 2px; font-variant-numeric: tabular-nums; }
+.g-reply { display: flex; flex-direction: column; gap: 3px; font-size: 15px; line-height: 22px; color: #e8e6e1; min-width: 0; overflow-wrap: anywhere; }
+.g-reply .md p { margin-bottom: 8px; }
+.g-caret { display: inline-block; width: 7px; height: 14px; border-radius: 1px; background: var(--muted); animation: pulse 1.1s ease-in-out infinite; }
+.g-thinking { display: flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--muted); min-height: 24px; }
+.g-spin { animation: spin 1s linear infinite; flex: none; }
+.g-info { color: var(--blue); }
+.g-warn { color: var(--amber); flex: none; }
+.g-ok { color: var(--green); flex: none; }
+.g-bad { color: var(--red); flex: none; }
+.g-ring { width: 12px; height: 12px; border-radius: 50%; border: 1.5px solid var(--dim); flex: none; }
+
+/* What she did: a quiet column of rows, each a full-width press (44px) for when it opens. */
+.g-steps { list-style: none; margin: 0 0 0 4px; padding: 0 0 0 10px; border-left: 2px solid var(--divider); display: flex; flex-direction: column; }
+.g-steps.inner { margin-left: 8px; }
+.g-step {
+  display: flex; align-items: center; gap: 8px; width: 100%; min-height: 32px; padding: 4px 0; margin: 0;
+  font-size: 13px; line-height: 18px; color: var(--muted); text-align: left;
+}
+.g-step svg { flex: none; }
+.g-step.bad { color: var(--red); }
+.g-step.warn { color: var(--amber); }
+.g-step.ok { color: var(--green); }
+.g-fold { color: var(--text-2); }
+.g-step-text { min-width: 0; overflow-wrap: anywhere; }
+.g-step-out { margin: 0 0 6px 21px; font-size: 12.5px; line-height: 18px; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
+.g-news svg { color: var(--muted); }
+
+.g-job { list-style: none; margin: 6px 0; padding: 10px 10px 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: var(--card); }
+.g-job.warn { border-color: var(--amber-line); background: linear-gradient(var(--amber-bg), var(--amber-bg)), var(--card); }
+.g-job.bad { border-color: var(--red-line); }
+.g-job-row { display: flex; align-items: center; gap: 10px; }
+.g-job-mark { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; background: rgba(217, 119, 87, 0.16); color: #e9a184; flex: none; }
+.g-job-title { display: block; font-size: 14px; font-weight: 600; color: var(--fg); }
+.g-job-state { display: block; font-size: 12.5px; color: var(--muted); }
+.g-job-state.info { color: var(--blue); }
+.g-job-state.warn { color: var(--amber); }
+.g-job-state.ok { color: var(--green); }
+.g-job-state.bad { color: var(--red); white-space: normal; }
+
+/* What waits for your OK. */
+.g-ask {
+  display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 14px;
+  border: 1px solid var(--amber-line); background: linear-gradient(var(--amber-bg), var(--amber-bg)), var(--card);
+}
+.g-ask.risky { border-color: var(--red-line); background: linear-gradient(rgba(229, 56, 74, 0.06), rgba(229, 56, 74, 0.06)), var(--card); }
+.g-ask-head { display: flex; align-items: center; gap: 8px; }
+.g-ask-head b { font-size: 14.5px; font-weight: 600; line-height: 19px; overflow-wrap: anywhere; }
+.g-ask-icon { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; flex: none; background: var(--amber-bg); color: var(--amber); }
+.g-ask.risky .g-ask-icon { background: var(--red-bg); color: var(--red); }
+.g-risk { flex: none; height: 22px; padding: 0 8px; border-radius: 11px; font-size: 11.5px; font-weight: 500; display: inline-flex; align-items: center; background: var(--card-2); color: var(--text-2); }
+.g-risk.risky { background: var(--red-bg); color: var(--red); }
+.g-why { font-size: 12.5px; color: var(--muted); margin-top: -4px; }
+.g-rows {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 5px 12px; margin: 0; padding: 10px; border-radius: 10px;
+  background: var(--term); border: 1px solid var(--divider); font-size: 13.5px; line-height: 19px; max-height: 260px; overflow-y: auto;
+}
+.g-rows dt { color: var(--faint); }
+.g-rows dd { margin: 0; color: #e8e6e1; white-space: pre-wrap; overflow-wrap: anywhere; }
+.g-code { margin: 0; padding: 9px 10px; border-radius: 10px; background: var(--term); border: 1px solid var(--divider); font-family: var(--mono); font-size: 12.5px; line-height: 18px; color: #e8e6e1; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 200px; overflow-y: auto; }
+.g-plain { margin: 0; padding: 9px 10px; border-radius: 10px; background: var(--term); border: 1px solid var(--divider); font-size: 14px; line-height: 20px; color: #e8e6e1; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 220px; overflow-y: auto; }
+.g-ask-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.g-ask-buttons .btn { width: 100%; }
+.g-deny { display: flex; flex-direction: column; gap: 8px; }
+.g-note { height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--border-2); background: var(--bg); font-size: 15px; outline: 0; }
+.g-note:focus { border-color: var(--accent); }
+.g-note:focus-visible { outline: none; }
+.g-deny-btn { color: var(--red); border-color: var(--red-line); }
+
+.g-error { font-size: 13px; line-height: 19px; color: var(--text-2); padding: 10px 12px; border-radius: 10px; border: 1px solid var(--red-line); background: var(--red-bg); }
+
+.g-starters { margin: auto 0; display: flex; flex-direction: column; gap: 8px; padding: 12px 4px; }
+.g-starters p { font-size: 14px; line-height: 21px; color: var(--muted); text-align: center; margin-bottom: 8px; }
+.g-starter { min-height: 48px; padding: 10px 14px; border-radius: 12px; border: 1px solid var(--border); background: var(--card); font-size: 14.5px; color: var(--text-2); text-align: left; }
+.g-starter:active { background: var(--card-2); }
+
+/* The composer: the field (or what she hears while you talk), the mic, and send. */
+.g-compose { flex: none; display: flex; align-items: flex-end; gap: 8px; padding: 8px 10px 10px 12px; border-top: 1px solid var(--divider); background: var(--bg); }
+.g-field { flex: 1; min-width: 0; display: flex; border-radius: 14px; border: 1px solid var(--border-2); background: var(--card); }
+.g-field:focus-within { border-color: var(--accent); }
+.g-field textarea { flex: 1; min-width: 0; resize: none; border: 0; outline: 0; background: transparent; padding: 11px 12px; min-height: 44px; max-height: 132px; font-size: 16px; line-height: 22px; }
+.g-field textarea::placeholder { color: var(--faint); }
+.g-compose-buttons { display: flex; gap: 8px; align-items: center; }
+.g-stop { color: var(--fg); background: var(--card-2); }
+.g-mic { width: 44px; height: 44px; border-radius: 22px; display: grid; place-items: center; background: var(--card-2); border: 1px solid var(--border-2); color: var(--fg); flex: none; transition: transform 0.15s ease, background 0.15s ease; user-select: none; -webkit-user-select: none; }
+.g-mic.on { width: 64px; height: 64px; border-radius: 32px; background: #e5384a; border-color: transparent; color: #fff; box-shadow: 0 0 0 7px rgba(229, 56, 74, 0.2); }
+.g-mic.armed { background: var(--card-2); color: var(--muted); box-shadow: none; }
+.g-mic:disabled { color: var(--dim); }
+.g-compose.talking { align-items: center; }
+.g-talk { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; padding: 8px 12px; border-radius: 14px; border: 1px solid var(--red-line); background: var(--card); min-height: 64px; justify-content: center; }
+.g-talk.armed { border-color: var(--border-2); opacity: 0.75; }
+.g-heard { font-size: 15px; line-height: 21px; color: #e8e6e1; max-height: 126px; overflow-y: auto; overflow-wrap: anywhere; }
+.g-talk-hint { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.g-talk.armed .g-talk-hint { color: var(--red); }
+.g-talk-buttons { display: flex; gap: 8px; margin-top: 4px; }
+.g-talk-buttons .btn { flex: 1; }
+
+/* The chats sheet. */
+.g-group { padding-top: 6px; }
+.g-group-name { display: flex; align-items: center; gap: 8px; padding: 8px 18px 4px; font-size: 11.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); }
+.g-badge { flex: none; height: 22px; padding: 0 8px; border-radius: 11px; background: var(--amber-bg); color: var(--amber); font-size: 11.5px; font-weight: 500; display: inline-flex; align-items: center; }
+.g-ago { flex: none; font-size: 12px; color: var(--faint); font-variant-numeric: tabular-nums; }
+
+.g-off { margin: auto 0; }
+.g-off p { max-width: 300px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .g-spin, .g-caret { animation: none; }
+  .g-mic { transition: none; }
+}

@@ -45,7 +45,8 @@ func TestSyncSkipsTablesTheSchemaLacks(t *testing.T) {
 		thread  = "00000000-0000-7000-8000-0000000000c1"
 	)
 	res, err := r.Apply(ctx, Rows{
-		"projects":     {withEnvelope(Row{"id": project, "name": "P", "color": "#10b981", "archived_at": nil})},
+		"projects": {withEnvelope(Row{"id": project, "name": "P", "color": "#10b981", "archived_at": nil,
+			"parent_id": nil})},
 		"chat_threads": {withEnvelope(Row{"id": thread, "title": "Chat"})},
 	}, true)
 	require.NoError(t, err)
@@ -60,6 +61,7 @@ func TestSyncSkipsTablesTheSchemaLacks(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, changed, 1)
 	require.Equal(t, "projects", changed[0].Table)
+	require.NotContains(t, changed[0].Row, "parent_id", "a column of a later schema is not read")
 
 	_, err = db.sql.Exec(`INSERT INTO hub_changes (table_name, row_id, device_id) VALUES ('chat_threads', ?, 'dev-b')`,
 		thread)

@@ -4,6 +4,8 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"time"
@@ -32,9 +34,21 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) error {
 	if err := decode(r, &req); err != nil {
 		return err
 	}
-	p, err := s.Repos.Projects.Create(r.Context(), req.Name, req.Color)
+	var folder string
+	if req.Folder != nil {
+		var err error
+		if folder, err = validFolder(*req.Folder); err != nil {
+			return err
+		}
+	}
+	p, err := s.Repos.Projects.Create(r.Context(), req.Name, req.Color, req.ParentID)
 	if err != nil {
 		return err
+	}
+	if folder != "" {
+		if p, err = s.Repos.Projects.SetFolder(r.Context(), p.ID, folder); err != nil {
+			return err
+		}
 	}
 	s.Hub.Publish(wire.EventProjectsChanged, wire.ProjectsChanged{})
 	writeJSON(w, http.StatusCreated, projectWire(p))
@@ -77,10 +91,36 @@ func (s *Server) patchProject(w http.ResponseWriter, r *http.Request) error {
 			return &stateError{"cannot archive the project being tracked"}
 		}
 	}
-	p, err := s.Repos.Projects.Update(r.Context(), id,
-		store.ProjectPatch{Name: req.Name, Color: req.Color, Archived: req.Archived, Rev: req.Rev})
-	if err != nil {
-		return err
+	var folder string
+	if req.Folder != nil && *req.Folder != "" {
+		var err error
+		if folder, err = validFolder(*req.Folder); err != nil {
+			return err
+		}
+	}
+	var (
+		p   model.Project
+		err error
+	)
+	// A folder or the agent's autonomy alone is a device-local change: the
+	// synced row stays as it is.
+	local := req.Folder != nil || req.AgentAutonomy != nil
+	if !local || req.Name != nil || req.Color != nil || req.Archived != nil || req.ParentID.Set || req.Rev != nil {
+		p, err = s.Repos.Projects.Update(r.Context(), id, store.ProjectPatch{Name: req.Name, Color: req.Color,
+			Archived: req.Archived, ParentID: nullable(req.ParentID), Rev: req.Rev})
+		if err != nil {
+			return err
+		}
+	}
+	if req.Folder != nil {
+		if p, err = s.Repos.Projects.SetFolder(r.Context(), id, folder); err != nil {
+			return err
+		}
+	}
+	if req.AgentAutonomy != nil {
+		if p, err = s.Repos.Projects.SetAutonomy(r.Context(), id, *req.AgentAutonomy); err != nil {
+			return err
+		}
 	}
 	s.Hub.Publish(wire.EventProjectsChanged, wire.ProjectsChanged{})
 	writeJSON(w, http.StatusOK, projectWire(p))
@@ -151,9 +191,14 @@ func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	attached, err := s.Repos.Attachments.Counts(r.Context(), taskIDs(ts))
+	if err != nil {
+		return err
+	}
 	out := wire.TaskList{Tasks: make([]wire.Task, len(ts))}
 	for i, t := range ts {
 		out.Tasks[i] = taskWire(t, tracked[t.ID])
+		out.Tasks[i].Attachments = attached[t.ID]
 	}
 	writeJSON(w, http.StatusOK, out)
 	return nil
@@ -165,7 +210,13 @@ func (s *Server) writeTask(w http.ResponseWriter, r *http.Request, status int, t
 	if err != nil {
 		return err
 	}
-	writeJSON(w, status, taskWire(t, tracked[t.ID]))
+	attached, err := s.Repos.Attachments.Counts(r.Context(), []string{t.ID})
+	if err != nil {
+		return err
+	}
+	out := taskWire(t, tracked[t.ID])
+	out.Attachments = attached[t.ID]
+	writeJSON(w, status, out)
 	return nil
 }
 
@@ -368,4 +419,17 @@ func (s *Server) statsHeatmap(w http.ResponseWriter, r *http.Request) error {
 	}
 	writeJSON(w, http.StatusOK, out)
 	return nil
+}
+
+// validFolder is a project folder as stored: absolute, clean, and an existing
+// directory on this machine.
+func validFolder(path string) (string, error) {
+	if !filepath.IsAbs(path) {
+		return "", store.FailField(store.ErrInvalid, "folder", "a project folder must be an absolute path")
+	}
+	path = filepath.Clean(path)
+	if fi, err := os.Stat(path); err != nil || !fi.IsDir() {
+		return "", store.FailField(store.ErrInvalid, "folder", "%s is not a folder on this computer", path)
+	}
+	return path, nil
 }

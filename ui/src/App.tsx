@@ -12,11 +12,14 @@ import Login from "./screens/Login";
 import NowCard from "./screens/NowCard";
 import Plan from "./screens/Plan";
 import Stats from "./screens/Stats";
+import FirstRun from "./screens/FirstRun";
 import Talk from "./screens/Talk";
+import Shell from "./shell/Shell";
+import { TabsProvider } from "./shell/tabs";
 
-// Gwen's screens live in the Gwen window now (plan.md 3.15). This frontend
-// draws what stays outside it: the tray's now card and the Talk window in
-// gwen-ui, and the sync hub's read-only pages on the Pi.
+// One frontend, four windows: the Gwen window (plan.md 3.15), the tray's now
+// card and the Talk window in gwen-ui, and the sync hub's read-only pages on
+// the Pi.
 
 interface Screen {
   id: string;
@@ -89,21 +92,33 @@ function Hub() {
   );
 }
 
+/** The Gwen window: the shell once the daemon answers, its first-run screen while it doesn't. */
+function Main() {
+  const d = useDaemon();
+  if (d.up === null) return <Splash>Connecting to Gwen…</Splash>;
+  if (!d.up) return <FirstRun />;
+  return (
+    <TabsProvider>
+      <Shell />
+    </TabsProvider>
+  );
+}
+
 export default function App() {
   // The tray's now card and the widget's talk window run the same frontend
   // in their own small windows; the hub serves it to a browser.
-  const [kind, setKind] = useState<"hub" | "now" | "talk" | null>(isHub ? "hub" : null);
+  const [kind, setKind] = useState<"hub" | "now" | "talk" | "main" | null>(isHub ? "hub" : null);
   useEffect(() => {
     if (!isHub)
       Promise.all([Host.IsNowCard(), Host.IsTalk()]).then(
-        ([now]) => setKind(now ? "now" : "talk"),
-        () => setKind("talk"),
+        ([now, talk]) => setKind(now ? "now" : talk ? "talk" : "main"),
+        () => setKind("main"),
       );
   }, []);
   if (kind === null) return null;
   return (
     <FeedbackProvider>
-      <DaemonProvider>{kind === "now" ? <NowCard /> : kind === "talk" ? <Talk /> : <Hub />}</DaemonProvider>
+      <DaemonProvider>{kind === "now" ? <NowCard /> : kind === "talk" ? <Talk /> : kind === "main" ? <Main /> : <Hub />}</DaemonProvider>
     </FeedbackProvider>
   );
 }

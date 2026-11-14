@@ -19,6 +19,10 @@ const (
 	MaxAssistantForget   = 10  // memory refs one reply asks to stop bringing up
 )
 
+// MaxAssistantAttachment is how much of an attached note's or app item's
+// text is sent, in characters; the hand-off brief carries the rest.
+const MaxAssistantAttachment = 600
+
 // Assistant action types.
 const (
 	ActCreateTask    = "create_task"
@@ -127,6 +131,17 @@ type AssistantTask struct {
 	DelegatedTo     string           `json:"delegated_to"`
 	Recurring       bool             `json:"recurring"`
 	Blocks          []AssistantBlock `json:"blocks"`
+	// Attachments is the context attached to the task, left out when none.
+	Attachments []AssistantAttachment `json:"attachments,omitempty"`
+}
+
+// AssistantAttachment is context attached to a task: what it is, and the
+// start of its text.
+type AssistantAttachment struct {
+	Kind  string `json:"kind"` // "link", "note", "file", or the app: "gmail", "googlecalendar", "github", "notion"
+	Title string `json:"title"`
+	URL   string `json:"url,omitempty"`
+	Text  string `json:"text,omitempty"`
 }
 
 // AssistantBlock is a planned block of a task from today on.

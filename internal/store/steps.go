@@ -353,6 +353,9 @@ func deleteTask(ctx context.Context, tx *sql.Tx, db *DB, t model.Task, ch *Chang
 	if err := softDelete(ctx, tx, db, "tasks", t.ID); err != nil {
 		return err
 	}
+	if err := deleteAttachments(ctx, tx, db, t.ID); err != nil {
+		return err
+	}
 	ch.deleted(t.ID)
 	if err := deletePlanned(ctx, tx, db, t.ID, ch); err != nil {
 		return err

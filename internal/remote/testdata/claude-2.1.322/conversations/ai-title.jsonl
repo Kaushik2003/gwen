@@ -1,0 +1,6 @@
+{"type":"last-prompt","leafUuid":"a1999999-0000-4000-8000-000000999999","sessionId":"c0000003-0000-4000-8000-000000000003"}
+{"type":"mode","mode":"normal","sessionId":"c0000003-0000-4000-8000-000000000003"}
+{"type":"permission-mode","permissionMode":"default","sessionId":"c0000003-0000-4000-8000-000000000003"}
+{"type":"session-owner","accountUuid":"00000000-0000-4000-8000-0000000000aa","organizationUuid":"00000000-0000-4000-8000-0000000000bb","sessionId":"c0000003-0000-4000-8000-000000000003"}
+{"parentUuid":null,"isSidechain":false,"promptId":"b0000000-0000-4000-8000-000000000001","type":"user","message":{"role":"user","content":"why does the build fail on arm64"},"uuid":"a1000001-0000-4000-8000-000000000001","timestamp":"2026-11-12T09:00:03.001Z","userType":"external","entrypoint":"cli","cwd":"__DIR__","sessionId":"c0000003-0000-4000-8000-000000000003","version":"2.1.322","gitBranch":"main"}
+{"type":"ai-title","aiTitle":"Arm64 build failure","sessionId":"c0000003-0000-4000-8000-000000000003"}

@@ -1,17 +1,17 @@
-import { CalendarCheck2, CircleAlert, Clock, MessageSquarePlus, SendHorizontal, Sparkles, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { CircleAlert, X } from "lucide-react";
+import { useEffect, useRef, useState, type Ref } from "react";
 import { App, apiError, wire } from "../api";
 import { useDaemon } from "../daemon";
-import { formatClock, formatDuration, formatTime } from "../format";
+import { formatClock, formatDate, formatDuration, formatTime, relativeDay } from "../format";
 import type { ChatMessage, DayPlanOutput, ProposedBlock, RunError } from "../llm";
 import { AiFailed, AiProgress, AiUnavailable, providerName } from "./ai";
 import Face from "./Face";
 import { useToast } from "./feedback";
-import { ProjectTag } from "./tags";
-import { Badge, Button, Callout, Checkbox, IconButton, Panel, TextArea, cx } from "./ui";
+import { Badge, Button, Callout, Checkbox, IconButton, cx, unassignedColor } from "./ui";
+import { useDictation } from "./Voice";
 
 /** Messages to start from, sent with one click. */
-const starters = ["Plan my day", "I'm tired today, keep it light", "Start at 14:00 and work 3 hours", "Most urgent work first, with breaks"];
+const starters = ["Plan my day", "I'm tired today, keep it light", "Start at 2 pm and work 3 hours", "Most urgent work first, with breaks"];
 
 /** The day's latest run id, so reopening the day restores its conversation. */
 function remember(day: string, id: string | null) {
@@ -31,7 +31,7 @@ function recall(day: string): string | null {
   }
 }
 
-/** "from 14:00 · 3h for tasks" for a change of hours. */
+/** "from 2:00 pm · 3h for tasks" for a change of hours. */
 export function hoursText(h: DayPlanOutput["hours"]): string {
   if (!h) return "";
   const parts: string[] = [];
@@ -40,15 +40,21 @@ export function hoursText(h: DayPlanOutput["hours"]): string {
   return parts.join(" · ");
 }
 
+/** The box's earlier text, then the words said. */
+function after(before: string, said: string): string {
+  if (!said) return before;
+  return before.trim() ? `${before.trimEnd()} ${said}` : said;
+}
+
 /**
- * Plan → Plan with AI (docs/08-clients.md#v3-additions): a conversation about
- * one day that ends in a plan. The latest proposal is listed with a checkbox
- * per block and previewed on the timeline through onPreview; nothing changes
- * until Apply plan.
+ * Plan › Day › Plan with Gwen (docs/08-clients.md#v3-additions): a conversation about one day that ends in a plan,
+ * in a column beside the day. The latest proposal is listed with a checkbox per block and previewed on the plan lane
+ * through onPreview; nothing changes until it is applied.
  */
 export default function PlanChat({ day, plan, onPreview, onClose }: { day: string; plan: wire.Plan; onPreview: (blocks: ProposedBlock[] | null) => void; onClose: () => void }) {
   const d = useDaemon();
   const notify = useToast();
+  const name = d.config?.llm.assistant_name || "Gwen";
   const [run, setRun] = useState<wire.LlmRun | null>(null); // the conversation's latest answer
   const [picked, setPicked] = useState<Set<number>>(new Set());
   const [text, setText] = useState("");
@@ -58,6 +64,23 @@ export default function PlanChat({ day, plan, onPreview, onClose }: { day: strin
   const [refused, setRefused] = useState<string | null>(null);
   const [applying, setApplying] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
+  const last = useRef<HTMLDivElement>(null);
+  const input = useRef<HTMLTextAreaElement>(null);
+  // What the box held when the mic opened; the words said follow it.
+  const before = useRef("");
+  const voice = useDictation(
+    {
+      onStart: () => {
+        before.current = text;
+        input.current?.focus();
+      },
+      onText: (said, final) => {
+        setText(after(before.current, said));
+        if (final) input.current?.focus();
+      },
+    },
+    !!asking,
+  );
 
   function adopt(r: wire.LlmRun) {
     setRun(r);
@@ -70,7 +93,7 @@ export default function PlanChat({ day, plan, onPreview, onClose }: { day: strin
     const id = recall(day);
     if (id)
       App.GetLLMRun(id).then(
-        (r) => live && r.kind === "day_plan" && r.subject_id === day && (r.status === "ok" || r.status === "accepted") && adopt(r),
+        (r) => live && r && r.kind === "day_plan" && r.subject_id === day && (r.status === "ok" || r.status === "accepted") && adopt(r),
         () => remember(day, null),
       );
     return () => {
@@ -85,9 +108,12 @@ export default function PlanChat({ day, plan, onPreview, onClose }: { day: strin
 
   useEffect(() => onPreview(open ? blocks.filter((_, i) => picked.has(i)) : null), [run, picked]);
   useEffect(() => () => onPreview(null), []);
+  // A new turn scrolls to it: the newest message at the top, the proposal under it.
   useEffect(() => {
     const el = scroller.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (!el) return;
+    if (asking || !last.current) el.scrollTop = el.scrollHeight;
+    else el.scrollTop = Math.max(0, last.current.offsetTop - 12);
   }, [messages.length, asking]);
 
   async function send(message: string) {
@@ -115,6 +141,13 @@ export default function PlanChat({ day, plan, onPreview, onClose }: { day: strin
     }
   }
 
+  /** Sends the box, or while the mic is open, everything said once it stops. */
+  async function submit() {
+    if (!voice.listening) return send(text);
+    const said = await voice.finish();
+    if (said != null) send(after(before.current, said));
+  }
+
   async function apply() {
     if (!run) return;
     setApplying(true);
@@ -125,6 +158,7 @@ export default function PlanChat({ day, plan, onPreview, onClose }: { day: strin
     notify(picked.size ? `Planned ${picked.size} ${picked.size === 1 ? "block" : "blocks"} from the chat` : "Cleared the day's plan", "success");
   }
 
+  /** Drops the proposal, if one is waiting, and the conversation with it. */
   async function startOver() {
     if (run?.status === "ok") await d.run(() => App.RejectLLMRun(run.id));
     remember(day, null);
@@ -145,175 +179,200 @@ export default function PlanChat({ day, plan, onPreview, onClose }: { day: strin
   const total = blocks.reduce((sum, b, i) => sum + (picked.has(i) ? b.planned_minutes : 0), 0);
   const room = out?.hours?.work_minutes ?? plan.capacity_minutes;
   const change = hoursText(out?.hours ?? null);
+  const rel = relativeDay(day, d.today());
+  const dayWord = rel === "today" || rel === "tomorrow" ? rel : formatDate(day);
+  const prime = !!d.config?.planner.prime_start;
+  const followUps = ["Most urgent first, with breaks", prime ? "Hardest work in my prime time" : "Hardest work first", "Keep it lighter", "Leave the evening free"];
+  const color = (b: ProposedBlock) => d.projects.find((p) => p.id === b.project_id)?.color ?? unassignedColor;
+  const dur = (m: number) => formatDuration(m * 60_000);
 
   return (
-    <Panel
-      title="Plan with AI"
-      icon={Sparkles}
-      actions={
-        <>
-          <span className="text-xs text-ink-subtle">{providerName(d.config?.llm)}</span>
+    <aside aria-label={`Plan with ${name}`} className="@container flex w-[clamp(320px,32%,380px)] shrink-0 flex-col border-l border-chrome-line bg-chrome">
+      <header className="flex h-11 shrink-0 items-center gap-2 border-b border-chrome-line pr-2 pl-3.5">
+        <Face mood={asking ? "thinking" : "smiling"} breathe={false} className="size-6" />
+        <h2 className="shrink-0 text-[13px] font-semibold text-ink" title={`Answers come from ${providerName(d.config?.llm)}`}>
+          Plan with {name}
+        </h2>
+        <span className="hidden min-w-0 truncate text-[11.5px] text-ink-subtle @[22rem]:inline">{providerName(d.config?.llm)}</span>
+        <span className="ml-auto flex shrink-0 items-center gap-1">
           {(run || failure) && (
-            <Button size="sm" tone="ghost" icon={MessageSquarePlus} onClick={startOver} disabled={!!asking}>
+            <Button size="sm" onClick={startOver} disabled={!!asking} className="!h-[26px]" title="Start over. A proposal you haven't applied is dropped.">
               New chat
             </Button>
           )}
-          <IconButton icon={X} label="Close the chat" size="sm" onClick={onClose} />
-        </>
-      }
-    >
-      <div className="grid gap-5 @4xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
-        <div className="flex min-w-0 flex-col gap-3">
-          <div ref={scroller} className="flex max-h-[min(24rem,46vh)] min-h-44 flex-col gap-3 overflow-y-auto rounded-lg border border-line bg-canvas/40 p-4" aria-live="polite">
-            {messages.length === 0 && !asking ? (
-              <div className="my-auto flex flex-col items-center gap-4 py-2 text-center">
-                <p className="max-w-sm text-[13px] leading-relaxed text-ink-subtle">
-                  Say how you want the day to go: when you start, how long you have, what matters most, how you feel. The plan comes from your open tasks, and nothing changes until you apply it.
-                </p>
-                <div className="flex flex-wrap justify-center gap-2">
-                  {starters.map((s) => (
-                    <button
-                      key={s}
-                      type="button"
-                      onClick={() => send(s)}
-                      className="rounded-full border border-line-strong bg-surface-2 px-3 py-1.5 text-xs text-ink-muted transition-colors hover:border-line-3 hover:text-ink"
-                    >
-                      {s}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              messages.map((m, i) => <Bubble key={i} role={m.role} text={m.text} />)
-            )}
-            {asking && <Bubble role="user" text={asking.message} pending />}
-          </div>
-          {asking && <AiProgress since={asking.since} doing="Planning your day" />}
-          {unavailable && <AiUnavailable message={unavailable} />}
-          {refused && (
-            <Callout
-              tone="neutral"
-              icon={CircleAlert}
-              action={
-                <Button size="sm" onClick={startOver}>
-                  New chat
-                </Button>
-              }
-            >
-              {refused[0].toUpperCase() + refused.slice(1)}.
-            </Callout>
+          <IconButton icon={X} label={`Close Plan with ${name}`} size="sm" onClick={onClose} />
+        </span>
+      </header>
+
+      <div ref={scroller} className="relative min-h-0 flex-1 overflow-y-auto">
+        <div className="flex flex-col gap-2.5 px-4 pt-3.5" aria-live="polite">
+          {messages.length === 0 && !asking ? (
+            // Her opening line: what to tell her, and that nothing changes until a plan is applied.
+            <div className="max-w-[90%] self-start rounded-xl rounded-bl-[4px] bg-surface-2 px-3 py-2 text-[13px] leading-relaxed text-ink">
+              <p className="font-medium">How should {dayWord} go?</p>
+              <p className="mt-0.5 text-ink-muted">
+                Tell me when you start, how long you have, what matters most, or how you feel. I'll plan from your open tasks, and nothing changes until you apply it.
+              </p>
+            </div>
+          ) : (
+            messages.map((m, i) => <Bubble key={i} ref={i === messages.length - 1 ? last : undefined} role={m.role} text={m.text} />)
           )}
-          {failure && <AiFailed error={failure} />}
-          <form
-            className="flex items-end gap-2"
-            onSubmit={(e) => {
-              e.preventDefault();
-              send(text);
-            }}
-          >
-            <TextArea
-              rows={2}
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  send(text);
-                }
-              }}
-              placeholder={messages.length ? "Ask for a change, such as: move the reading after lunch" : "How should today go?"}
-              aria-label="Message to the assistant"
-              maxLength={2000}
-              disabled={!!asking}
-              className="min-w-0 flex-1 resize-none"
-            />
-            <Button type="submit" tone="primary" icon={SendHorizontal} busy={!!asking} disabled={!text.trim()}>
-              {failure ? "Send again" : "Send"}
-            </Button>
-          </form>
-          <p className="text-xs text-ink-faint">Enter sends, Shift+Enter starts a new line.</p>
+          {asking && <Bubble role="user" text={asking.message} pending />}
         </div>
 
-        <div className="flex min-w-0 flex-col overflow-hidden rounded-lg border border-line">
-          <div className="flex items-center gap-2 border-b border-line bg-surface-2 px-4 py-2.5">
-            <CalendarCheck2 size={15} className="text-ink-subtle" aria-hidden />
-            <span className="text-[13px] font-medium text-ink">Proposed plan</span>
-            {run && !open && (
-              <Badge tone="working" className="ml-auto">
-                Applied
-              </Badge>
-            )}
-            {open && (
-              <span className={cx("ml-auto text-xs tabular-nums", total > room ? "text-idle" : "text-ink-subtle")}>
-                {formatDuration(total * 60_000)} of {formatDuration(room * 60_000)}
-              </span>
-            )}
-          </div>
-          {!run ? (
-            <p className="m-auto max-w-64 px-4 py-10 text-center text-[13px] leading-relaxed text-ink-subtle">The blocks the assistant proposes show here, and on the timeline above.</p>
-          ) : (
-            <>
-              <ul className="max-h-[min(22rem,40vh)] divide-y divide-line overflow-y-auto">
-                {blocks.map((b, i) => (
-                  <li key={i} className={cx("flex items-start gap-3 px-4 py-2.5", open && "hover:bg-surface-2/60")}>
-                    <span className="pt-0.5">
-                      <Checkbox square checked={picked.has(i)} disabled={!open} onChange={() => toggle(i)} label={`Pick ${b.title}`} />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className={cx("block truncate text-sm", picked.has(i) || !open ? "text-ink" : "text-ink-subtle")} title={b.title}>
-                        {b.title}
-                      </span>
-                      <span className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-ink-subtle">
-                        <span className="text-ink-muted tabular-nums">
-                          {formatTime(b.start_at)}–{formatTime(b.start_at + b.planned_minutes * 60_000)}
-                        </span>
-                        <ProjectTag project={d.projects.find((p) => p.id === b.project_id)} />
-                        <span className="inline-flex items-center gap-1 tabular-nums">
-                          <Clock size={12} aria-hidden />
-                          {formatDuration(b.planned_minutes * 60_000)}
-                        </span>
-                      </span>
-                    </span>
-                  </li>
-                ))}
-                {blocks.length === 0 && <li className="px-4 py-6 text-center text-[13px] text-ink-subtle">Nothing planned: a day off.</li>}
-              </ul>
-              {change && (
-                <p className="border-t border-line px-4 py-2.5 text-xs text-ink-muted">
-                  Also sets this day's hours: <span className="text-ink">{change}</span>
-                </p>
-              )}
-              <div className="mt-auto flex items-center justify-end gap-2 border-t border-line bg-surface-2 px-4 py-2.5">
-                {open ? (
-                  <Button tone="primary" icon={CalendarCheck2} onClick={apply} busy={applying} disabled={blocks.length > 0 && picked.size === 0}>
-                    {blocks.length === 0 ? "Clear the plan" : picked.size === blocks.length ? "Apply plan" : `Apply ${picked.size} of ${blocks.length}`}
+        {(asking || unavailable || refused || failure) && (
+          <div className="flex flex-col gap-2.5 px-4 pt-3">
+            {asking && <AiProgress since={asking.since} doing="Planning your day" />}
+            {unavailable && <AiUnavailable message={unavailable} />}
+            {refused && (
+              <Callout
+                tone="neutral"
+                icon={CircleAlert}
+                action={
+                  <Button size="sm" onClick={startOver}>
+                    New chat
                   </Button>
-                ) : (
-                  <span className="text-xs text-ink-subtle">On your plan. Keep talking to change it again.</span>
-                )}
+                }
+              >
+                {refused[0].toUpperCase() + refused.slice(1)}.
+              </Callout>
+            )}
+            {failure && <AiFailed error={failure} />}
+          </div>
+        )}
+
+        {run && (
+          <section aria-label="Proposed plan" className="mx-4 mt-3.5 rounded-xl border border-line bg-surface-1 px-3 pt-2.5 pb-3">
+            <div className="flex items-center gap-2">
+              <h3 className="text-[13px] font-semibold text-ink">Proposed plan</h3>
+              {open ? (
+                <span className={cx("ml-auto font-mono text-[12px] tabular-nums", total > room ? "text-warning" : "text-ink-muted")} title="Picked against the time the day has for tasks">
+                  {dur(total)} of {dur(room)}
+                </span>
+              ) : (
+                <Badge tone="working" className="ml-auto">
+                  Applied
+                </Badge>
+              )}
+            </div>
+            {blocks.length === 0 ? (
+              <p className="mt-1.5 text-[12.5px] text-ink-subtle">Nothing planned: a day off.</p>
+            ) : (
+              <ul className="mt-1.5 flex flex-col">
+                {blocks.map((b, i) => {
+                  const on = picked.has(i) || !open;
+                  return (
+                    <li
+                      key={i}
+                      onClick={(e) => open && !(e.target as HTMLElement).closest('[role="checkbox"]') && toggle(i)}
+                      className={cx("-mx-1 flex items-center gap-2.5 rounded-md px-1 py-1.5", open && "cursor-pointer hover:bg-surface-2/60")}
+                    >
+                      <Checkbox square checked={picked.has(i)} disabled={!open} onChange={() => toggle(i)} label={`${picked.has(i) ? "Leave out" : "Keep"} ${b.title}`} />
+                      <span className="min-w-0 flex-1">
+                        <span className={cx("block truncate text-[12.5px] leading-[18px]", on ? "text-ink" : "text-ink-subtle")} title={b.title}>
+                          {b.title}
+                        </span>
+                        <span className="flex items-center gap-1.5 text-[11px] leading-4 text-ink-subtle tabular-nums">
+                          <span aria-hidden className="size-1.5 shrink-0 rounded-[2px]" style={{ background: color(b) }} />
+                          {formatTime(b.start_at)} to {formatTime(b.start_at + b.planned_minutes * 60_000)}
+                        </span>
+                      </span>
+                      <span className="shrink-0 font-mono text-[11.5px] text-ink-subtle">{dur(b.planned_minutes)}</span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            {change && (
+              <p className="mt-1.5 text-[11.5px] leading-relaxed text-ink-subtle">
+                Also sets this day's hours: <span className="text-ink-muted">{change}</span>
+              </p>
+            )}
+            {open ? (
+              <div className="mt-2.5 flex gap-2">
+                <Button tone="primary" size="sm" className="!h-8 flex-1" onClick={apply} busy={applying} disabled={blocks.length > 0 && picked.size === 0}>
+                  {blocks.length === 0 ? "Clear the plan" : picked.size === blocks.length ? "Apply plan" : `Apply ${picked.size} of ${blocks.length}`}
+                </Button>
+                <Button size="sm" className="!h-8" onClick={startOver} disabled={applying} title="Drop this proposal and start a new chat">
+                  Discard
+                </Button>
               </div>
-            </>
-          )}
-        </div>
+            ) : (
+              <p className="mt-2 text-[12px] text-ink-subtle">On your plan. Keep talking to change it again.</p>
+            )}
+          </section>
+        )}
+
+        {!asking && (
+          <div className="flex flex-wrap gap-1.5 px-4 pt-3.5 pb-4">
+            {(messages.length ? followUps : starters).map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => send(s)}
+                className="h-[26px] rounded-full border border-line-strong bg-surface-2 px-2.5 text-[12px] text-ink-muted transition-colors hover:border-line-3 hover:text-ink"
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
-    </Panel>
+
+      <div className="flex shrink-0 flex-col gap-2 border-t border-chrome-line px-4 pt-3 pb-3.5">
+        {voice.panel}
+        <form
+          className={cx(
+            "flex items-end gap-1 rounded-xl border bg-surface-1 py-1.5 pr-1.5 pl-3 transition-colors focus-within:border-accent",
+            voice.listening ? "border-accent/60" : "border-line-strong hover:border-line-3",
+            asking && "opacity-60",
+          )}
+          onSubmit={(e) => {
+            e.preventDefault();
+            submit();
+          }}
+        >
+          <textarea
+            ref={input}
+            rows={2}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                submit();
+              }
+            }}
+            placeholder={messages.length ? "Ask for a change, such as: move the reading after lunch" : `How should ${dayWord} go?`}
+            title="Enter sends, Shift+Enter starts a new line"
+            aria-label={`Message to ${name}`}
+            maxLength={2000}
+            disabled={!!asking}
+            readOnly={voice.listening}
+            className="max-h-32 min-h-10 min-w-0 flex-1 resize-none self-center bg-transparent py-0.5 text-[13px] leading-5 text-ink placeholder:text-ink-faint focus:outline-none"
+          />
+          {voice.button}
+          <Button type="submit" size="sm" className="!h-8" busy={!!asking} disabled={!text.trim() && !voice.listening}>
+            {failure ? "Send again" : "Send"}
+          </Button>
+        </form>
+      </div>
+    </aside>
   );
 }
 
-function Bubble({ role, text, pending }: { role: "user" | "assistant"; text: string; pending?: boolean }) {
+function Bubble({ ref, role, text, pending }: { ref?: Ref<HTMLDivElement>; role: "user" | "assistant"; text: string; pending?: boolean }) {
   const user = role === "user";
   return (
-    <div className={cx("flex items-end gap-2.5", user && "flex-row-reverse")}>
-      {!user && <Face mood="smiling" breathe={false} className="size-14" />}
-      <div
-        className={cx(
-          "max-w-[85%] rounded-xl px-3.5 py-2.5 text-[13px] leading-relaxed whitespace-pre-line",
-          user ? "rounded-br-sm bg-accent/15 text-ink" : "rounded-bl-sm border border-line bg-surface-2 text-ink-muted",
-          pending && "opacity-70",
-        )}
-      >
-        {text}
-      </div>
+    <div
+      ref={ref}
+      className={cx(
+        "max-w-[90%] rounded-xl px-3 py-2 text-[13px] leading-relaxed whitespace-pre-line",
+        user ? "self-end rounded-br-[4px] bg-accent/15 text-ink" : "self-start rounded-bl-[4px] bg-surface-2 text-ink",
+        pending && "opacity-70",
+      )}
+    >
+      {text}
     </div>
   );
 }

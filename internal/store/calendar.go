@@ -45,6 +45,8 @@ type CalendarRepo interface {
 	SkipItem(ctx context.Context, id string) (model.PlanItem, bool, error)
 	// ReplaceBusy replaces every busy interval overlapping [from, to).
 	ReplaceBusy(ctx context.Context, from, to time.Time, busy []BusyInterval) error
+	// Busy is the cached busy time intersecting [from, to), by start.
+	Busy(ctx context.Context, from, to time.Time) ([]BusyInterval, error)
 }
 
 type calendarRepo struct{ db *DB }
@@ -191,6 +193,10 @@ func (r calendarRepo) ReplaceBusy(ctx context.Context, from, to time.Time, busy 
 		return fmt.Errorf("replace busy times: %w", err)
 	}
 	return nil
+}
+
+func (r calendarRepo) Busy(ctx context.Context, from, to time.Time) ([]BusyInterval, error) {
+	return busyBetween(ctx, r.db.sql, from, to)
 }
 
 // busyBetween is the busy time intersecting [from, to), for capacity.

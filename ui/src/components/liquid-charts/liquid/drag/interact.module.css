@@ -1,0 +1,214 @@
+/*
+Liquid Charts by Ojieame · https://liquid.ojieame.design · nathan@ojieame.design
+
+Liquid Charts adaptation. Original foundation: Evil Charts by Gurbinder.
+Upstream: ecbd6a5db7b25f9a7e070c02b2ef728c378eeb5c
+MIT License
+
+Copyright (c) 2026 Gurbinder
+Copyright (c) 2026 NATEPAY, LLC (Liquid Charts additions)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Includes shadcn-derived primitives:
+MIT License
+
+Copyright (c) 2023 shadcn
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+*/
+/* Interaction parts: drag handles and the readout at the pointer (drag.tsx), and the draw-your-guess
+ * zone and its controls (draw.tsx). Colours are the chart frame's tokens (--chart-*), so they follow
+ * the theme the frame sets. The export menu has its own sheet (export/export.module.css). */
+
+.lc-interact-srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+/* ——— Drag ——— */
+
+/* A 44px grab area over a mark's tip; only its small icon shows. */
+.lc-interact-handle {
+  position: absolute;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  touch-action: none;
+  cursor: ns-resize;
+  color: var(--chart-ink);
+  -webkit-tap-highlight-color: transparent;
+}
+.lc-interact-handle[data-axis="x"] {
+  cursor: ew-resize;
+}
+.lc-interact-handleIcon {
+  color: var(--chart-ink-2);
+  opacity: 0;
+  transition: opacity 160ms ease-out;
+}
+.lc-interact-handle:hover .lc-interact-handleIcon,
+.lc-interact-handle[data-active="true"] .lc-interact-handleIcon {
+  opacity: 1;
+}
+.lc-interact-handle[data-dragging="true"] .lc-interact-handleIcon {
+  opacity: 0;
+}
+
+/* The value at the pointer: a plain figure with a quiet note, no box. */
+.lc-interact-readout {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 3;
+  display: grid;
+  justify-items: start;
+  gap: 1px;
+  pointer-events: none;
+  white-space: nowrap;
+  color: var(--chart-ink);
+  text-shadow:
+    0 0 6px var(--chart-void, rgb(10 10 10 / 0.9)),
+    0 0 2px var(--chart-void, rgb(10 10 10 / 0.9));
+}
+[data-scheme="light"] .lc-interact-readout {
+  text-shadow:
+    0 0 6px rgb(255 255 255 / 0.95),
+    0 0 2px rgb(255 255 255 / 0.95);
+}
+.lc-interact-readoutValue {
+  display: inline-flex;
+}
+/* A readout follows the hand: its figure changes in place, without rolling. */
+.lc-interact-readout * {
+  transition: none !important;
+}
+.lc-interact-readoutNote {
+  color: var(--chart-ink-3);
+}
+
+/* ——— Draw your guess ——— */
+
+/* The hidden stretch: a quiet tint where the reader draws. */
+.lc-interact-zone {
+  position: absolute;
+  z-index: 1;
+  touch-action: none;
+  cursor: crosshair;
+  -webkit-tap-highlight-color: transparent;
+}
+.lc-interact-zone::before {
+  content: "";
+  position: absolute;
+  inset: 8px 0 8px 0;
+  border-left: 1px dashed color-mix(in srgb, var(--chart-ink) 22%, transparent);
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--chart-ink) 5%, transparent),
+    color-mix(in srgb, var(--chart-ink) 2%, transparent)
+  );
+  transition: opacity 300ms ease-out;
+}
+.lc-interact-zone[data-revealed="true"] {
+  cursor: default;
+}
+.lc-interact-zone[data-revealed="true"]::before {
+  opacity: 0;
+}
+.lc-interact-zoneIcon {
+  position: absolute;
+  color: var(--chart-ink-2);
+  opacity: 0.8;
+  pointer-events: none;
+  transition: opacity 240ms ease-out;
+}
+.lc-interact-zone[data-drawn="true"] .lc-interact-zoneIcon {
+  opacity: 0;
+}
+
+/* Under the chart: Show me, then the verdict and Draw again. */
+.lc-interact-guessBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  min-height: 30px;
+}
+.lc-interact-guessVerdict {
+  flex: 1 1 220px;
+  margin: 0;
+  color: var(--chart-ink-2);
+}
+.lc-interact-guessVerdict strong {
+  color: var(--chart-ink);
+  font-weight: inherit;
+}
+/* The library's cap, as an action: inactive until the guess reaches the end. Its resting ink
+ * already reads as quiet; faded on top of that it all but vanishes on white, so only dark dims it. */
+.lc-interact-action[aria-disabled="true"] {
+  cursor: default;
+}
+:where([data-scheme="dark"]) .lc-interact-action[aria-disabled="true"] {
+  opacity: 0.45;
+}
+:where([data-scheme="light"]) .lc-interact-action[aria-disabled="true"] {
+  opacity: 1;
+}
+.lc-interact-action[aria-disabled="true"]:active {
+  translate: none;
+}
+
+/* Touch: caps keep their size but take a 44px hit area. */
+@media (pointer: coarse) {
+  .lc-interact-guessBar > button::after {
+    content: "";
+    position: absolute;
+    inset: -9px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lc-interact-handleIcon,
+  .lc-interact-zone::before,
+  .lc-interact-zoneIcon {
+    transition: none;
+  }
+}

@@ -1,0 +1,382 @@
+/*
+Liquid Charts by Ojieame · https://liquid.ojieame.design · nathan@ojieame.design
+
+Liquid Charts
+Copyright (c) 2026 NATEPAY, LLC. This file is source-available under the Liquid Charts
+Source-Available Licence 1.0, not under MIT: https://liquid.ojieame.design/docs/licence
+
+Free to use and change in anything you make, commercial products and client work included, as
+long as the Liquid credit stays visible where the charts show it and this notice stays. You may
+not redistribute or sell it as a chart library, component library, UI kit, template, registry
+or other developer tool.
+
+The notices below, and any later in this file, are kept word for word. The work each one
+names keeps its own licence: the MIT notices below apply only to portions derived from the
+projects they name, and a font keeps its font licence.
+
+Liquid Charts adaptation. Original foundation: Evil Charts by Gurbinder.
+Upstream: ecbd6a5db7b25f9a7e070c02b2ef728c378eeb5c
+MIT License
+
+Copyright (c) 2026 Gurbinder
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Includes shadcn-derived primitives:
+MIT License
+
+Copyright (c) 2023 shadcn
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+*/
+/* The cells family's own parts. Colours are the core frame's tokens (--chart-*), so both themes
+ * and any page that sets them agree. */
+
+.lc-cells-root {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  min-width: 0;
+}
+
+/* Mark layers fill the plot; canvases bleed past it so lifts and glows can fade. */
+.lc-cells-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.lc-cells-canvas {
+  position: absolute;
+  pointer-events: none;
+}
+
+/* Axis names: placed and thinned in JS, never rotated; the focused one lights, the rest dim. */
+.lc-cells-axes {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.lc-cells-columnLabel,
+.lc-cells-rowLabel,
+.lc-cells-monthLabel,
+.lc-cells-weekdayLabel {
+  position: absolute;
+  color: var(--chart-ink-3);
+  white-space: nowrap;
+  line-height: 15px;
+  transition:
+    color 180ms ease-out,
+    opacity 180ms ease-out;
+}
+.lc-cells-rowLabel,
+.lc-cells-weekdayLabel {
+  translate: 0 -50%;
+  text-align: right;
+  color: var(--chart-ink-2);
+}
+.lc-cells-columnLabel[data-shown="false"],
+.lc-cells-rowLabel[data-shown="false"],
+.lc-cells-monthLabel[data-shown="false"],
+.lc-cells-weekdayLabel[data-shown="false"] {
+  opacity: 0;
+}
+.lc-cells-columnLabel[data-active="true"],
+.lc-cells-rowLabel[data-active="true"],
+.lc-cells-monthLabel[data-active="true"] {
+  z-index: 1;
+  color: var(--chart-ink);
+}
+.lc-cells-columnLabel[data-active="true"] {
+  margin-left: -6px;
+}
+.lc-cells-rowLabel[data-dim="true"],
+.lc-cells-columnLabel[data-dim="true"] {
+  opacity: 0.55;
+}
+.lc-cells-columnLabel[data-shown="false"][data-dim="true"],
+.lc-cells-rowLabel[data-shown="false"][data-dim="true"] {
+  opacity: 0;
+}
+.lc-cells-year {
+  margin-left: 3px;
+  color: var(--chart-ink-3);
+  opacity: 0.8;
+}
+
+/* A value printed in its cell: ink chosen for contrast with the cell's colour. */
+.lc-cells-cellValue {
+  position: absolute;
+  translate: -50% -50%;
+  white-space: nowrap;
+  pointer-events: none;
+  transition: opacity 200ms ease-out;
+  /* With its cell: --delay is when the cell is mostly in (core `labelDelay`). */
+  animation: lc-cells-valueIn var(--enter-label) ease-out var(--delay, var(--enter-label-delay))
+    both;
+}
+.lc-cells-cellValue[data-ink="dark"] {
+  color: #141414;
+}
+.lc-cells-cellValue[data-ink="light"] {
+  color: #f3f3f3;
+  text-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
+}
+.lc-cells-cellValue[data-dim="true"] {
+  opacity: 0.32;
+}
+@keyframes lc-cells-valueIn {
+  from {
+    opacity: 0;
+  }
+}
+
+/* The tooltip's note against a midpoint: good or bad news. */
+.lc-cells-tipNote {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  color: var(--chart-gain);
+}
+.lc-cells-tipNote[data-good="false"] {
+  color: var(--chart-loss);
+}
+.lc-cells-tipMuted {
+  color: var(--chart-ink-3);
+}
+
+/* The legend row under the plot (the gradient legend itself is the core's), and its keys. */
+.lc-cells-legendRow {
+  min-width: 0;
+  padding-top: 8px;
+}
+.lc-cells-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--chart-ink-2);
+  white-space: nowrap;
+}
+.lc-cells-etchedSwatch,
+.lc-cells-todaySwatch,
+.lc-cells-rangeSwatch,
+.lc-cells-glassSwatch {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border-radius: 2px;
+  box-sizing: border-box;
+}
+.lc-cells-etchedSwatch {
+  background-color: color-mix(in srgb, var(--chart-ink) 4%, transparent);
+  background-image: repeating-linear-gradient(
+    -45deg,
+    color-mix(in srgb, var(--chart-ink) 22%, transparent) 0 1px,
+    transparent 1px 3.5px
+  );
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--chart-ink) 14%, transparent);
+}
+.lc-cells-todaySwatch {
+  background: var(--swatch, var(--chart-ink-3));
+  box-shadow:
+    inset 0 0 0 1.5px var(--swatch, var(--chart-ink-3)),
+    inset 0 0 0 2.75px var(--chart-ink);
+}
+/* Liquid cells etched for meaning (today so far, projected, outside a target): the colour with
+ * frosted lanes, as the cells draw them. */
+.lc-cells-todaySwatch[data-etched],
+.lc-cells-lanesSwatch {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    color-mix(in srgb, white 50%, transparent) 0 1px,
+    transparent 1px 3.5px
+  );
+}
+.lc-cells-lanesSwatch {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border-radius: 2px;
+  box-sizing: border-box;
+  background-color: var(--swatch, var(--chart-ink-3));
+}
+.lc-cells-rangeSwatch {
+  background: var(--swatch, transparent);
+  box-shadow: 0 0 0 1.5px var(--chart-ink);
+}
+.lc-cells-glassSwatch {
+  background: linear-gradient(
+    to top,
+    var(--swatch),
+    color-mix(in srgb, var(--swatch) 55%, transparent)
+  );
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.22);
+}
+
+/* Calendar: scrolls inside its card only when even folded cells would be too small. Otherwise it
+ * never scrolls, so the liquid's glow, which bleeds past the grid, can't make it scroll. */
+.lc-cells-scroller {
+  min-width: 0;
+}
+.lc-cells-scroller[data-scroll="true"] {
+  padding-bottom: 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+}
+
+/* Waffle: the grid beside (or above) its legend of exact counts. */
+.lc-cells-waffle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 18px 28px;
+  min-width: 0;
+}
+.lc-cells-waffleGrid {
+  flex: none;
+  min-width: 0;
+}
+.lc-cells-waffleLegend {
+  display: grid;
+  gap: 4px;
+  flex: 1 1 180px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.lc-cells-waffleItem {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 4px 10px;
+  padding: 6px 10px;
+  border-radius: 2px;
+  color: var(--chart-ink-2);
+  transition:
+    background-color 160ms ease-out,
+    opacity 160ms ease-out,
+    color 160ms ease-out;
+}
+.lc-cells-waffleItem[data-active="true"] {
+  color: var(--chart-ink);
+  background: color-mix(in srgb, var(--chart-ink) 6%, transparent);
+}
+.lc-cells-waffleItem[data-dim="true"] {
+  opacity: 0.5;
+}
+.lc-cells-waffleName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lc-cells-waffleCount {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--chart-ink);
+}
+.lc-cells-waffleShare {
+  color: var(--chart-ink-3);
+}
+.lc-cells-emptySwatch {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border-radius: 2px;
+  box-sizing: border-box;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--chart-ink) 30%, transparent);
+}
+
+/* Unit columns: counts over each column, names under it. */
+.lc-cells-columnValue {
+  position: absolute;
+  translate: -50% -100%;
+  color: var(--chart-ink-2);
+  white-space: nowrap;
+  pointer-events: none;
+  transition:
+    color 180ms ease-out,
+    opacity 180ms ease-out;
+  animation: lc-cells-valueIn var(--enter-label) ease-out var(--delay, var(--enter-label-delay))
+    both;
+}
+.lc-cells-columnValue[data-active="true"] {
+  color: var(--chart-ink);
+}
+.lc-cells-columnValue[data-dim="true"] {
+  opacity: 0.45;
+}
+.lc-cells-columnName {
+  position: absolute;
+  color: var(--chart-ink-3);
+  white-space: nowrap;
+  transition:
+    color 180ms ease-out,
+    opacity 180ms ease-out;
+}
+.lc-cells-columnName[data-wrap="true"] {
+  display: grid;
+  justify-items: center;
+  translate: -50% 0;
+  line-height: 15px;
+  text-align: center;
+}
+.lc-cells-columnLine {
+  white-space: nowrap;
+}
+.lc-cells-columnName[data-active="true"] {
+  color: var(--chart-ink);
+}
+.lc-cells-columnName[data-shown="false"] {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lc-cells-columnLabel,
+  .lc-cells-rowLabel,
+  .lc-cells-monthLabel,
+  .lc-cells-weekdayLabel,
+  .lc-cells-cellValue,
+  .lc-cells-waffleItem,
+  .lc-cells-columnValue,
+  .lc-cells-columnName {
+    transition: none;
+    animation: none;
+  }
+}

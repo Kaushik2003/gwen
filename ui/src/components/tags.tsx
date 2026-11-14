@@ -1,15 +1,18 @@
 import { CalendarDays, Clock, Flag, Gauge } from "lucide-react";
 import type { wire } from "../api";
+import { useDaemon } from "../daemon";
 import { daysBetween, formatClock, formatDate } from "../format";
+import { projectPath } from "../shell/projects";
 import { stageLabel } from "./ScheduleInput";
 import { Dot, cx, priorityOf, unassignedColor } from "./ui";
 
-/** A project's dot and name; "Unassigned" without one. */
+/** A project's dot and name (with its parent for a sub-project); "No project" without one. */
 export function ProjectTag({ project, className }: { project?: wire.Project | null; className?: string }) {
+  const d = useDaemon();
   return (
     <span className={cx("inline-flex min-w-0 items-center gap-1.5 text-xs text-ink-subtle", className)}>
       <Dot color={project?.color ?? unassignedColor} size={7} />
-      <span className="truncate">{project?.name ?? "Unassigned"}</span>
+      <span className="truncate">{project ? projectPath(project, d.projects) : "No project"}</span>
     </span>
   );
 }

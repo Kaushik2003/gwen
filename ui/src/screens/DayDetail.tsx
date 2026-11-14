@@ -7,7 +7,8 @@ import TimeInput from "../components/TimeInput";
 import Timeline from "../components/Timeline";
 import { Button, DotSelect, Field, IconButton, Modal, Panel, Select, TextArea, cx, unassignedColor } from "../components/ui";
 import { useDaemon } from "../daemon";
-import { clockValue, formatDuration, formatLongDate, formatTime, goDuration, instantOn, parseDuration, shortId } from "../format";
+import { clockValue, formatDuration, formatLongDate, formatTime, goDuration, instantOn, parseDuration } from "../format";
+import { projectChoices, projectPath } from "../shell/projects";
 
 const kinds = [
   { value: "work", label: "Work" },
@@ -27,9 +28,16 @@ export default function DayDetail({ day, onBack, readOnly }: { day: string; onBa
   const [target, setTarget] = useState("8h");
   const [note, setNote] = useState("");
   const [focus, setFocus] = useState<string | null>(null);
-  // Every task, done ones too, so past time shows what it was spent on.
+  // Every task, done ones too, and archived projects, so past time shows what it was spent on.
   const [allTasks, setAllTasks] = useState<wire.Task[]>([]);
+  const [allProjects, setAllProjects] = useState<wire.Project[]>([]);
   const rollover = d.config?.tracking.day_rollover ?? "04:00";
+  const today = d.today();
+  const projects = projectChoices(d.projects);
+  const tasks = d.tasks.filter((t) => t.status === "open" && !t.parent_id && !t.rrule && (!t.occurrence_day || t.occurrence_day <= today));
+  const taskGroups = [...projects, { id: "", label: "No project" }]
+    .map((p) => ({ ...p, tasks: tasks.filter((t) => (t.project_id ?? "") === p.id) }))
+    .filter((p) => p.tasks.length > 0);
 
   const load = useCallback(() => {
     App.GetDay(day).then(
@@ -52,6 +60,12 @@ export default function DayDetail({ day, onBack, readOnly }: { day: string; onBa
       () => setAllTasks([]),
     );
   }, [d.tasksVersion]);
+  useEffect(() => {
+    App.ListProjects("all").then(
+      (l) => setAllProjects(l.projects),
+      () => setAllProjects([]),
+    );
+  }, [d.projectsVersion]);
 
   const colors = useMemo(() => {
     const m = new Map<string | null, string>([[null, unassignedColor]]);
@@ -61,10 +75,14 @@ export default function DayDetail({ day, onBack, readOnly }: { day: string; onBa
   }, [d.projects, detail]);
   const names = useMemo(() => {
     const m = new Map<string | null, string>([[null, "Unassigned"]]);
-    d.projects.forEach((p) => m.set(p.id, p.name));
-    detail?.summary.by_project.forEach((p) => m.set(p.project_id ?? null, p.name));
+    d.projects.forEach((p) => m.set(p.id, projectPath(p, d.projects)));
+    detail?.segments.forEach((s) => {
+      if (!s.project_id || m.has(s.project_id)) return;
+      const archived = allProjects.find((p) => p.id === s.project_id);
+      m.set(s.project_id, archived ? `${projectPath(archived, allProjects)} (archived)` : "A deleted project");
+    });
     return m;
-  }, [d.projects, detail]);
+  }, [d.projects, detail, allProjects]);
 
   const header = (
     <div className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-3">
@@ -98,7 +116,7 @@ export default function DayDetail({ day, onBack, readOnly }: { day: string; onBa
   async function remove(s: wire.Segment) {
     const ok = await confirm({
       title: "Delete this time?",
-      body: `${kinds.find((k) => k.value === s.kind)?.label ?? s.kind} from ${formatTime(s.started_at)} to ${formatTime(s.ended_at!)} is removed from the day.`,
+      body: `${kinds.find((k) => k.value === s.kind)?.label ?? "Time"} from ${formatTime(s.started_at)} to ${formatTime(s.ended_at!)} is removed from the day.`,
       confirm: "Delete",
       danger: true,
     });
@@ -149,11 +167,12 @@ export default function DayDetail({ day, onBack, readOnly }: { day: string; onBa
             const locked = readOnly || open;
             const work = seg.kind === "work";
             const color = work ? colors.get(seg.project_id ?? null) ?? unassignedColor : "var(--color-break)";
+            const task = d.tasks.find((t) => t.id === seg.task_id) ?? allTasks.find((t) => t.id === seg.task_id);
             return (
               <li
                 id={`seg-${seg.id}`}
                 key={seg.id}
-                className={cx("flex flex-wrap items-center gap-2 rounded-lg py-2 pr-2 pl-3 transition-colors @2xl:flex-nowrap", focus === seg.id ? "bg-accent/10" : "hover:bg-surface-2/60")}
+                className={cx("flex flex-wrap items-center gap-2 rounded-lg py-2 pr-2 pl-3 transition-colors @5xl:flex-nowrap", focus === seg.id ? "bg-accent/10" : "hover:bg-surface-2/60")}
                 onFocus={() => setFocus(seg.id)}
               >
                 <span className={cx("h-8 w-1 shrink-0 rounded-full", !work && "hatched")} style={work ? { backgroundColor: color } : undefined} aria-hidden />
@@ -167,25 +186,31 @@ export default function DayDetail({ day, onBack, readOnly }: { day: string; onBa
                 {work ? (
                   <>
                     <DotSelect color={color} value={seg.project_id ?? ""} disabled={locked} onChange={(e) => patch(seg, { project_id: e.target.value || null })} className="w-40 shrink-0" aria-label="Project">
-                      <option value="">Unassigned</option>
-                      {d.projects.map((p) => (
+                      <option value="">{task && !task.project_id ? "No project" : "Unassigned"}</option>
+                      {projects.map((p) => (
                         <option key={p.id} value={p.id}>
-                          {p.name}
+                          {p.label}
                         </option>
                       ))}
-                      {seg.project_id && !d.projects.some((p) => p.id === seg.project_id) && <option value={seg.project_id}>{names.get(seg.project_id) ?? shortId(seg.project_id)}</option>}
+                      {seg.project_id && !projects.some((p) => p.id === seg.project_id) && <option value={seg.project_id} disabled hidden>{names.get(seg.project_id) ?? "A deleted project"}</option>}
                     </DotSelect>
-                    <Select value={seg.task_id ?? ""} disabled={locked} onChange={(e) => patch(seg, { task_id: e.target.value || null })} className="w-40 min-w-0 flex-1" aria-label="Task">
+                    <Select value={seg.task_id ?? ""} disabled={locked} onChange={(e) => patch(seg, { task_id: e.target.value || null })} className="order-last ml-3 w-[calc(100%-0.75rem)] min-w-0 @5xl:order-none @5xl:ml-0 @5xl:w-40 @5xl:flex-1" aria-label="Task">
                       <option value="">No task</option>
-                      {d.tasks.map((t) => (
-                        <option key={t.id} value={t.id}>
-                          {t.title}
-                        </option>
+                      {taskGroups.map((p) => (
+                        <optgroup key={p.id} label={p.label}>
+                          {p.tasks.map((t) => (
+                            <option key={t.id} value={t.id}>
+                              {t.title}
+                            </option>
+                          ))}
+                        </optgroup>
                       ))}
-                      {seg.task_id && !d.tasks.some((t) => t.id === seg.task_id) && (
-                        <option value={seg.task_id}>{allTasks.find((t) => t.id === seg.task_id)?.title ?? shortId(seg.task_id)}</option>
+                      {seg.task_id && !taskGroups.some((p) => p.tasks.some((t) => t.id === seg.task_id)) && (
+                        <option value={seg.task_id} disabled hidden>{task?.title ?? "A deleted task"}</option>
                       )}
                     </Select>
+                    {/* Narrow: the task takes its own line under the row, and the times stay at the right. */}
+                    <span className="min-w-0 flex-1 @5xl:hidden" />
                   </>
                 ) : (
                   <span className="min-w-0 flex-1" />
@@ -325,9 +350,9 @@ function AddSegment({ day, rollover, onClose }: { day: string; rollover: string;
         <Field label="Project">
           <Select value={project} disabled={kind !== "work"} onChange={(e) => setProject(e.target.value)}>
             <option value="">Unassigned</option>
-            {d.projects.map((p) => (
+            {projectChoices(d.projects).map((p) => (
               <option key={p.id} value={p.id}>
-                {p.name}
+                {p.label}
               </option>
             ))}
           </Select>

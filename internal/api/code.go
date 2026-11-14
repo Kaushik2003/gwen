@@ -18,6 +18,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/kzark/gwen/internal/herdr"
+	"github.com/kzark/gwen/internal/llm"
 	"github.com/kzark/gwen/internal/remote"
 	"github.com/kzark/gwen/internal/wire"
 )
@@ -133,6 +134,8 @@ func (s *Server) RemoteHandler(app fs.FS, pair http.HandlerFunc) http.Handler {
 	route := s.router(mux)
 	s.codeRoutes(route)
 	route("GET /v1/code/events", s.withCode(s.codeEvents))
+	s.pushRoutes(route)
+	s.phoneRoutes(route)
 	mux.HandleFunc("POST /pair", pair)
 	files := http.FileServerFS(app)
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
@@ -190,7 +193,13 @@ func (s *Server) codeStart(w http.ResponseWriter, r *http.Request) error {
 	// Starting can open Gwen Terminal and wait for it.
 	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 	defer cancel()
-	sess, err := s.Code.Start(ctx, body)
+	start := s.Code.Start
+	if deviceOf(r) == "" && !body.Create && !body.GitInit {
+		// The owner at this laptop (the Gwen window, the CLI) names a folder of their own, a project's: remote.roots
+		// limits what a phone may open, not them.
+		start = s.Code.StartInProject
+	}
+	sess, err := start(ctx, body)
 	if err != nil {
 		return err
 	}
@@ -299,8 +308,8 @@ func (s *Server) codeMark(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (s *Server) codeSpaces(w http.ResponseWriter, _ *http.Request) error {
-	writeJSON(w, http.StatusOK, s.Code.Spaces())
+func (s *Server) codeSpaces(w http.ResponseWriter, r *http.Request) error {
+	writeJSON(w, http.StatusOK, s.Code.Spaces(r.Context()))
 	return nil
 }
 
@@ -398,6 +407,53 @@ func (s *Server) codeConversations(w http.ResponseWriter, r *http.Request) error
 	return nil
 }
 
+// codeUsage serves GET /v1/code/usage: the newest reading of Claude's
+// usage limits.
+func (s *Server) codeUsage(w http.ResponseWriter, _ *http.Request) error {
+	writeJSON(w, http.StatusOK, s.Code.Usage())
+	return nil
+}
+
+// commitSessions serves GET /v1/code/commit-sessions?dir=: the commits
+// Claude conversations made in a folder.
+func (s *Server) commitSessions(w http.ResponseWriter, r *http.Request) error {
+	c, err := s.Code.CommitSessions(r.Context(), r.URL.Query().Get("dir"))
+	if err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, c)
+	return nil
+}
+
+// summarizeCommit serves POST /v1/code/commit-sessions/summary: Gwen sums
+// up a commit from the conversation that made it, and keeps the summary.
+func (s *Server) summarizeCommit(w http.ResponseWriter, r *http.Request) error {
+	var req wire.SummarizeCommit
+	if err := decode(r, &req); err != nil {
+		return err
+	}
+	if req.ClaudeSessionID == "" || req.Commit == "" {
+		return badRequest("claude_session_id", "a conversation and a commit are required")
+	}
+	text, err := s.Code.CommitConversation(req.Dir, req.ClaudeSessionID, req.Commit)
+	if err != nil {
+		return err
+	}
+	p, err := s.planner(r.Context())
+	if err != nil {
+		return err
+	}
+	out, err := p.CommitSummary(r.Context(), llm.CommitSummaryRequest{Subject: req.Subject, Conversation: text})
+	if err != nil {
+		return Unavailable("Gwen couldn't sum it up: %v", err)
+	}
+	if err := s.Code.KeepCommitSummary(r.Context(), req.ClaudeSessionID, req.Commit, out.Summary); err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, wire.CommitSummary{Summary: out.Summary})
+	return nil
+}
+
 // codeHook takes one hook event. The answer waits when a permission request
 // is held for the phone.
 func (s *Server) codeHook(w http.ResponseWriter, r *http.Request) error {
@@ -446,14 +502,15 @@ func (s *Server) codeEvents(w http.ResponseWriter, r *http.Request) error {
 			if !ok {
 				return nil
 			}
-			if !codeFrame(frame) {
+			if !phoneFrame(frame) {
 				continue
 			}
 			if _, err := w.Write(frame); err != nil {
 				return nil
 			}
 		case <-ping.C():
-			if _, err := w.Write([]byte(": ping\n\n")); err != nil {
+			// A named event, not a comment: the phone's page can hear it, and takes a stream that goes quiet for good as dead.
+			if _, err := w.Write([]byte("event: ping\ndata: {}\n\n")); err != nil {
 				return nil
 			}
 			ping.Reset(pingInterval)
@@ -462,24 +519,21 @@ func (s *Server) codeEvents(w http.ResponseWriter, r *http.Request) error {
 	}
 }
 
-// codeFrame reports whether an event frame is one a phone may see.
-func codeFrame(frame []byte) bool {
-	_, rest, ok := strings.Cut(string(frame[:min(len(frame), 96)]), "\nevent: ")
-	return ok && strings.HasPrefix(rest, "code_")
-}
+var upgrader = websocket.Upgrader{ReadBufferSize: 4 << 10, WriteBufferSize: 64 << 10}
 
-var upgrader = websocket.Upgrader{
-	ReadBufferSize: 4 << 10, WriteBufferSize: 64 << 10,
-	// The phone app is served from the same origin as this socket; a page
-	// from anywhere else may not open a terminal.
-	CheckOrigin: func(r *http.Request) bool {
-		origin := r.Header.Get("Origin")
-		if origin == "" {
-			return true
-		}
-		u, err := url.Parse(origin)
-		return err == nil && strings.EqualFold(u.Host, r.Host)
-	},
+// viewOrigin is the check a terminal view's WebSocket passes: the phone app
+// is served from the same origin as this socket, and a page from anywhere
+// else may not open a terminal. Behind Tailscale Serve the request's Host is
+// "localhost", so the published address is asked of the remote instead.
+func (s *Server) viewOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true
+	}
+	if u, err := url.Parse(origin); err == nil && strings.EqualFold(u.Host, r.Host) {
+		return true
+	}
+	return s.Code.PhoneOrigin(r.Context(), origin)
 }
 
 // viewMessage is what the phone sends on a terminal view: keys to press, or
@@ -502,7 +556,9 @@ func (s *Server) codeView(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	defer view.Close()
-	conn, err := upgrader.Upgrade(w, r, nil)
+	up := upgrader
+	up.CheckOrigin = s.viewOrigin
+	conn, err := up.Upgrade(w, r, nil)
 	if err != nil {
 		return nil // Upgrade already answered
 	}
@@ -622,18 +678,4 @@ func (s *Server) remoteHooks(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	return s.remoteStatus(w, r)
-}
-
-// openApp serves POST /v1/app/open: it shows a Gwen screen in the Gwen
-// window, starting the window and making the Gwen space when needed.
-func (s *Server) openApp(w http.ResponseWriter, r *http.Request) error {
-	var req wire.OpenApp
-	if err := decode(r, &req); err != nil {
-		return err
-	}
-	if err := s.Code.OpenGwen(r.Context(), req.Screen); err != nil {
-		return err
-	}
-	w.WriteHeader(http.StatusNoContent)
-	return nil
 }

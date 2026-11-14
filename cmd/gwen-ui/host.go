@@ -138,6 +138,22 @@ func (h *host) openURL(raw string) error {
 	return h.start("xdg-open", raw)
 }
 
+// openFile opens a file a task has attached in its usual app. A program or
+// a launcher opens its folder instead: opening one would run it.
+func (h *host) openFile(path string) error {
+	if !filepath.IsAbs(path) {
+		return fmt.Errorf("a file needs its full path")
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("%s isn't on this computer any more", filepath.Base(path))
+	}
+	if info.IsDir() || info.Mode()&0o111 != 0 || strings.HasSuffix(path, ".desktop") {
+		path = filepath.Dir(path)
+	}
+	return h.start("xdg-open", path)
+}
+
 // enableService runs systemctl --user enable --now gwend.service and waits
 // up to 5 s for the daemon to answer.
 func (h *host) enableService(ctx context.Context) error {

@@ -77,7 +77,11 @@ type Dispatcher struct {
 	cfg    config.Config
 	shown  map[string]Notification // kind, or previewKey → the nudge showing
 	cardAt time.Time               // when the card last polled
-	wg     sync.WaitGroup
+	// windowAt is when the Gwen window last said it has your focus; quiet
+	// are the nudges that came meanwhile, which only the window shows.
+	windowAt time.Time
+	quiet    map[string]bool
+	wg       sync.WaitGroup
 
 	stopPreview context.CancelFunc // ends a preview still running
 }
@@ -86,7 +90,7 @@ type Dispatcher struct {
 // desktop's button clicks; it may be nil.
 func NewDispatcher(desktop, phone Notifier, actions <-chan ActionEvent, cfg config.Config) *Dispatcher {
 	d := &Dispatcher{desktop: desktop, phone: phone, actions: make(chan ActionEvent, 16), log: slog.Default(),
-		timeout: backendTimeout, now: time.Now, shown: map[string]Notification{}}
+		timeout: backendTimeout, now: time.Now, shown: map[string]Notification{}, quiet: map[string]bool{}}
 	if actions != nil {
 		go func() {
 			for a := range actions {
@@ -128,9 +132,13 @@ func (d *Dispatcher) Send(n Notification) {
 		n.At = d.now()
 	}
 	if cfg.Nudge.Desktop {
-		if d.show(n) {
+		switch {
+		case !ignoresWindowFocus[n.Kind] && d.showQuietly(n):
+			// You are in the Gwen window, which lists it under Needs you:
+			// no panel card and no desktop notification on top of it.
+		case d.show(n):
 			d.chime()
-		} else {
+		default:
 			d.async(d.desktop, func(ctx context.Context) error { return d.desktop.Notify(ctx, n) })
 		}
 	}
@@ -139,10 +147,17 @@ func (d *Dispatcher) Send(n Notification) {
 	}
 }
 
+// ignoresWindowFocus are the kinds that show on the panel card (or, with no
+// card, as a desktop notification) even while the Gwen window claims your
+// focus: a window left open in the background still says it has it, and
+// someone is waiting on you.
+var ignoresWindowFocus = map[string]bool{"code_session": true}
+
 // Withdraw closes the kind's desktop notification, returning at once.
 func (d *Dispatcher) Withdraw(kind string) {
 	d.mu.Lock()
 	delete(d.shown, kind)
+	delete(d.quiet, kind)
 	d.mu.Unlock()
 	d.async(d.desktop, func(ctx context.Context) error { return d.desktop.Withdraw(ctx, kind) })
 }

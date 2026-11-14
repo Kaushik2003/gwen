@@ -60,7 +60,31 @@ type Config struct {
 	Memory   Memory
 	Sync     Sync
 	Remote   Remote
+	Agent    Agent
 	Log      Log
+}
+
+// Autonomy is how freely Gwen's agent acts (agent.autonomy, plan.md 3.16).
+const (
+	AutonomyCautious = "cautious"
+	AutonomyBalanced = "balanced"
+	AutonomyTrusted  = "trusted"
+)
+
+// Agent is the [agent] section: Gwen's agent, the chat that works in your
+// projects (plan.md 3.16, W32).
+type Agent struct {
+	// Enabled: the chat is the agent when Claude Code can run it; false
+	// keeps the planning assistant.
+	Enabled bool
+	// Autonomy is the default; a project can set its own.
+	Autonomy string
+	// IdleStop stops a chat's process after this long without a turn.
+	IdleStop time.Duration
+	// MaxLive is how many chats' processes may run at once.
+	MaxLive int
+	// TurnTimeout interrupts a turn that runs longer.
+	TurnTimeout time.Duration
 }
 
 // Tracking is the [tracking] section.
@@ -69,6 +93,9 @@ type Tracking struct {
 	SoftIdle    time.Duration
 	HardIdle    time.Duration
 	DayRollover TimeOfDay
+	// FollowTabs: tracking follows the project tab in front of the Gwen
+	// window (plan.md 3.15).
+	FollowTabs bool
 }
 
 // Nudge is the [nudge] section.
@@ -221,6 +248,7 @@ func Defaults() Config {
 			SoftIdle:    3 * time.Minute,
 			HardIdle:    10 * time.Minute,
 			DayRollover: 4 * 60,
+			FollowTabs:  true,
 		},
 		Nudge: Nudge{
 			Desktop:       true,
@@ -238,7 +266,9 @@ func Defaults() Config {
 			Privacy: PrivacyLocal},
 		Sync:   Sync{Interval: 5 * time.Minute},
 		Remote: Remote{Port: 8443, Roots: []string{"~"}, KeepAwake: KeepAwakeWorking, Push: true, SandboxExtra: []SandboxPath{}},
-		Log:    Log{Level: slog.LevelInfo},
+		Agent: Agent{Enabled: true, Autonomy: AutonomyBalanced, IdleStop: 10 * time.Minute, MaxLive: 3,
+			TurnTimeout: 20 * time.Minute},
+		Log: Log{Level: slog.LevelInfo},
 	}
 }
 
@@ -312,6 +342,7 @@ func (c Config) Wire() wire.Config {
 			SoftIdle:    FormatDuration(c.Tracking.SoftIdle),
 			HardIdle:    FormatDuration(c.Tracking.HardIdle),
 			DayRollover: c.Tracking.DayRollover.String(),
+			FollowTabs:  c.Tracking.FollowTabs,
 		},
 		Nudge: wire.NudgeConfig{
 			Desktop:       c.Nudge.Desktop,
@@ -373,6 +404,13 @@ func (c Config) Wire() wire.Config {
 			SandboxExtra: sandboxStrings(c.Remote.SandboxExtra),
 			CoreSocket:   c.Remote.CoreSocket,
 		},
+		Agent: wire.AgentConfig{
+			Enabled:     c.Agent.Enabled,
+			Autonomy:    c.Agent.Autonomy,
+			IdleStop:    FormatDuration(c.Agent.IdleStop),
+			MaxLive:     c.Agent.MaxLive,
+			TurnTimeout: FormatDuration(c.Agent.TurnTimeout),
+		},
 		Log: wire.LogConfig{Level: levelName(c.Log.Level)},
 	}
 }
@@ -394,6 +432,7 @@ func FromWire(w wire.Config) (Config, error) {
 			SoftIdle:    p.duration("tracking.soft_idle", w.Tracking.SoftIdle),
 			HardIdle:    p.duration("tracking.hard_idle", w.Tracking.HardIdle),
 			DayRollover: p.timeOfDay("tracking.day_rollover", w.Tracking.DayRollover),
+			FollowTabs:  w.Tracking.FollowTabs,
 		},
 		Nudge: Nudge{
 			Desktop:       w.Nudge.Desktop,
@@ -456,6 +495,13 @@ func FromWire(w wire.Config) (Config, error) {
 			SandboxExtra: p.sandboxPaths("remote.sandbox_extra", w.Remote.SandboxExtra),
 			CoreSocket:   p.dir("remote.core_socket", strings.TrimSpace(w.Remote.CoreSocket)),
 		},
+		Agent: Agent{
+			Enabled:     w.Agent.Enabled,
+			Autonomy:    p.enum("agent.autonomy", w.Agent.Autonomy, AutonomyCautious, AutonomyBalanced, AutonomyTrusted),
+			IdleStop:    p.duration("agent.idle_stop", w.Agent.IdleStop),
+			MaxLive:     w.Agent.MaxLive,
+			TurnTimeout: p.duration("agent.turn_timeout", w.Agent.TurnTimeout),
+		},
 		Log: Log{Level: p.level("log.level", w.Log.Level)},
 	}
 	if p.err != nil {
@@ -482,6 +528,8 @@ func (c Config) Validate() error {
 		{"planner.buffer", c.Planner.Buffer},
 		{"llm.timeout", c.LLM.Timeout},
 		{"sync.interval", c.Sync.Interval},
+		{"agent.idle_stop", c.Agent.IdleStop},
+		{"agent.turn_timeout", c.Agent.TurnTimeout},
 	}
 	for _, d := range durations {
 		if d.d <= 0 {
@@ -511,6 +559,9 @@ func (c Config) Validate() error {
 	}
 	if len(c.Remote.Roots) == 0 {
 		return keyErr("remote.roots", "needs at least one folder")
+	}
+	if c.Agent.MaxLive < 1 || c.Agent.MaxLive > 10 {
+		return keyErr("agent.max_live", "must be between 1 and 10")
 	}
 	return c.Memory.validate()
 }
@@ -571,7 +622,7 @@ func (c Config) LogValue() slog.Value {
 	return slog.GroupValue(
 		slog.Group("tracking",
 			"daily_target", w.Tracking.DailyTarget, "soft_idle", w.Tracking.SoftIdle,
-			"hard_idle", w.Tracking.HardIdle, "day_rollover", w.Tracking.DayRollover),
+			"hard_idle", w.Tracking.HardIdle, "day_rollover", w.Tracking.DayRollover, "follow_tabs", w.Tracking.FollowTabs),
 		slog.Group("nudge",
 			"desktop", w.Nudge.Desktop, "phone", w.Nudge.Phone, "break_reminder", w.Nudge.BreakReminder,
 			"repeat", w.Nudge.Repeat, "snooze", w.Nudge.Snooze),
@@ -594,6 +645,8 @@ func (c Config) LogValue() slog.Value {
 		slog.Group("remote", "enabled", w.Remote.Enabled, "port", w.Remote.Port, "roots", w.Remote.Roots,
 			"keep_awake", w.Remote.KeepAwake, "push", w.Remote.Push, "sandbox_extra", w.Remote.SandboxExtra,
 			"core_socket", w.Remote.CoreSocket),
+		slog.Group("agent", "enabled", w.Agent.Enabled, "autonomy", w.Agent.Autonomy, "idle_stop", w.Agent.IdleStop,
+			"max_live", w.Agent.MaxLive, "turn_timeout", w.Agent.TurnTimeout),
 		slog.Group("log", "level", w.Log.Level),
 	)
 }

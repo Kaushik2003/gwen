@@ -294,11 +294,15 @@ func TestSyncTables(t *testing.T) {
 		"weekly_reviews", "energy_logs"}
 	memory := []string{"chat_threads", "chat_messages", "self_versions", "entities", "episodes", "claims", "conflicts",
 		"memory_links"}
-	require.Equal(t, append(append([]string{}, base...), memory...), store.SyncTables)
+	require.Equal(t, append(append(append([]string{}, base...), memory...), "task_attachments", "subject_resources", "routines"),
+		store.SyncTables)
 	require.Equal(t, base, store.SyncTablesBetween(0, store.LegacySyncSchema))
 	require.Equal(t, memory, store.SyncTablesBetween(store.LegacySyncSchema, 10))
+	require.Empty(t, store.SyncTablesBetween(10, 14))
+	require.Equal(t, []string{"task_attachments"}, store.SyncTablesBetween(14, 15))
 	require.Equal(t, store.SyncTables, store.SyncTablesBetween(0, 99))
-	require.Empty(t, store.SyncTablesBetween(10, 99))
+	require.Equal(t, []string{"subject_resources", "routines"}, store.SyncTablesBetween(15, 16))
+	require.Empty(t, store.SyncTablesBetween(16, 99))
 }
 
 // A client gets only the tables its schema has; the rows it cannot take
@@ -492,4 +496,52 @@ func TestChangedAndRoundTrip(t *testing.T) {
 	require.Equal(t, src.db.DeviceID(), got.DeviceID, "the writer's device is kept")
 	require.Equal(t, model.TaskOpen, got.Status)
 	require.Equal(t, tk.CreatedAt, got.CreatedAt)
+}
+
+// A sub-project syncs with its parent. One that arrives before its parent,
+// as a pull page may bring it, or under a parent another device deleted,
+// reads as top level and breaks nothing.
+func TestSubProjectSync(t *testing.T) {
+	t.Parallel()
+	src := newFx(t)
+	parent := src.project("Projects")
+	child, err := src.r.Projects.Create(src.ctx, "Kutumb", nil, &parent.ID)
+	require.NoError(t, err)
+	changed, err := src.r.Sync.Changed(src.ctx, time.UnixMilli(0), []string{"projects"})
+	require.NoError(t, err)
+	b, err := json.Marshal(store.Rows{"projects": {changed[0].Row, changed[1].Row}})
+	require.NoError(t, err)
+	decoded, err := store.DecodeRows(b)
+	require.NoError(t, err)
+	rows := map[string]store.Row{}
+	for _, r := range decoded["projects"] {
+		rows[r["id"].(string)] = r
+	}
+	require.Equal(t, parent.ID, rows[child.ID]["parent_id"])
+	require.Nil(t, rows[parent.ID]["parent_id"])
+
+	dst := newFx(t)
+	res, err := dst.r.Sync.Apply(dst.ctx, store.Rows{"projects": {rows[child.ID]}}, true)
+	require.NoError(t, err)
+	require.Equal(t, 1, res.Applied)
+	got, err := dst.r.Projects.Get(dst.ctx, child.ID)
+	require.NoError(t, err)
+	require.Nil(t, got.ParentID, "its parent has not come yet")
+
+	res, err = dst.r.Sync.Apply(dst.ctx, store.Rows{"projects": {rows[parent.ID]}}, true)
+	require.NoError(t, err)
+	require.Equal(t, 1, res.Applied)
+	got, err = dst.r.Projects.Get(dst.ctx, child.ID)
+	require.NoError(t, err)
+	require.Equal(t, &parent.ID, got.ParentID)
+	require.Equal(t, child.UpdatedAt, got.UpdatedAt)
+
+	deleted := maps.Clone(rows[parent.ID])
+	later := dst.clk.Now().Add(time.Minute).UnixMilli()
+	deleted["deleted_at"], deleted["updated_at"] = later, later
+	_, err = dst.r.Sync.Apply(dst.ctx, store.Rows{"projects": {deleted}}, true)
+	require.NoError(t, err)
+	got, err = dst.r.Projects.Get(dst.ctx, child.ID)
+	require.NoError(t, err)
+	require.Nil(t, got.ParentID, "a parent deleted elsewhere holds it no longer")
 }

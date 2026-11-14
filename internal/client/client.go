@@ -57,6 +57,15 @@ type API interface {
 	DeleteTask(ctx context.Context, id string) error
 	// DeleteTasks deletes several tasks at once, all or none.
 	DeleteTasks(ctx context.Context, req wire.DeleteTasksRequest) (*wire.DeletedTasks, error)
+	// Task attachments, and the apps they can come from (Composio).
+	ListAttachments(ctx context.Context, taskID string) (*wire.AttachmentList, error)
+	CreateAttachment(ctx context.Context, taskID string, req wire.CreateAttachmentRequest) (*wire.Attachment, error)
+	PatchAttachment(ctx context.Context, id string, req wire.PatchAttachmentRequest) (*wire.Attachment, error)
+	DeleteAttachment(ctx context.Context, id string) error
+	RefreshAttachment(ctx context.Context, id string) (*wire.Attachment, error)
+	ListConnectors(ctx context.Context) (*wire.ConnectorList, error)
+	SearchConnector(ctx context.Context, app, q string) (*wire.ConnectorItems, error)
+	LinkConnector(ctx context.Context, app string) (*wire.ConnectorLink, error)
 
 	StatsSummary(ctx context.Context, from, to string) (*wire.StatsSummary, error)
 	StatsHeatmap(ctx context.Context, year int) (*wire.Heatmap, error)
@@ -71,6 +80,7 @@ type API interface {
 	// card, which then shows desktop nudges itself.
 	Nudges(ctx context.Context, card bool) (*wire.NudgeList, error)
 	ActOnNudge(ctx context.Context, kind, action string) error
+	WindowFocus(ctx context.Context, focused bool) error
 
 	// ListGoals takes wire.GoalActive, GoalDone, GoalAbandoned, or GoalsAll;
 	// "" means the server default, active.
@@ -134,8 +144,17 @@ type API interface {
 	RemoteDevices(ctx context.Context) (*wire.RemoteDevices, error)
 	RevokeRemoteDevice(ctx context.Context, id string) error
 	SetRemoteHooks(ctx context.Context, on bool) (*wire.RemoteStatus, error)
-	// OpenApp shows a Gwen screen in the Gwen window (plan.md 3.15).
-	OpenApp(ctx context.Context, screen string) error
+	// ClaudeUsage is the newest reading of Claude's usage limits (plan.md 3.15).
+	ClaudeUsage(ctx context.Context) (*wire.ClaudeUsage, error)
+	// CommitSessions and SummarizeCommit link History's commits to the Claude
+	// conversations that made them (plan.md 3.15).
+	CommitSessions(ctx context.Context, dir string) (*wire.CommitSessions, error)
+	SummarizeCommit(ctx context.Context, req wire.SummarizeCommit) (*wire.CommitSummary, error)
+	// The Gwen window's session controls (plan.md 3.15).
+	CodeAnswer(ctx context.Context, id string, req wire.CodeAnswer) (*wire.CodeAnswerResult, error)
+	CodeMark(ctx context.Context, id string, req wire.CodeMark) error
+	CodeControl(ctx context.Context, id string, req wire.CodeControl) error
+	CodeConversations(ctx context.Context, dir string) (*wire.CodeConversations, error)
 
 	// Memory (memory.go): each answers unavailable while memory is off.
 	MemoryStatus(ctx context.Context) (*wire.MemoryStatus, error)
@@ -160,6 +179,39 @@ type API interface {
 	SleepMemory(ctx context.Context) (*wire.SleepReport, error)
 	ExportMemory(ctx context.Context) (*wire.MemoryExport, error)
 	ForgetAllMemory(ctx context.Context, confirm string) (*wire.ForgetReceipt, error)
+
+	// The harness (runs.go, plan.md 3.7): runs, approvals, the resources and
+	// routines of subjects, a project's folder, and the connections.
+	ListRuns(ctx context.Context, statuses []string, limit int) (*wire.RunList, error)
+	CreateRun(ctx context.Context, req wire.CreateRunRequest) (*wire.Run, error)
+	GetRun(ctx context.Context, id string) (*wire.RunDetail, error)
+	StartRun(ctx context.Context, id string) (*wire.Run, error)
+	CancelRun(ctx context.Context, id string) (*wire.Run, error)
+	ResumeRun(ctx context.Context, id string) (*wire.Run, error)
+	MessageRun(ctx context.Context, id string, req wire.RunMessageRequest) (*wire.Run, error)
+	ListApprovals(ctx context.Context, status string) (*wire.ApprovalList, error)
+	DecideApproval(ctx context.Context, id string, req wire.DecideApprovalRequest) (*wire.Approval, error)
+	ListGrants(ctx context.Context) (*wire.GrantList, error)
+	DeleteGrant(ctx context.Context, id string) error
+	// Gwen's agent (plan.md 3.16).
+	AgentStatus(ctx context.Context) (*wire.AgentStatus, error)
+	ListAgentChats(ctx context.Context, project string) (*wire.AgentChatList, error)
+	CreateAgentChat(ctx context.Context, req wire.CreateAgentChat) (*wire.AgentChat, error)
+	GetAgentChat(ctx context.Context, id string) (*wire.AgentChatDetail, error)
+	PatchAgentChat(ctx context.Context, id string, req wire.PatchAgentChat) (*wire.AgentChat, error)
+	DeleteAgentChat(ctx context.Context, id string) error
+	SendAgentMessage(ctx context.Context, id string, req wire.AgentMessageRequest) (*wire.AgentChat, error)
+	StopAgentChat(ctx context.Context, id string) error
+	UndoAgentStep(ctx context.Context, id string) (*wire.AgentStep, error)
+	GetResources(ctx context.Context, subject string) (*wire.ResourceList, error)
+	PutResources(ctx context.Context, subject string, req wire.PutResourcesRequest) (*wire.ResourceList, error)
+	GetRoutine(ctx context.Context, subject string) (*wire.Routine, error)
+	PutRoutine(ctx context.Context, subject string, req wire.PutRoutineRequest) (*wire.Routine, error)
+	GetProjectDir(ctx context.Context, id string) (*wire.ProjectDir, error)
+	PutProjectDir(ctx context.Context, id string, req wire.ProjectDir) (*wire.ProjectDir, error)
+	ListConnections(ctx context.Context) (*wire.ConnectionList, error)
+	ConnectConnection(ctx context.Context, id string) error
+	DisconnectConnection(ctx context.Context, id string) error
 
 	// Events opens GET /v1/events. The stream does not reconnect; see Follower.
 	Events(ctx context.Context) (EventStream, error)
@@ -330,6 +382,38 @@ func (c *Client) DeleteTasks(ctx context.Context, req wire.DeleteTasksRequest) (
 	return call[wire.DeletedTasks](ctx, c, http.MethodPost, "/v1/tasks/delete", nil, req)
 }
 
+func (c *Client) ListAttachments(ctx context.Context, taskID string) (*wire.AttachmentList, error) {
+	return call[wire.AttachmentList](ctx, c, http.MethodGet, "/v1/tasks/"+url.PathEscape(taskID)+"/attachments", nil, nil)
+}
+
+func (c *Client) CreateAttachment(ctx context.Context, taskID string, req wire.CreateAttachmentRequest) (*wire.Attachment, error) {
+	return call[wire.Attachment](ctx, c, http.MethodPost, "/v1/tasks/"+url.PathEscape(taskID)+"/attachments", nil, req)
+}
+
+func (c *Client) PatchAttachment(ctx context.Context, id string, req wire.PatchAttachmentRequest) (*wire.Attachment, error) {
+	return call[wire.Attachment](ctx, c, http.MethodPatch, "/v1/attachments/"+url.PathEscape(id), nil, req)
+}
+
+func (c *Client) DeleteAttachment(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodDelete, "/v1/attachments/"+url.PathEscape(id), nil, nil, nil)
+}
+
+func (c *Client) RefreshAttachment(ctx context.Context, id string) (*wire.Attachment, error) {
+	return call[wire.Attachment](ctx, c, http.MethodPost, "/v1/attachments/"+url.PathEscape(id)+"/refresh", nil, empty)
+}
+
+func (c *Client) ListConnectors(ctx context.Context) (*wire.ConnectorList, error) {
+	return call[wire.ConnectorList](ctx, c, http.MethodGet, "/v1/connectors", nil, nil)
+}
+
+func (c *Client) SearchConnector(ctx context.Context, app, q string) (*wire.ConnectorItems, error) {
+	return call[wire.ConnectorItems](ctx, c, http.MethodGet, "/v1/connectors/"+url.PathEscape(app)+"/search", query("q", q), nil)
+}
+
+func (c *Client) LinkConnector(ctx context.Context, app string) (*wire.ConnectorLink, error) {
+	return call[wire.ConnectorLink](ctx, c, http.MethodPost, "/v1/connectors/"+url.PathEscape(app)+"/link", nil, empty)
+}
+
 func (c *Client) StatsSummary(ctx context.Context, from, to string) (*wire.StatsSummary, error) {
 	return call[wire.StatsSummary](ctx, c, http.MethodGet, "/v1/stats/summary", query("from", from, "to", to), nil)
 }
@@ -364,6 +448,10 @@ func (c *Client) Nudges(ctx context.Context, card bool) (*wire.NudgeList, error)
 
 func (c *Client) ActOnNudge(ctx context.Context, kind, action string) error {
 	return c.do(ctx, http.MethodPost, "/v1/nudges/act", nil, wire.NudgeActRequest{Kind: kind, Action: action}, nil)
+}
+
+func (c *Client) WindowFocus(ctx context.Context, focused bool) error {
+	return c.do(ctx, http.MethodPost, "/v1/window/focus", nil, wire.WindowFocusRequest{Focused: focused}, nil)
 }
 
 func (c *Client) ListGoals(ctx context.Context, status string) (*wire.GoalList, error) {

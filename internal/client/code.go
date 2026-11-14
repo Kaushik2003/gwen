@@ -36,6 +36,30 @@ func (c *Client) SetRemoteHooks(ctx context.Context, on bool) (*wire.RemoteStatu
 	return call[wire.RemoteStatus](ctx, c, http.MethodPost, "/v1/remote/hooks", nil, wire.RemoteHooks{On: on})
 }
 
-func (c *Client) OpenApp(ctx context.Context, screen string) error {
-	return c.do(ctx, http.MethodPost, "/v1/app/open", nil, wire.OpenApp{Screen: screen}, nil)
+func (c *Client) CommitSessions(ctx context.Context, dir string) (*wire.CommitSessions, error) {
+	return call[wire.CommitSessions](ctx, c, http.MethodGet, "/v1/code/commit-sessions", url.Values{"dir": {dir}}, nil)
+}
+
+func (c *Client) SummarizeCommit(ctx context.Context, req wire.SummarizeCommit) (*wire.CommitSummary, error) {
+	return call[wire.CommitSummary](ctx, c, http.MethodPost, "/v1/code/commit-sessions/summary", nil, req)
+}
+
+func (c *Client) ClaudeUsage(ctx context.Context) (*wire.ClaudeUsage, error) {
+	return call[wire.ClaudeUsage](ctx, c, http.MethodGet, "/v1/code/usage", nil, nil)
+}
+
+func (c *Client) CodeAnswer(ctx context.Context, id string, req wire.CodeAnswer) (*wire.CodeAnswerResult, error) {
+	return call[wire.CodeAnswerResult](ctx, c, http.MethodPost, "/v1/code/sessions/"+url.PathEscape(id)+"/answer", nil, req)
+}
+
+func (c *Client) CodeMark(ctx context.Context, id string, req wire.CodeMark) error {
+	return c.do(ctx, http.MethodPost, "/v1/code/sessions/"+url.PathEscape(id)+"/mark", nil, req, nil)
+}
+
+func (c *Client) CodeControl(ctx context.Context, id string, req wire.CodeControl) error {
+	return c.do(ctx, http.MethodPost, "/v1/code/sessions/"+url.PathEscape(id)+"/control", nil, req, nil)
+}
+
+func (c *Client) CodeConversations(ctx context.Context, dir string) (*wire.CodeConversations, error) {
+	return call[wire.CodeConversations](ctx, c, http.MethodGet, "/v1/code/conversations", url.Values{"dir": {dir}}, nil)
 }

@@ -16,6 +16,3 @@
 client_secret_81572436926-bb2jak7ospcr6mrnb94odbvc2310mncn.apps.googleusercontent.com.json
 
 .env
-# Written into a mod folder by Gwen Terminal when it loads it.
-term/mods/gwen/jsconfig.json
-term/mods/gwen/**/*.d.ts

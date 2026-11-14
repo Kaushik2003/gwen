@@ -1,0 +1,5 @@
+{"type":"last-prompt","leafUuid":"a1999999-0000-4000-8000-000000999999","sessionId":"c0000004-0000-4000-8000-000000000004"}
+{"type":"mode","mode":"normal","sessionId":"c0000004-0000-4000-8000-000000000004"}
+{"type":"permission-mode","permissionMode":"default","sessionId":"c0000004-0000-4000-8000-000000000004"}
+{"type":"session-owner","accountUuid":"00000000-0000-4000-8000-0000000000aa","organizationUuid":"00000000-0000-4000-8000-0000000000bb","sessionId":"c0000004-0000-4000-8000-000000000004"}
+{"type":"file-history-snapshot","messageId":"a1000001-0000-4000-8000-000000000001","snapshot":{"messageId":"a1000001-0000-4000-8000-000000000001","trackedFileBackups":{},"timestamp":"2026-11-12T09:00:03.001Z"},"isSnapshotUpdate":false}

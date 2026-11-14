@@ -1,0 +1,573 @@
+/*
+Liquid Charts by Ojieame · https://liquid.ojieame.design · nathan@ojieame.design
+
+Liquid Charts
+Copyright (c) 2026 NATEPAY, LLC. This file is source-available under the Liquid Charts
+Source-Available Licence 1.0, not under MIT: https://liquid.ojieame.design/docs/licence
+
+Free to use and change in anything you make, commercial products and client work included, as
+long as the Liquid credit stays visible where the charts show it and this notice stays. You may
+not redistribute or sell it as a chart library, component library, UI kit, template, registry
+or other developer tool.
+
+The notices below, and any later in this file, are kept word for word. The work each one
+names keeps its own licence: the MIT notices below apply only to portions derived from the
+projects they name, and a font keeps its font licence.
+
+Liquid Charts adaptation. Original foundation: Evil Charts by Gurbinder.
+Upstream: ecbd6a5db7b25f9a7e070c02b2ef728c378eeb5c
+MIT License
+
+Copyright (c) 2026 Gurbinder
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Includes shadcn-derived primitives:
+MIT License
+
+Copyright (c) 2023 shadcn
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+*/
+/* The KPI family: headline cards and tiles, progress capsules, capacity rows and meters. Colours
+ * come from the chart tokens set by ChartScope / ChartFrame (`--chart-*`, per theme) and from
+ * ChartConfig through `--kpi-liquid`; nothing here names a series colour. */
+
+/* ——— Card and header ———
+ * The same frame as the showcase's story card: square, one hairline, a quiet title, one line for
+ * the figure, its label and its change, and any legend as a quiet row under the plot. */
+.lc-kpi-card {
+  --kpi-card: #0c0c0c;
+  --kpi-raise: #121212;
+  min-width: 0;
+}
+.lc-kpi-card[data-scheme="light"] {
+  --kpi-card: #ffffff;
+  --kpi-raise: #f4f4f4;
+}
+.lc-kpi-wide {
+  grid-column: 1 / -1;
+}
+.lc-kpi-cardInner {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 18px;
+  height: 100%;
+  padding: 24px 24px 20px;
+  box-sizing: border-box;
+  border-radius: 0;
+  background: var(--kpi-card);
+  box-shadow: inset 0 0 0 1px var(--chart-edge);
+  /* The glass glow bleeds past each plot and ends at the card's own edge. */
+  overflow: clip;
+}
+.lc-kpi-cardBody {
+  display: grid;
+  align-content: space-between;
+  gap: 28px;
+  min-width: 0;
+}
+.lc-kpi-header {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+/* One strong element per card, the figure; the title sits in the label role at caption weight, in
+ * the quiet ink. */
+.lc-kpi-header .lc-kpi-title {
+  margin: 0;
+  color: var(--chart-ink-2);
+  font-weight: 500;
+  line-height: 18px;
+}
+/* The figure, its label and its change share one baseline and never wrap: the change drops its
+ * comparison first (data-tight, set by the header), then the label truncates. */
+.lc-kpi-kpi {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.lc-kpi-kpi .lc-kpi-headline {
+  flex: none;
+  color: var(--chart-ink);
+}
+.lc-kpi-header[data-density="standard"] .lc-kpi-headline {
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -0.015em;
+}
+.lc-kpi-kpi .lc-kpi-kpiLabel {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--chart-ink-3);
+  font-weight: 400;
+  text-overflow: ellipsis;
+}
+.lc-kpi-headerProgress {
+  width: 100%;
+  max-width: 340px;
+  margin-top: 4px;
+}
+/* The legend, as a quiet row under the plot. */
+.lc-kpi-legend {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  color: var(--chart-ink-3);
+}
+
+/* ——— Small type at WCAG AA ———
+ * The core's quiet ink clears AA on the card in both themes, so the labels use it as they are. A
+ * gain in the light reads a shade deeper on the change line (#367a16, 5.3:1 on white), where its
+ * text and unit sit at 12px; the core's --chart-gain (#3f8f1a) is 4.1:1 there. */
+[data-scheme="light"] .lc-kpi-change {
+  --chart-gain: #367a16;
+}
+
+/* ——— Change ———
+ * A change against a comparison as plain coloured text: the core's Delta, with the comparison in
+ * the quiet ink. A neutral change takes the quiet ink too, and no change has no arrow. */
+.lc-kpi-change {
+  display: inline-flex;
+  flex: none;
+  white-space: nowrap;
+}
+.lc-kpi-change > span {
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.lc-kpi-change svg {
+  width: 7px;
+  height: 7px;
+}
+.lc-kpi-change[data-tone="neutral"] > span {
+  color: var(--chart-ink-2);
+}
+.lc-kpi-change[data-direction="flat"] svg {
+  display: none;
+}
+.lc-kpi-changeAmount {
+  display: inline-flex;
+  align-items: baseline;
+}
+.lc-kpi-changeUnit {
+  margin-left: 0.2em;
+}
+.lc-kpi-changeContext {
+  color: var(--chart-ink-3);
+}
+.lc-kpi-kpi[data-tight] .lc-kpi-changeContext {
+  display: none;
+}
+
+/* ——— Tile ——— */
+.lc-kpi-tile {
+  --kpi-card: #0c0c0c;
+  min-width: 0;
+}
+.lc-kpi-tile[data-scheme="light"] {
+  --kpi-card: #ffffff;
+}
+.lc-kpi-tileInner {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto auto auto 1fr;
+  align-content: start;
+  gap: 6px;
+  height: 100%;
+  min-height: 136px;
+  padding: 16px 18px;
+  box-sizing: border-box;
+  border-radius: 2px;
+  background: var(--kpi-card);
+  box-shadow: inset 0 0 0 1px var(--chart-edge);
+  overflow: clip;
+  outline: none;
+}
+.lc-kpi-tileInner:focus-visible {
+  box-shadow:
+    inset 0 0 0 1px var(--chart-edge),
+    0 0 0 2px var(--chart-focus);
+}
+.lc-kpi-tileInner[data-density="standard"],
+.lc-kpi-tileInner[data-density="hero"] {
+  gap: 8px;
+  min-height: 136px;
+  padding: 20px 22px 18px;
+}
+.lc-kpi-tileLabel {
+  color: var(--chart-ink-2);
+  font-weight: 520;
+}
+.lc-kpi-tileFigure {
+  display: block;
+  margin-top: 2px;
+}
+.lc-kpi-tileReading {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--chart-ink);
+}
+.lc-kpi-tileUnit {
+  color: var(--chart-ink-3);
+}
+.lc-kpi-tileDelta {
+  display: flex;
+}
+.lc-kpi-tileFoot {
+  display: grid;
+  align-self: end;
+  gap: 8px;
+  padding-top: 8px;
+}
+.lc-kpi-tileState {
+  display: flex;
+  align-items: center;
+  min-height: 28px;
+}
+
+/* ——— Readouts ——— */
+.lc-kpi-readout {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  min-height: 24px;
+}
+.lc-kpi-readout[data-density="hero"] {
+  min-height: 30px;
+}
+.lc-kpi-readout[data-density="tile"] {
+  min-height: 18px;
+}
+.lc-kpi-reading {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  color: var(--chart-ink);
+  white-space: nowrap;
+}
+.lc-kpi-of {
+  color: var(--chart-ink-3);
+}
+.lc-kpi-quiet {
+  color: var(--chart-ink-2);
+}
+.lc-kpi-aside {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--chart-ink-2);
+  white-space: nowrap;
+}
+.lc-kpi-stack {
+  display: grid;
+  gap: 2px;
+  justify-items: start;
+  transform-origin: 0 50%;
+}
+
+/* ——— Progress capsule ——— */
+.lc-kpi-progress {
+  position: relative;
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.lc-kpi-progress[data-density="tile"] {
+  gap: 6px;
+}
+.lc-kpi-progressName {
+  position: relative;
+  z-index: 1;
+  color: var(--chart-ink-2);
+}
+.lc-kpi-gaugeRow {
+  display: flex;
+  gap: 16px;
+  min-width: 0;
+}
+.lc-kpi-gauge {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  border-radius: 2px;
+  outline: none;
+}
+.lc-kpi-gauge:focus-visible {
+  box-shadow: 0 0 0 2px var(--chart-focus);
+  box-shadow:
+    0 0 0 4px var(--kpi-card, transparent),
+    0 0 0 6px var(--chart-focus);
+}
+.lc-kpi-track {
+  position: relative;
+  height: var(--kpi-thickness);
+}
+/* The empty container's well, under the glass: on light cards the empty glass is nearly white,
+ * so a hairline keeps the capacity's extent readable. */
+.lc-kpi-well {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  border-radius: min(2px, calc(var(--kpi-thickness) * 0.2));
+  pointer-events: none;
+}
+[data-scheme="light"] .lc-kpi-well {
+  background: rgb(20 20 20 / 0.035);
+  box-shadow: inset 0 0 0 1px rgb(20 20 20 / 0.08);
+}
+.lc-kpi-progress[data-orientation="vertical"] .lc-kpi-well {
+  top: auto;
+  bottom: 0;
+  width: 100%;
+}
+.lc-kpi-targetLabel {
+  position: absolute;
+  top: calc(var(--kpi-thickness) + 10px);
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  color: var(--chart-ink-2);
+  white-space: nowrap;
+  translate: -50% 0;
+  transition: left 600ms cubic-bezier(0.3, 1.1, 0.4, 1);
+}
+.lc-kpi-gauge[data-labelled="true"] {
+  padding-bottom: 26px;
+}
+
+/* A meter's reference: the gap between two segments lights up, in the series tint. */
+.lc-kpi-gapGlow {
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  z-index: 1;
+  width: 3px;
+  margin-left: -1.5px;
+  border-radius: 2px;
+  background: linear-gradient(
+    transparent,
+    color-mix(in srgb, color-mix(in srgb, var(--kpi-ref) 55%, white) 95%, transparent),
+    transparent
+  );
+  box-shadow: 0 0 12px
+    color-mix(in srgb, color-mix(in srgb, var(--kpi-ref) 80%, white) 70%, transparent);
+  pointer-events: none;
+}
+/* On white the tint deepens toward the ink so a light hue (lime) reads as clearly as a deep one. */
+[data-scheme="light"] .lc-kpi-gapGlow {
+  --kpi-ref-deep: color-mix(in srgb, var(--kpi-ref) 65%, var(--chart-ink));
+  background: linear-gradient(
+    transparent,
+    color-mix(in srgb, var(--kpi-ref-deep) 85%, transparent),
+    transparent
+  );
+  box-shadow: 0 0 10px color-mix(in srgb, var(--kpi-ref-deep) 60%, transparent);
+}
+.lc-kpi-scaleCapacity {
+  color: var(--chart-ink-3);
+}
+
+/* Vertical: a tank, the readout beside it. */
+.lc-kpi-progress[data-orientation="vertical"] .lc-kpi-gaugeRow {
+  align-items: stretch;
+}
+.lc-kpi-progress[data-orientation="vertical"] .lc-kpi-gauge {
+  flex: none;
+  width: var(--kpi-thickness);
+  height: var(--kpi-length);
+}
+.lc-kpi-progress[data-orientation="vertical"] .lc-kpi-track {
+  height: 100%;
+}
+.lc-kpi-progress[data-orientation="vertical"] .lc-kpi-targetLabel {
+  top: auto;
+  left: calc(100% + 12px);
+  translate: 0 50%;
+}
+.lc-kpi-sideReadout {
+  display: grid;
+  align-content: start;
+  justify-items: start;
+  gap: 8px;
+  min-width: 0;
+  padding-left: 70px;
+}
+
+/* ——— Meter ——— */
+.lc-kpi-meter {
+  position: relative;
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.lc-kpi-meter[data-density="tile"] {
+  gap: 6px;
+}
+.lc-kpi-meter .lc-kpi-gauge {
+  padding-bottom: 24px;
+}
+.lc-kpi-scale {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 18px;
+}
+.lc-kpi-scaleTarget {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+/* ——— Capacity rows ——— */
+.lc-kpi-capacity {
+  min-width: 0;
+}
+.lc-kpi-capacityMarks {
+  position: absolute;
+  inset: 0;
+}
+.lc-kpi-rowReadout {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  pointer-events: none;
+  transition: opacity 180ms ease-out;
+}
+.lc-kpi-rowReadout[data-dim="true"] {
+  opacity: 0.5;
+}
+.lc-kpi-rowName {
+  overflow: hidden;
+  color: var(--chart-ink-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color 180ms ease-out;
+}
+.lc-kpi-rowReadout[data-figure-active="true"] .lc-kpi-rowName {
+  color: var(--chart-ink);
+}
+.lc-kpi-rowFigures {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+}
+.lc-kpi-rowFigures.lc-kpi-rowFigures {
+  transform-origin: 100% 60%;
+}
+.lc-kpi-capacityState {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  align-content: space-around;
+  gap: 12px;
+}
+.lc-kpi-capacityState[data-kind="message"] {
+  align-content: center;
+}
+.lc-kpi-rowSkeleton {
+  position: relative;
+  height: var(--kpi-thickness, 22px);
+}
+
+/* ——— States ——— */
+.lc-kpi-stateLoading {
+  position: relative;
+  display: inline-block;
+  width: 132px;
+  height: 18px;
+}
+.lc-kpi-emptyTrack {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  border-radius: min(2px, calc(var(--kpi-thickness) * 0.3));
+  border: 1px dashed color-mix(in srgb, var(--chart-ink) 20%, transparent);
+}
+.lc-kpi-stateText {
+  color: var(--chart-ink-3);
+}
+.lc-kpi-stateText[data-kind="error"] {
+  color: var(--chart-loss);
+}
+
+.lc-kpi-srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .lc-kpi-cardInner {
+    padding: 20px 16px 16px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lc-kpi-targetLabel,
+  .lc-kpi-rowReadout,
+  .lc-kpi-rowName {
+    transition: none;
+    animation: none;
+  }
+}

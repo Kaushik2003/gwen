@@ -1,0 +1,163 @@
+/*
+Liquid Charts by Ojieame · https://liquid.ojieame.design · nathan@ojieame.design
+
+Liquid Charts adaptation. Original foundation: Evil Charts by Gurbinder.
+Upstream: ecbd6a5db7b25f9a7e070c02b2ef728c378eeb5c
+MIT License
+
+Copyright (c) 2026 Gurbinder
+Copyright (c) 2026 NATEPAY, LLC (Liquid Charts additions)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Includes shadcn-derived primitives:
+MIT License
+
+Copyright (c) 2023 shadcn
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+*/
+/* The bar chart's own parts. Colours are the core frame's tokens (--chart-*), so both themes and
+ * any page that sets them agree. */
+
+/* A single target's note at the plot's edge. The target itself lives in the glass: containers up to
+ * it, engravings where bars pass it (style rule 9). */
+.lc-bar-chart-targetLabel {
+  position: absolute;
+  display: grid;
+  justify-items: start;
+  gap: 1px;
+  translate: 0 -50%;
+  color: var(--chart-ink-2);
+  line-height: 1.05;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: lc-bar-chart-targetIn var(--enter-label) ease-out var(--enter-label-delay) both;
+}
+.lc-bar-chart-targetLabel[data-layout="horizontal"] {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  translate: -50% 0;
+}
+.lc-bar-chart-targetName {
+  color: var(--chart-ink-3);
+}
+/* A value with something after it (a row's quota). The class is doubled so its layout outranks
+ * the core's default for a label's contents (.label > *) whichever stylesheet loads last. */
+.lc-bar-chart-reading.lc-bar-chart-reading {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+}
+@keyframes lc-bar-chart-targetIn {
+  from {
+    opacity: 0;
+  }
+}
+
+/* A zero line for rows that go both ways. */
+.lc-bar-chart-zero {
+  position: absolute;
+  width: 0;
+  border-left: 1px solid var(--chart-zero);
+  pointer-events: none;
+}
+
+/* The highlighted bar's label: the figure with a short note, in a quiet chip. Its layout outranks
+ * the core's label default the same way as .reading's. */
+.lc-bar-chart-callout.lc-bar-chart-callout {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.lc-bar-chart-callout {
+  height: 24px;
+  box-sizing: border-box;
+  color: var(--chart-ink);
+}
+.lc-bar-chart-calloutNote {
+  color: var(--chart-ink-3);
+}
+
+/* A label set inside a segment, on the glass. */
+.lc-bar-chart-inside {
+  color: var(--chart-ink);
+  text-shadow: 0 1px 6px color-mix(in srgb, var(--chart-glass) 85%, transparent);
+}
+
+/* Tooltip parts: a value with its share, a total under a hairline, and the projected note. */
+.lc-bar-chart-pair {
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: end;
+  gap: 6px;
+}
+.lc-bar-chart-total {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 2px;
+  padding-top: 7px;
+  border-top: 1px solid var(--chart-hair);
+  color: var(--chart-ink-2);
+}
+.lc-bar-chart-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--chart-ink-3);
+}
+/* The note's swatch: the series colour, etched like a projected bar. */
+.lc-bar-chart-noteSwatch {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 2px;
+  background-color: var(--chart-ink-3);
+  background-image: repeating-linear-gradient(
+    -45deg,
+    rgb(255 255 255 / 0.55) 0 1.2px,
+    transparent 1.2px 3px
+  );
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lc-bar-chart-targetLabel {
+    animation: none;
+  }
+}

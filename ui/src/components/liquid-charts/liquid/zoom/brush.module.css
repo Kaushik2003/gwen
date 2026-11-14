@@ -1,0 +1,304 @@
+/*
+Liquid Charts by Ojieame · https://liquid.ojieame.design · nathan@ojieame.design
+
+Liquid Charts adaptation. Original foundation: Evil Charts by Gurbinder.
+Upstream: ecbd6a5db7b25f9a7e070c02b2ef728c378eeb5c
+MIT License
+
+Copyright (c) 2026 Gurbinder
+Copyright (c) 2026 NATEPAY, LLC (Liquid Charts additions)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Includes shadcn-derived primitives:
+MIT License
+
+Copyright (c) 2023 shadcn
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+*/
+/* The brush, overview strips and zoom chrome. Colours come from the frame's tokens (core.module.css,
+ * set per theme by `data-scheme` on the frame or strip); the handles' light from `--brush-light`. */
+
+.lc-brush-brush {
+  /* The veil is the card's own colour, so what lies outside the window recedes into it. */
+  --brush-veil: var(--chart-void, #0d0d0d);
+  --brush-ring: color-mix(in srgb, var(--brush-light) 55%, white);
+  position: absolute;
+  z-index: 1;
+  outline: none;
+  cursor: crosshair;
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+[data-scheme="light"] .lc-brush-brush {
+  --brush-veil: var(--chart-void, #ffffff);
+  --brush-ring: color-mix(in srgb, var(--brush-light) 80%, #141414);
+}
+/* The brush answers a little past its ends, so a handle resting on an end has its full reach. */
+.lc-brush-brush::before {
+  content: "";
+  position: absolute;
+  inset: 0 -16px;
+}
+.lc-brush-brush[data-grip="inside"] {
+  cursor: grab;
+}
+.lc-brush-brush[data-grip="inside"][data-dragging="true"] {
+  cursor: grabbing;
+}
+.lc-brush-brush[data-grip="from"],
+.lc-brush-brush[data-grip="to"] {
+  cursor: ew-resize;
+}
+.lc-brush-brush:focus-visible .lc-brush-handle {
+  outline: 1px solid var(--chart-focus);
+  outline-offset: 3px;
+}
+.lc-brush-brush:focus-visible .lc-brush-readout {
+  box-shadow:
+    inset 0 1px 0 var(--chart-glass-top),
+    inset 0 0 0 1px var(--chart-focus),
+    0 6px 14px -8px var(--chart-shadow);
+}
+
+/* Outside the window: graphite (out of focus) under a thin veil of the card. Greyscale keeps the
+ * card's own darkness, so the veil never reads as a box; only the marks lose their colour. */
+.lc-brush-veil {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--brush-veil) 34%, transparent);
+  /* One declaration only: given both, the CSS pipeline keeps just the prefixed one, which
+   * Chromium ignores. It adds the prefix WebKit needs itself. */
+  backdrop-filter: grayscale(1) brightness(0.72);
+}
+[data-scheme="light"] .lc-brush-veil {
+  background: color-mix(in srgb, var(--brush-veil) 42%, transparent);
+  backdrop-filter: grayscale(1);
+}
+/* Over marks already drawn graphite, the veil only quiets them a little. */
+.lc-brush-veil[data-backdrop="false"] {
+  background: color-mix(in srgb, var(--brush-veil) 22%, transparent);
+  backdrop-filter: none;
+}
+
+/* The window stays clear: its edges are light that fades towards its top and bottom. */
+.lc-brush-window {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  pointer-events: none;
+  background:
+    linear-gradient(
+        transparent,
+        color-mix(in srgb, var(--brush-light) 55%, transparent) 30%,
+        color-mix(in srgb, var(--brush-light) 55%, transparent) 70%,
+        transparent
+      )
+      left / 1px 100% no-repeat,
+    linear-gradient(
+        transparent,
+        color-mix(in srgb, var(--brush-light) 55%, transparent) 30%,
+        color-mix(in srgb, var(--brush-light) 55%, transparent) 70%,
+        transparent
+      )
+      right / 1px 100% no-repeat;
+}
+
+/* A handle: a thin lit bar with a grip, centred on its edge, square like the rest of the casing. Its reach is wider than it
+ * looks (a touch target), drawn by ::after. */
+.lc-brush-handle {
+  position: absolute;
+  top: 50%;
+  z-index: 1;
+  width: 8px;
+  height: min(26px, 72%);
+  margin-left: -4px;
+  translate: 0 -50%;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--brush-light) 60%, white);
+  box-shadow:
+    0 0 0 1px var(--brush-ring),
+    0 0 6px color-mix(in srgb, var(--brush-light) 45%, transparent);
+  pointer-events: none;
+  transition:
+    scale 160ms cubic-bezier(0.3, 1.3, 0.5, 1),
+    box-shadow 160ms ease-out;
+}
+.lc-brush-handle::after {
+  content: "";
+  position: absolute;
+  inset: -10px -10px;
+}
+.lc-brush-grip {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 3px;
+  height: 9px;
+  translate: -50% -50%;
+  border-inline: 1px solid color-mix(in srgb, var(--brush-light) 45%, #0d0d0d);
+  opacity: 0.7;
+}
+.lc-brush-brush[data-grip="from"]:not([data-dragging="true"]) .lc-brush-handle[data-edge="from"],
+.lc-brush-brush[data-grip="to"]:not([data-dragging="true"]) .lc-brush-handle[data-edge="to"],
+.lc-brush-handle[data-active="true"] {
+  scale: 1.12;
+  box-shadow:
+    0 0 0 1px var(--brush-ring),
+    0 0 9px 2px color-mix(in srgb, var(--brush-light) 85%, transparent),
+    0 0 22px 4px color-mix(in srgb, var(--brush-light) 34%, transparent),
+    inset 0 1px 0 rgb(255 255 255 / 0.85);
+}
+[data-scheme="light"] .lc-brush-handle {
+  background: linear-gradient(180deg, #ffffff 0%, #f1f1f1 100%);
+  box-shadow:
+    0 0 0 1.25px var(--brush-ring),
+    0 2px 5px 0 color-mix(in srgb, var(--brush-light) 34%, transparent),
+    0 1px 2px rgb(20 20 20 / 0.18),
+    inset 0 1px 0 #ffffff;
+}
+[data-scheme="light"] .lc-brush-handle[data-active="true"],
+[data-scheme="light"] .lc-brush-brush[data-grip="from"] .lc-brush-handle[data-edge="from"],
+[data-scheme="light"] .lc-brush-brush[data-grip="to"] .lc-brush-handle[data-edge="to"] {
+  box-shadow:
+    0 0 0 1.5px var(--brush-ring),
+    0 3px 8px 0 color-mix(in srgb, var(--brush-light) 42%, transparent),
+    0 1px 2px rgb(20 20 20 / 0.2),
+    inset 0 1px 0 #ffffff;
+}
+[data-scheme="light"] .lc-brush-grip {
+  border-inline-color: color-mix(in srgb, var(--brush-light) 60%, #141414);
+}
+/* Touch screens and narrow cards: a larger capsule and a reach of at least 44 px. */
+.lc-brush-brush[data-size="touch"] .lc-brush-handle {
+  width: 10px;
+  height: min(32px, 78%);
+  margin-left: -5px;
+}
+.lc-brush-brush[data-size="touch"] .lc-brush-handle::after {
+  inset: -12px -17px;
+}
+.lc-brush-brush[data-size="touch"] .lc-brush-grip {
+  height: 11px;
+}
+
+/* The bounds, beside their handles (or merged over a narrow window). */
+.lc-brush-readout {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  z-index: 2;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 0 6px;
+  color: var(--chart-ink);
+  white-space: nowrap;
+  pointer-events: none;
+  transition: opacity 160ms ease-out;
+}
+.lc-brush-readout[data-shown="false"],
+.lc-brush-readout:not([data-shown]) {
+  opacity: 0;
+  visibility: hidden;
+}
+.lc-brush-dash {
+  color: var(--chart-ink-3);
+}
+.lc-brush-brush[data-variant="plot"] .lc-brush-readout {
+  top: 14px;
+}
+
+/* The overview strip: a quiet track under the whole series. */
+.lc-brush-strip {
+  position: relative;
+  min-width: 0;
+}
+.lc-brush-track {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  background: color-mix(in srgb, var(--chart-ink) 2.5%, transparent);
+  box-shadow: inset 0 0 0 1px var(--chart-hair);
+  pointer-events: none;
+}
+.lc-brush-overview {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* Zoom: the gesture surface, its hint and the reset chip. */
+.lc-brush-zoomSurface {
+  position: absolute;
+  touch-action: pan-y;
+}
+.lc-brush-zoomSurface[data-zoomed="true"] {
+  cursor: grab;
+}
+.lc-brush-zoomSurface[data-panning="true"] {
+  cursor: grabbing;
+}
+/* Where the reset key sits while zoomed (the key itself is the core's toggle key). */
+.lc-brush-resetSpot {
+  position: absolute;
+  z-index: 3;
+  display: flex;
+  opacity: 0;
+  translate: 0 -4px;
+  pointer-events: none;
+  transition:
+    opacity 180ms ease-out,
+    translate 220ms cubic-bezier(0.3, 1.2, 0.4, 1);
+}
+.lc-brush-resetSpot[data-shown="true"] {
+  opacity: 1;
+  translate: 0 0;
+  pointer-events: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lc-brush-handle,
+  .lc-brush-readout,
+  .lc-brush-resetSpot {
+    transition: none;
+  }
+}

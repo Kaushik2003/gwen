@@ -50,7 +50,8 @@ func (c *cli) hookCmd() *cobra.Command {
 
 func runHook(ctx context.Context, stdin io.Reader, stdout io.Writer) {
 	terminal := os.Getenv("HC_TERMINAL_ID")
-	if terminal == "" || !inGwenTerminal() {
+	// Gwen's own agent reports to her directly, never through hooks (plan.md 3.16).
+	if terminal == "" || os.Getenv("GWEN_AGENT") != "" || !inGwenTerminal() {
 		return
 	}
 	data, err := io.ReadAll(io.LimitReader(stdin, hookInputLimit))

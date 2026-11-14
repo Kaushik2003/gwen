@@ -114,6 +114,12 @@ func (s *Service) HandleHook(ctx context.Context, ev wire.CodeHookEvent, peerPID
 		s.mu.Unlock()
 		return wire.CodeHookReply{}
 	}
+	if ev.Event == wire.HookStatusLine {
+		// Only the usage: a status line says nothing about the session.
+		s.takeUsage(ctx, ev.Usage)
+		s.mu.Unlock()
+		return wire.CodeHookReply{}
+	}
 
 	sess := s.byTerminal[ev.Terminal]
 	if sess == nil {
@@ -164,9 +170,14 @@ func (s *Service) HandleHook(ctx context.Context, ev wire.CodeHookEvent, peerPID
 				sess.Touched = append(sess.Touched, p)
 			}
 		}
+		switch ev.ToolName {
+		case "Edit", "Write", "MultiEdit", "NotebookEdit", "Bash":
+			s.countChanges(sess)
+		}
 	case "Stop":
 		sess.LastMessage = truncate(ev.LastMessage, 300)
 		sess.Step, sess.lastTool, sess.question = "", "", nil
+		s.countChanges(sess)
 	case "SessionEnd":
 		sess.Step = ""
 		s.release(sess, "")
@@ -260,6 +271,9 @@ func (s *Service) permission(ctx context.Context, sess *session, ev wire.CodeHoo
 		sess.waiting = w
 		sess.Need = store.NeedPermission
 		id := sess.ID
+		// Not away enough to hold the request, but maybe not at the laptop
+		// either (screen still for a moment): the phone still hears of it.
+		s.pushAs(sess, "needs permission", true)
 		s.save(ctx, sess)
 		s.mu.Unlock()
 		go s.readDialog(id)
@@ -473,6 +487,7 @@ func questionWaiting(input map[string]any) *wire.CodeWaiting {
 // readDialog reads the dialog a session that needs you is showing on the
 // laptop, so the phone can offer its choices.
 func (s *Service) readDialog(id string) {
+	defer s.flushAlert(id)
 	time.Sleep(400 * time.Millisecond) // the dialog draws after the status changes
 	s.mu.Lock()
 	sess := s.sessions[id]

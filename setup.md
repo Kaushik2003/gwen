@@ -61,7 +61,8 @@ make install-dev
 This builds everything into `bin/`, copies `gwend`, `gwen`, `gwen-tray`, `gwen-ui` and `gwen-stt` to
 `~/.local/bin`, writes the user unit to `~/.config/systemd/user/gwend.service`, and reloads systemd.
 It also writes the app menu's one **Gwen** entry, `~/.local/share/applications/gwen.desktop`, which
-opens the Gwen window ([step 8](#8-gwen-terminal)) on Today, and hides the window's own entry.
+opens the Gwen window (`gwen-ui`) on Today, and hides Gwen Terminal's own entry. The window's terminals
+need Gwen's terminal server from [step 8](#8-gwen-terminal).
 On KDE Plasma it also installs the Gwen panel widget (see [the panel widget](#kde-panel-widget)).
 `~/.local/bin` must be on your `PATH`. Fedora's default `~/.bashrc` already adds it.
 
@@ -142,11 +143,12 @@ gwen status
 gwen out                         # clock out
 ```
 
-Open Gwen from the app menu (**Gwen**), or run `gwen open`. Gwen's screens live in the Gwen window,
-which [step 8](#8-gwen-terminal) builds; until it is installed, `gwen open` says so. `gwen open SCREEN`
-opens one screen: `today`, `gwen` (the chat), `tasks`, `inbox`, `board`, `projects`, `plan`, `goals`,
-`review`, `weekly`, `stats`, `history`, `connections`, `memory`, or `settings`. In the window,
-**Ctrl+Shift+G** goes back to Gwen's screens from your terminals.
+Open Gwen from the app menu (**Gwen**), or run `gwen open`. The Gwen window holds every screen and your
+projects' workbench: each project's terminals and Claude sessions, its files, and its git history. Give
+a project its folder (the **+** beside Projects in the sidebar, or **Choose its folder** on its home) and
+its terminals open there. `gwen open TARGET` opens one place: `today`, `inbox`, `gwen` (the chat), `plan`,
+`board`, `goals`, `review`, `stats`, `history`, `memory`, `settings`, `settings/phone`, or
+`project:<id>`. **Ctrl+K** in the window finds anything.
 
 ## 4. Phone push (ntfy)
 
@@ -416,12 +418,11 @@ Press **Ctrl+C** to stop it, then `rm -r /tmp/gwen-hub`. The copy does not updat
 
 ## 8. Gwen Terminal
 
-Gwen Terminal is the Gwen window, Gwen's one desktop app. Its first space, **Gwen**, holds her
-screens as tabs (Today, Gwen, Tasks, Plan, Review, Connections, Memory, Settings); every other space
-holds your terminals and Claude Code sessions. It is Herdr's app ([herdr.dev](https://herdr.dev))
-under Gwen's name: a thin fork kept in its own folder, next to **herdr-core**, the small background
-program that keeps your terminals running when the window closes. Every Claude you start in it can be
-seen and driven from your phone (step 9).
+The Gwen window draws your terminals, but **herdr-core** runs them: the small background program that
+keeps them running when the window closes. This step builds Gwen's own herdr-core, and with it Gwen
+Terminal, Herdr's app ([herdr.dev](https://herdr.dev)) under Gwen's name: a thin fork kept in its own
+folder. Gwen Terminal is optional now; it shows the same terminals as the Gwen window. Every Claude you
+start in either can be seen and driven from your phone (step 9).
 
 ### Tools
 
@@ -465,18 +466,13 @@ make term
 
 This builds herdr-core at the release named in `term/core.version` and the fork, then installs
 `gwen-term` in `~/.local/bin` and Gwen's own core as `~/.local/lib/gwen/herdr-core`, and adds
-**Claude (sandbox)** to Gwen Terminal's agent menu. It puts Gwen's screens (the `gwen` mod) and her
-three themes (Ghost, Tide, and Ember, in the theme picker beside Herdr's) in `~/.config/gwen-term`, and
-adds **Ctrl+Shift+G** to its keys. The window's own app menu entry is hidden: **Gwen** in the app menu
-(from `make install-dev` or the package) opens it. The first build takes about 20 minutes; later ones
-a minute. If Gwen's core is running, it is restarted onto the new build and its terminals keep running.
-
-`gwend` also puts the screens in place each time it starts, so a newer `gwend` brings its matching
-screens without `make term`. The first time it sees the window open, it makes the **Gwen** space with
-one tab per screen. Close a screen's tab and it comes back, in its place, when you open that screen
-from the tray, the panel widget, or `gwen open`. When `gwend` is stopped, Gwen's tabs say so and offer
-to start it; they reconnect by themselves when it is back. A Gwen tab splits beside a terminal like
-any other tab.
+**Claude (sandbox)** to Gwen Terminal's agent menu. It puts Gwen's three themes (Ghost, Tide, and
+Ember, in the theme picker beside Herdr's) in `~/.config/gwen-term`; `gwend` does the same each time it
+starts. Gwen Terminal is not the Gwen app: **Gwen** in the app menu (from `make install-dev` or the
+package) is the Gwen window, which draws the same terminals, and Gwen Terminal's own app menu entry is
+hidden. The first build takes about 20 minutes; later ones a minute. If Gwen's core is running, it is
+restarted onto the new build and its terminals keep running. A Gwen Terminal set up by the first W16
+loses its old `gwen` mod and the **Ctrl+Shift+G** key it added the next time `gwend` starts.
 
 Gwen Terminal is separate from a Herdr you run yourself. It has its own core (the session `gwen`), so
 it shows none of your Herdr's spaces or terminals, your Herdr shows none of Gwen's, and `make term`
@@ -559,7 +555,7 @@ folder only.
 | Daemon log | `~/.local/state/gwen/gwend.log`, and `journalctl --user -u gwend` |
 | API socket | `$XDG_RUNTIME_DIR/gwen/gwend.sock` |
 | Phone and hook sockets | `$XDG_RUNTIME_DIR/gwen/remote.sock` (published by Tailscale Serve while the phone remote is on) and `hook.sock` (Claude Code's hooks) |
-| Gwen Terminal | `~/.config/gwen-term/` (settings, keys, layouts, mods, themes; Gwen's screens are `mods/gwen`, which `gwend` replaces with its own copy at start); the fork in `~/Documents/coding/gwen-term`; herdr-core's source in `~/.cache/gwen/herdr-core` |
+| Gwen Terminal | `~/.config/gwen-term/` (settings, keys, layouts, mods, themes; Gwen's themes are `themes/{ghost,tide,ember}.json`, which `gwend` replaces with its own copy at start); the fork in `~/Documents/coding/gwen-term`; herdr-core's source in `~/.cache/gwen/herdr-core` |
 | Gwen's voice | `~/.config/gwen/speech.json`: the provider and voice chosen in **Settings → AI**, which the Talk window uses too |
 | User unit | `/usr/lib/systemd/user/gwend.service` (package) or `~/.config/systemd/user/gwend.service` (dev) |
 | Tray autostart | `~/.config/autostart/gwen-tray.desktop` |
@@ -591,11 +587,6 @@ gwend --foreground  # run the daemon in a terminal with readable logs on stderr
 make clean          # remove bin/ and dist/
 ```
 
-Gwen's screens are `term/mods/gwen/`. After changing them, `go run ./cmd/gwend --install-term` copies
-them into `~/.config/gwen-term/mods/gwen`, and an open Gwen window reloads them. `gwen-term check
-~/.config/gwen-term/mods/gwen` loads the installed copy once and reports what's wrong. Check the
-installed copy, not `term/mods/gwen`: the check writes editor type files into the folder it checks.
-
 To run a fresh daemon from `bin/` in a terminal, stop the service first so the two do not fight
 over the socket: `systemctl --user stop gwend`. After changing code, `make install-dev` and
 `systemctl --user restart gwend` put the new build in place. If the package is installed, this
@@ -618,7 +609,7 @@ Node 24.
 | `make build` fails on `webkit2gtk-4.1` or `gtk+-3.0` | Install the GUI headers from [step 1](#1-requirements). |
 | Calendar disconnects every 7 days | The OAuth consent screen is still in testing. Publish it to production ([step 5](#5-google-calendar-optional)), then `gwen cal connect`. |
 | `claude_code` provider is unavailable | Open **Settings → AI** in Gwen and press **Use it** on the `claude` it finds, or re-run `gwen setup llm` and give the full path to `claude`. Check `claude auth status`. |
-| `gwen open`: "the Gwen window isn't installed" | Build it: [step 8](#8-gwen-terminal). |
+| The Gwen window says terminals are off | Build Gwen's terminal server: [step 8](#8-gwen-terminal). |
 | Gwen's tabs say "Gwen isn't running" | Press **Start Gwen** there, or `systemctl --user start gwend`. The tabs reconnect by themselves. |
 | No **Gwen** space in the Gwen window | Run `gwen open`: it makes the space again. |
 | AI requests fail with "timed out" | Raise the wait under **Settings → AI**, or `gwen config set llm.timeout 2m`. |

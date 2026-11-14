@@ -166,7 +166,8 @@ export function useDictation(
     <IconButton
       icon={phase === "transcribing" ? LoaderCircle : listening ? Square : Mic}
       label={listening ? "Stop listening" : phase === "transcribing" ? "Finishing the text" : "Speak instead of typing"}
-      tone={listening ? "destroy" : "secondary"}
+      size="sm"
+      tone={listening ? "destroy" : "ghost"}
       onClick={listening ? stop : start}
       disabled={!status || status.installing || phase === "transcribing" || (disabled && !listening)}
       className={cx(phase === "transcribing" && "[&>svg]:animate-spin")}

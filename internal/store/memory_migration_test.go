@@ -41,7 +41,7 @@ func TestMemoryMigrationOnV9Chats(t *testing.T) {
 	db, err := Open(ctx, dir, clock.NewFake(time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)))
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
-	require.Equal(t, int64(11), db.SchemaVersion())
+	require.Equal(t, int64(17), db.SchemaVersion())
 	for _, table := range []string{"entities", "episodes", "claims", "conflicts", "memory_links", "self_versions",
 		"chat_observations", "chat_notes", "profile_cards", "memory_jobs", "memory_backends", "memory_usage",
 		"resources", "ledger"} {
@@ -88,7 +88,7 @@ func selfIn(t *testing.T, dir, value string) *DB {
 	db, err := Open(ctx, dir, clock.NewFake(time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)))
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
-	require.Equal(t, int64(11), db.SchemaVersion())
+	require.Equal(t, int64(17), db.SchemaVersion())
 	return db
 }
 

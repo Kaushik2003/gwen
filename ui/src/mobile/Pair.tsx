@@ -55,7 +55,7 @@ export function Pair() {
             <input id="device" className="field" value={name} maxLength={60} onChange={(e) => setName(e.target.value)} />
           </div>
           {error && <p className="error" role="alert">{error}</p>}
-          <button className="btn primary full" disabled={busy} onClick={pair}>
+          <button className="btn primary big full" disabled={busy} onClick={pair}>
             {busy ? <span className="spin" /> : "Pair"}
           </button>
         </>

@@ -57,6 +57,10 @@ type SplitSegmentRequest struct {
 type CreateProjectRequest struct {
 	Name  string  `json:"name"`
 	Color *string `json:"color,omitempty"`
+	// Folder is an absolute folder on the daemon's machine (plan.md 3.15).
+	Folder *string `json:"folder,omitempty"`
+	// ParentID puts the project under another, top-level project.
+	ParentID *string `json:"parent_id,omitempty"`
 }
 
 // PatchProjectRequest is the PATCH /v1/projects/{id} body.
@@ -65,6 +69,38 @@ type PatchProjectRequest struct {
 	Color    *string `json:"color,omitempty"`
 	Archived *bool   `json:"archived,omitempty"`
 	Rev      *int64  `json:"rev,omitempty"`
+	// Folder sets the project's folder on the daemon's machine, or forgets
+	// it for "". It is device-local: it never bumps rev (plan.md 3.15).
+	Folder *string `json:"folder,omitempty"`
+	// ParentID puts the project under another, top-level project; null
+	// moves it back to the top level.
+	ParentID Optional[string] `json:"parent_id,omitzero" ts_type:"string | null"`
+	// AgentAutonomy sets how freely Gwen's agent acts in it on this machine:
+	// cautious, balanced, trusted, or "" for the default. Device-local, like
+	// the folder (plan.md 3.16).
+	AgentAutonomy *string `json:"agent_autonomy,omitempty"`
+}
+
+// CreateAttachmentRequest is the POST /v1/tasks/{id}/attachments body. A
+// link takes URL, a note Body, a file Path, and an app item App and Ref: the
+// daemon then fetches its title, link, and text from the app.
+type CreateAttachmentRequest struct {
+	Kind  string `json:"kind"`
+	Title string `json:"title"`
+	URL   string `json:"url"`
+	Path  string `json:"path"`
+	App   string `json:"app"`
+	Ref   string `json:"ref"`
+	Body  string `json:"body"`
+}
+
+// PatchAttachmentRequest is the PATCH /v1/attachments/{id} body; nil fields
+// are unchanged.
+type PatchAttachmentRequest struct {
+	Title *string `json:"title,omitempty"`
+	URL   *string `json:"url,omitempty"`
+	Body  *string `json:"body,omitempty"`
+	Rev   *int64  `json:"rev,omitempty"`
 }
 
 // CreateTaskRequest is the POST /v1/tasks body. Nil Notes and Priority take the

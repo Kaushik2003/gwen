@@ -85,9 +85,18 @@ type Project struct {
 	Name       string `json:"name"`
 	Color      string `json:"color"`
 	ArchivedAt *int64 `json:"archived_at"`
-	CreatedAt  int64  `json:"created_at"`
-	UpdatedAt  int64  `json:"updated_at"`
-	Rev        int64  `json:"rev"`
+	// Folder is the project's folder on the daemon's machine, "" for none
+	// (plan.md 3.15). It is device-local and never synced.
+	Folder string `json:"folder"`
+	// ParentID is the project this one sits under, null at the top level.
+	// Projects nest one level deep.
+	ParentID *string `json:"parent_id"`
+	// AgentAutonomy is how freely Gwen's agent acts in it on this machine:
+	// cautious, balanced, trusted, or "" for the default (plan.md 3.16).
+	AgentAutonomy string `json:"agent_autonomy"`
+	CreatedAt     int64  `json:"created_at"`
+	UpdatedAt     int64  `json:"updated_at"`
+	Rev           int64  `json:"rev"`
 }
 
 // Task is a tasks row plus the computed TrackedMs.
@@ -117,6 +126,67 @@ type Task struct {
 	Stage           string  `json:"stage"`
 	Effort          *int    `json:"effort"`
 	DelegatedTo     string  `json:"delegated_to"`
+	// Attachments is how many attachments the task has, in task lists and
+	// replies about one task; 0 where a task is embedded in something else.
+	Attachments int `json:"attachments"`
+}
+
+// Attachment is context a task comes with: a link, a note, a file on the
+// device that added it, or an app item (through Composio) with the text
+// snapshot taken at FetchedAt.
+type Attachment struct {
+	ID        string `json:"id"`
+	TaskID    string `json:"task_id"`
+	Kind      string `json:"kind"` // "link", "note", "file", or "app"
+	Title     string `json:"title"`
+	URL       string `json:"url"`
+	Path      string `json:"path"`
+	App       string `json:"app"`
+	Ref       string `json:"ref"`
+	Body      string `json:"body"`
+	FetchedAt *int64 `json:"fetched_at"`
+	CreatedAt int64  `json:"created_at"`
+	Rev       int64  `json:"rev"`
+}
+
+// AttachmentList is the GET /v1/tasks/{id}/attachments response.
+type AttachmentList struct {
+	Attachments []Attachment `json:"attachments"`
+}
+
+// Connector is an app Gwen attaches from, through Composio, and whether it
+// is connected: "active", "expired", "missing", or "unavailable" when this
+// device has no Composio.
+type Connector struct {
+	App    string `json:"app"`
+	Name   string `json:"name"`
+	Status string `json:"status"`
+}
+
+// ConnectorList is the GET /v1/connectors response.
+type ConnectorList struct {
+	Connectors []Connector `json:"connectors"`
+}
+
+// ConnectorLink is the POST /v1/connectors/{app}/link response: the page
+// that connects the app to Composio, to open in the browser.
+type ConnectorLink struct {
+	URL string `json:"url"`
+}
+
+// ConnectorItem is one search result in an app.
+type ConnectorItem struct {
+	App     string `json:"app"`
+	Ref     string `json:"ref"`
+	Title   string `json:"title"`
+	URL     string `json:"url"`
+	Snippet string `json:"snippet"`
+	When    *int64 `json:"when"`
+}
+
+// ConnectorItems is the GET /v1/connectors/{app}/search response.
+type ConnectorItems struct {
+	Items []ConnectorItem `json:"items"`
 }
 
 // Task stages and efforts.
@@ -243,6 +313,13 @@ type NudgeActRequest struct {
 	Action string `json:"action"`
 }
 
+// WindowFocusRequest is POST /v1/window/focus: whether the Gwen window has
+// your focus. While it does, nudges show in the window alone; it repeats it
+// every half minute.
+type WindowFocusRequest struct {
+	Focused bool `json:"focused"`
+}
+
 // Config mirrors config.toml (docs/03-data-model.md#configuration). Durations
 // and HH:MM times stay strings. It is also the string form internal/config
 // reads and writes, hence the toml tags.
@@ -256,7 +333,18 @@ type Config struct {
 	Memory   MemoryConfig   `json:"memory" toml:"memory"`
 	Sync     SyncConfig     `json:"sync" toml:"sync"`
 	Remote   RemoteConfig   `json:"remote" toml:"remote"`
+	Agent    AgentConfig    `json:"agent" toml:"agent"`
 	Log      LogConfig      `json:"log" toml:"log"`
+}
+
+// AgentConfig is the [agent] section: Gwen's agent (plan.md 3.16).
+type AgentConfig struct {
+	Enabled bool `json:"enabled" toml:"enabled"`
+	// Autonomy is cautious, balanced, or trusted; a project can set its own.
+	Autonomy    string `json:"autonomy" toml:"autonomy"`
+	IdleStop    string `json:"idle_stop" toml:"idle_stop"`
+	MaxLive     int    `json:"max_live" toml:"max_live"`
+	TurnTimeout string `json:"turn_timeout" toml:"turn_timeout"`
 }
 
 // TrackingConfig is the [tracking] section.
@@ -265,6 +353,9 @@ type TrackingConfig struct {
 	SoftIdle    string `json:"soft_idle" toml:"soft_idle"`
 	HardIdle    string `json:"hard_idle" toml:"hard_idle"`
 	DayRollover string `json:"day_rollover" toml:"day_rollover"`
+	// FollowTabs: tracking follows the project tab in front of the Gwen window
+	// (plan.md 3.15).
+	FollowTabs bool `json:"follow_tabs" toml:"follow_tabs"`
 }
 
 // NudgeConfig is the [nudge] section.
@@ -523,10 +614,4 @@ type Credentials struct {
 // SetCredential is the body of PUT /v1/credentials/{name}.
 type SetCredential struct {
 	Value string `json:"value"`
-}
-
-// OpenApp is the body of POST /v1/app/open: the Gwen screen to show in the
-// Gwen window, "" for Today.
-type OpenApp struct {
-	Screen string `json:"screen"`
 }

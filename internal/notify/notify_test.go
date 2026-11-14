@@ -397,3 +397,16 @@ func TestDispatcherForwardsConfigAndActions(t *testing.T) {
 	dd.Wait()
 	require.Equal(t, []uint32{1}, desk.closed)
 }
+
+func TestDesktopSessionAlertAsksAndNeverAnswersOnAClick(t *testing.T) {
+	t.Parallel()
+	bus := &fakeBus{caps: []string{"actions"}, sigs: make(chan *dbus.Signal, 8)}
+	d := newDesktop(bus, silent)
+	n := Notification{Kind: "code_session", Title: "app · Claude has a question", Body: "Ship it?",
+		Actions: []Action{{"cs_1@option:1", "Yes"}, {"cs_1@option:2", "No"}}}
+	require.NoError(t, d.Notify(context.Background(), n))
+	require.Equal(t, []string{"cs_1@option:1", "Yes", "cs_1@option:2", "No"}, bus.notifys[0].actions, "no default: a click on the body picks nothing")
+	require.Equal(t, int32(0), bus.notifys[0].expire, "stays until dismissed")
+	bus.sigs <- &dbus.Signal{Name: notificationsIface + ".ActionInvoked", Body: []any{uint32(1), "cs_1@option:2"}}
+	require.Equal(t, ActionEvent{Kind: "code_session", Action: "cs_1@option:2"}, <-d.Actions())
+}

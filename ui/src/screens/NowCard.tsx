@@ -5,6 +5,7 @@ import ProgressRing from "../components/ProgressRing";
 import { Button, Dot, IconButton, cx, stateColor, stateLabel, unassignedColor } from "../components/ui";
 import { useDaemon, useTick } from "../daemon";
 import { clockFace, formatDate, formatDuration, formatTime, parseDuration } from "../format";
+import { projectPath } from "../shell/projects";
 import { useTracking } from "../tracking";
 import { Quit } from "../wailsjs/runtime/runtime";
 
@@ -58,7 +59,9 @@ export default function NowCard() {
   const met = target > 0 && worked >= target;
 
   // The block on now, else the next one still to come.
-  const blocks = (plan?.items ?? []).filter((it) => it.status === "planned" && it.start_at != null).sort((a, b) => a.start_at! - b.start_at!);
+  const blocks = (plan?.items ?? [])
+    .filter((it) => it.status === "planned" && it.start_at != null && it.task.status === "open" && !it.task.parent_id && !it.task.rrule && (!it.task.occurrence_day || it.task.occurrence_day <= today))
+    .sort((a, b) => a.start_at! - b.start_at!);
   const current = blocks.find((it) => it.start_at! <= now && now < it.start_at! + it.planned_minutes * 60_000);
   const next = blocks.find((it) => it.start_at! > now);
   const shown = current ?? next;
@@ -87,7 +90,7 @@ export default function NowCard() {
             </div>
             <div className="mt-0.5 flex items-center gap-1.5 text-xs text-ink-subtle">
               <Dot color={project?.color ?? unassignedColor} size={6} />
-              <span className="truncate">{project?.name ?? "Unassigned"}</span>
+              <span className="truncate">{project ? projectPath(project, d.projects) : task && !task.project_id ? "No project" : "Unassigned"}</span>
             </div>
           </div>
         </Tile>

@@ -1,0 +1,50 @@
+bwrap
+--die-with-parent
+--unshare-pid
+--unshare-ipc
+--unshare-uts
+--ro-bind /usr /usr
+--symlink usr/bin /bin
+--symlink usr/sbin /sbin
+--symlink usr/lib /lib
+--symlink usr/lib64 /lib64
+--ro-bind /etc /etc
+--ro-bind-try /opt /opt
+--proc /proc
+--dev /dev
+--tmpfs /tmp
+--tmpfs /var/tmp
+--tmpfs /run
+--ro-bind-try /run/systemd/resolve /run/systemd/resolve
+--tmpfs /home/user
+--bind /home/user/code/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/app /home/user/code/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/app
+--bind /home/user/.local/share/gwen/sandbox/app-0123456789ab/claude /home/user/.claude
+--setenv CLAUDE_CONFIG_DIR /home/user/.claude
+--ro-bind /home/user/.claude/settings.json /home/user/.claude/settings.json
+--ro-bind /home/user/.local/bin/gwen /home/user/.local/bin/gwen
+--dir /run/user/1000/gwen
+--bind /run/user/1000/gwen/hook.sock /run/user/1000/gwen/hook.sock
+--ro-bind-try /home/user/.local/bin /home/user/.local/bin
+--ro-bind-try /home/user/.local/share/claude /home/user/.local/share/claude
+--ro-bind-try /home/user/go /home/user/go
+--ro-bind-try /home/user/.cargo/bin /home/user/.cargo/bin
+--ro-bind-try /home/user/.rustup /home/user/.rustup
+--ro-bind-try /home/user/.nvm /home/user/.nvm
+--ro-bind-try /home/user/.bun /home/user/.bun
+--ro-bind-try /home/user/.deno /home/user/.deno
+--ro-bind-try /home/user/.gitconfig /home/user/.gitconfig
+--ro-bind-try /home/user/.config/git /home/user/.config/git
+--bind /home/user/.local/share/gwen/sandbox/app-0123456789ab/cache/cache-go-build/dir /home/user/.cache/go-build
+--bind /home/user/.local/share/gwen/sandbox/app-0123456789ab/cache/npm/dir /home/user/.npm
+--bind /home/user/.local/share/gwen/sandbox/app-0123456789ab/cache/cache-pip/dir /home/user/.cache/pip
+--bind /home/user/.local/share/gwen/sandbox/app-0123456789ab/cache/cargo-registry/dir /home/user/.cargo/registry
+--bind /home/user/.local/share/gwen/sandbox/app-0123456789ab/cache/local-share-pnpm/dir /home/user/.local/share/pnpm
+--unsetenv SSH_AUTH_SOCK
+--unsetenv DBUS_SESSION_BUS_ADDRESS
+--unsetenv WAYLAND_DISPLAY
+--unsetenv DISPLAY
+--unsetenv HC_SOCKET
+--unsetenv HC_SESSION
+--setenv GWEN_SANDBOX 1
+--chdir /home/user/code/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/deep/app
+-- /home/user/.local/bin/claude

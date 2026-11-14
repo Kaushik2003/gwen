@@ -105,6 +105,9 @@ func (p *fakePlanner) DayPlan(context.Context, llm.DayPlanRequest) (llm.DayPlanO
 func (p *fakePlanner) Retro(context.Context, llm.RetroRequest) (llm.RetroOutput, error) {
 	return llm.RetroOutput{}, errNotUsed
 }
+func (p *fakePlanner) CommitSummary(context.Context, llm.CommitSummaryRequest) (llm.CommitSummaryOutput, error) {
+	return llm.CommitSummaryOutput{}, errNotUsed
+}
 func (p *fakePlanner) Name() string { return "fake" }
 func (p *fakePlanner) Assistant(_ context.Context, req llm.AssistantRequest) (llm.AssistantOutput, error) {
 	p.mu.Lock()

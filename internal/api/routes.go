@@ -50,6 +50,14 @@ func (s *Server) Handler() http.Handler {
 	route("POST /v1/tasks/{id}/reopen", s.reopenTask)
 	route("DELETE /v1/tasks/{id}", s.deleteTask)
 	route("POST /v1/tasks/delete", s.bulkDeleteTasks)
+	route("GET /v1/tasks/{id}/attachments", s.listAttachments)
+	route("POST /v1/tasks/{id}/attachments", s.createAttachment)
+	route("PATCH /v1/attachments/{id}", s.patchAttachment)
+	route("DELETE /v1/attachments/{id}", s.deleteAttachment)
+	route("POST /v1/attachments/{id}/refresh", s.refreshAttachment)
+	route("GET /v1/connectors", s.listConnectors)
+	route("GET /v1/connectors/{app}/search", s.searchConnector)
+	route("POST /v1/connectors/{app}/link", s.linkConnector)
 
 	route("GET /v1/stats/summary", s.statsSummary)
 	route("GET /v1/stats/heatmap", s.statsHeatmap)
@@ -87,6 +95,19 @@ func (s *Server) Handler() http.Handler {
 	route("POST /v1/goals/{id}/breakdown", s.breakdown)
 	route("POST /v1/plan/chat", s.planChat)
 	route("POST /v1/retro", s.retro)
+	s.harnessRoutes(route)
+
+	// Gwen's agent (plan.md 3.16, W32); her tools are on agent.sock only (AgentHandler).
+	route("GET /v1/agent/status", s.agentStatus)
+	route("GET /v1/agent/chats", s.listAgentChats)
+	route("POST /v1/agent/chats", s.createAgentChat)
+	route("GET /v1/agent/chats/{id}", s.getAgentChat)
+	route("PATCH /v1/agent/chats/{id}", s.patchAgentChat)
+	route("DELETE /v1/agent/chats/{id}", s.deleteAgentChat)
+	route("POST /v1/agent/chats/{id}/messages", s.sendAgentMessage)
+	route("POST /v1/agent/chats/{id}/stop", s.stopAgentChat)
+	route("POST /v1/agent/steps/{id}/undo", s.undoAgentStep)
+
 	route("POST /v1/assistant/chat", s.assistantChat)
 	route("GET /v1/assistant/self", s.getAssistantSelf)
 	route("DELETE /v1/assistant/self", s.resetAssistantSelf)
@@ -134,11 +155,13 @@ func (s *Server) Handler() http.Handler {
 	route("POST /v1/notify/preview", s.notifyPreview)
 	route("GET /v1/nudges", s.listNudges)
 	route("POST /v1/nudges/act", s.actOnNudge)
+	route("POST /v1/window/focus", s.windowFocus)
 
-	route("GET /v1/events/poll", s.poll)
 	route("GET /v1/credentials", s.listCredentials)
 	route("PUT /v1/credentials/{name}", s.setCredential)
-	route("POST /v1/app/open", s.withCode(s.openApp))
+	route("GET /v1/code/usage", s.withCode(s.codeUsage))
+	route("GET /v1/code/commit-sessions", s.withCode(s.commitSessions))
+	route("POST /v1/code/commit-sessions/summary", s.withCode(s.summarizeCommit))
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, errNotFoundRoute)
@@ -165,6 +188,7 @@ func (s *Server) ReadOnlyHandler() http.Handler {
 	route("GET /v1/projects/{id}", s.getProject)
 	route("GET /v1/tasks", s.listTasks)
 	route("GET /v1/tasks/{id}", s.getTask)
+	route("GET /v1/tasks/{id}/attachments", s.listAttachments)
 	route("GET /v1/stats/summary", s.statsSummary)
 	route("GET /v1/stats/heatmap", s.statsHeatmap)
 	route("GET /v1/goals", s.listGoals)

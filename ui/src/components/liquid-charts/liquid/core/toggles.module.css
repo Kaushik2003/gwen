@@ -1,0 +1,185 @@
+/*
+Liquid Charts by Ojieame · https://liquid.ojieame.design · nathan@ojieame.design
+
+Liquid Charts adaptation. Original foundation: Evil Charts by Gurbinder.
+Upstream: ecbd6a5db7b25f9a7e070c02b2ef728c378eeb5c
+MIT License
+
+Copyright (c) 2026 Gurbinder
+Copyright (c) 2026 NATEPAY, LLC (Liquid Charts additions)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Includes shadcn-derived primitives:
+MIT License
+
+Copyright (c) 2023 shadcn
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+*/
+/*
+ * Toggles as quiet hardware: square caps on a shallow plate, with a hairline edge, a faint lit top
+ * and a one-pixel lip. The chosen cap sits down flush with the plate, its label in full ink, and a
+ * short lit line sits centred under it; nothing glows or bounces. One rhythm: the plate
+ * holds its caps 2px in on every side and 2px apart, and a choice's caps share one width. Corners
+ * are a hair off square. Neutral greys only, no tint. A choice is a row of caps on one plate
+ * (Segmented, ViewSwitch); a one-press toggle is a single cap that stays down while it is on
+ * (Switch). The theme comes from a `theme` prop or the nearest `data-scheme`.
+ */
+.lc-toggles-well,
+.lc-toggles-toggleKey {
+  --plate: #e6e6e6;
+  --plate-edge: inset 0 0 0 1px rgb(0 0 0 / 0.07), inset 0 1px 1px rgb(0 0 0 / 0.06);
+  --cap: linear-gradient(#ffffff, #f6f6f6);
+  --cap-edge: inset 0 1px 0 #ffffff, 0 0 0 1px rgb(0 0 0 / 0.12), 0 1px 0 rgb(0 0 0 / 0.14);
+  --cap-down: inset 0 1px 1px rgb(0 0 0 / 0.1), 0 0 0 1px rgb(0 0 0 / 0.14);
+  --cap-down-bg: #f1f1f1;
+  --ink: rgb(0 0 0 / 0.5);
+  --ink-on: #111111;
+  --mark: #111111;
+}
+.lc-toggles-well[data-scheme="dark"],
+.lc-toggles-toggleKey[data-scheme="dark"],
+:where([data-scheme="dark"]) .lc-toggles-well:not([data-scheme="light"]),
+:where([data-scheme="dark"]) .lc-toggles-toggleKey:not([data-scheme="light"]) {
+  --plate: #0d0d0d;
+  --plate-edge: inset 0 0 0 1px rgb(255 255 255 / 0.05), inset 0 1px 2px rgb(0 0 0 / 0.6);
+  --cap: linear-gradient(#232323, #1b1b1b);
+  --cap-edge: inset 0 1px 0 rgb(255 255 255 / 0.07), 0 0 0 1px rgb(0 0 0 / 0.65), 0 1px 0 #000000;
+  --cap-down: inset 0 1px 2px rgb(0 0 0 / 0.55), 0 0 0 1px rgb(0 0 0 / 0.7);
+  --cap-down-bg: #161616;
+  --ink: rgb(255 255 255 / 0.46);
+  --ink-on: #f5f5f5;
+  --mark: #f5f5f5;
+}
+
+/* The plate the caps sit on: shallow, with a hairline edge, 2px around and between its caps. */
+.lc-toggles-well {
+  display: inline-flex;
+  flex: none;
+  flex-wrap: nowrap;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 2px;
+  background: var(--plate);
+  box-shadow: var(--plate-edge);
+}
+/* A choice's caps share one width, the widest label's, so the row reads as one even set. */
+.lc-toggles-well[role="radiogroup"] {
+  display: inline-grid;
+  grid-auto-columns: 1fr;
+  grid-auto-flow: column;
+}
+
+.lc-toggles-key,
+.lc-toggles-toggleKey {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 1.5px;
+  background: var(--cap);
+  box-shadow: var(--cap-edge);
+  color: var(--ink);
+  /* Type: the casing role (type.module.css), which the components add. */
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    translate 80ms ease-out,
+    box-shadow 80ms ease-out,
+    background-color 80ms ease-out,
+    color 120ms ease-out;
+}
+/* The mark: a short lit line centred under the label, only on the chosen cap. */
+.lc-toggles-key::after,
+.lc-toggles-toggleKey::after {
+  content: "";
+  position: absolute;
+  bottom: 2px;
+  left: 50%;
+  width: 16px;
+  height: 1px;
+  translate: -50% 0;
+  background: var(--mark);
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+.lc-toggles-well[data-size="small"] .lc-toggles-key {
+  height: 24px;
+  padding: 0 9px;
+}
+.lc-toggles-key:hover,
+.lc-toggles-toggleKey:hover {
+  color: var(--ink-on);
+}
+/* On: the cap sits down flush with the plate, and its mark shows. */
+.lc-toggles-key[data-on="true"],
+.lc-toggles-toggleKey[aria-pressed="true"],
+.lc-toggles-key:active,
+.lc-toggles-toggleKey:active {
+  translate: 0 1px;
+  background: var(--cap-down-bg);
+  box-shadow: var(--cap-down);
+  color: var(--ink-on);
+}
+.lc-toggles-key[data-on="true"]::after,
+.lc-toggles-toggleKey[aria-pressed="true"]::after {
+  opacity: 0.85;
+}
+.lc-toggles-key:focus-visible,
+.lc-toggles-toggleKey:focus-visible {
+  outline: 1px solid var(--ink);
+  outline-offset: 2px;
+}
+
+/* A one-press toggle: one cap, square when it holds only an icon. */
+.lc-toggles-toggleKey {
+  flex: none;
+  min-width: 26px;
+  padding-inline: 7px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .lc-toggles-key,
+  .lc-toggles-toggleKey,
+  .lc-toggles-key::after,
+  .lc-toggles-toggleKey::after {
+    transition: none;
+  }
+}

@@ -96,8 +96,11 @@ type Client struct {
 	replies map[uint64]chan reply
 	streams map[uint32]*Stream
 	early   map[uint32][]Frame // frames that arrived before their stream registered
-	closed  bool
-	done    chan struct{}
+	// gone are the channels this side closed: what the core still sends on
+	// them, up to the empty CLOSE that answers ours, is dropped.
+	gone   map[uint32]bool
+	closed bool
+	done   chan struct{}
 }
 
 type reply struct {
@@ -143,7 +146,7 @@ func Dial(ctx context.Context, socket string) (*Client, error) {
 	}
 	_ = conn.SetDeadline(time.Time{})
 	c := &Client{conn: conn, hello: msg.Result, replies: map[uint64]chan reply{}, streams: map[uint32]*Stream{},
-		early: map[uint32][]Frame{}, done: make(chan struct{})}
+		early: map[uint32][]Frame{}, gone: map[uint32]bool{}, done: make(chan struct{})}
 	go c.read()
 	return c, nil
 }
@@ -211,9 +214,14 @@ func (c *Client) read() {
 		}
 		c.mu.Lock()
 		s := c.streams[channel]
-		if s == nil {
+		switch {
+		case s == nil && c.gone[channel]:
+			if f.Closed != nil {
+				delete(c.gone, channel) // the core's answer: nothing more comes
+			}
+		case s == nil:
 			c.early[channel] = append(c.early[channel], f)
-		} else if f.Closed != nil {
+		case f.Closed != nil:
 			delete(c.streams, channel)
 		}
 		c.mu.Unlock()
@@ -446,7 +454,10 @@ func (s *Stream) Resize(cols, rows int) error {
 // Close detaches the stream.
 func (s *Stream) Close() {
 	s.c.mu.Lock()
-	delete(s.c.streams, s.channel)
+	if s.c.streams[s.channel] == s {
+		delete(s.c.streams, s.channel)
+		s.c.gone[s.channel] = true
+	}
 	s.c.mu.Unlock()
 	_ = s.c.write(s.channel, kindClose, nil)
 	s.push(Frame{Closed: &CloseReason{Reason: "closed"}})
