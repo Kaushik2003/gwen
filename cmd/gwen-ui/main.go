@@ -102,7 +102,7 @@ func mainOptions(app *App, api client.API, assets fs.FS) *options.App {
 		MinWidth:         960,
 		MinHeight:        600,
 		BackgroundColour: &options.RGBA{R: 13, G: 16, B: 18, A: 255},
-		AssetServer:      &assetserver.Options{Assets: assets},
+		AssetServer:      &assetserver.Options{Assets: assets, Middleware: rawFiles},
 		OnStartup: func(ctx context.Context) {
 			app.ctx = ctx
 			go forwardEvents(ctx, api)

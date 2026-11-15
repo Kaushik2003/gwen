@@ -1,12 +1,15 @@
 import { isolateHistory } from "@codemirror/commands";
 import type { Text } from "@codemirror/state";
 import { EditorView, type ViewUpdate } from "@codemirror/view";
-import { ExternalLink, FileWarning, History as HistoryIcon, LoaderCircle, Save, UserRoundSearch } from "lucide-react";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Code, Columns2, Eye, ExternalLink, FileWarning, History as HistoryIcon, LoaderCircle, Save, UserRoundSearch } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiError } from "../api";
-import { Button, Callout, Empty, IconButton, cx } from "../components/ui";
+import { Button, Callout, Empty, IconButton, Segmented, cx } from "../components/ui";
 import { setUnsaved } from "../shell/unsaved";
 import { editable, editableExt, editorState, markedLines, minimalChange, separatorOf, setBlame, setMarks, type EditorHooks, type MarkKind } from "./editor";
+import PathCrumbs from "./PathCrumbs";
+import Preview from "./Preview";
+import { previewKind } from "./raw";
 import { baseName, bytes, changedOnDisk, git, langName, relTime, useLoad, type FileText } from "./repo";
 
 // A file's tab (plan.md 3.15, board 5): the file in an editor (work/editor.ts), with gutter marks for the
@@ -14,9 +17,32 @@ import { baseName, bytes, changedOnDisk, git, langName, relTime, useLoad, type F
 // line. Ctrl+S or Save writes it. It follows the file on disk, as Herdr's editor does: a change made
 // elsewhere (an agent, another editor) comes in at once while nothing here is unsaved, and with unsaved
 // edits it asks: Reload, or Keep mine. A save writes only over the text it last read (repo.SaveFile's
-// check), so a change made meanwhile is never overwritten unseen.
+// check), so a change made meanwhile is never overwritten unseen. Markdown and SVG also have a rendered
+// preview (work/Preview.tsx) of the editor's text: Preview, Split, or Source, the last choice remembered.
 
 const POLL_MS = 1500; // how often the open tab looks for a change on disk
+const PREVIEW_MS = 150; // how long the preview waits for typing to pause
+
+type Mode = "preview" | "split" | "source";
+const modeKey = "gwen.file.previewMode";
+
+function savedMode(): Mode {
+  try {
+    const m = localStorage.getItem(modeKey);
+    if (m === "preview" || m === "split" || m === "source") return m;
+  } catch {
+    // storage off: the default
+  }
+  return "preview";
+}
+
+function saveMode(m: Mode) {
+  try {
+    localStorage.setItem(modeKey, m);
+  } catch {
+    // storage off: forgotten
+  }
+}
 
 interface Saved {
   doc: Text; // the text as on disk, to tell unsaved edits from none
@@ -24,7 +50,22 @@ interface Saved {
   stamp: string;
 }
 
-export default function FileView({ folder, path, tabKey, active = true, onOpenHistory }: { folder: string; path: string; tabKey: string; active?: boolean; onOpenHistory?: () => void }) {
+export default function FileView({
+  folder,
+  path,
+  tabKey,
+  active = true,
+  onOpenHistory,
+  onOpenFile,
+}: {
+  folder: string;
+  path: string;
+  tabKey: string;
+  active?: boolean;
+  onOpenHistory?: () => void;
+  /** Opens another file of the project, for links in a preview. */
+  onOpenFile?: (path: string) => void;
+}) {
   const key = `${folder}\n${path}`;
   const file = useLoad(`file:${key}`, () => git.file(folder, path));
   const marks = useLoad(`marks:${key}`, () => git.marks(folder, path));
@@ -42,6 +83,25 @@ export default function FileView({ folder, path, tabKey, active = true, onOpenHi
   const [scroll, setScroll] = useState({ top: 0, height: 0, total: 0 });
   const [ready, setReady] = useState(false);
   const hooks = useRef<EditorHooks>({ save: () => {}, update: () => {} });
+  const preview = previewKind(path);
+  const [mode, setModeState] = useState<Mode>(() => (preview ? savedMode() : "source"));
+  const setMode = (m: Mode) => {
+    setModeState(m);
+    saveMode(m);
+    if (m !== "preview") requestAnimationFrame(() => view.current?.focus());
+  };
+  const showPreview = !!preview && mode !== "source";
+  const showSource = !preview || mode !== "preview";
+  // The editor's text for the preview, a moment after typing pauses.
+  const [previewText, setPreviewText] = useState("");
+  const previewTimer = useRef(0);
+  const syncPreview = useCallback((now = false) => {
+    window.clearTimeout(previewTimer.current);
+    const run = () => view.current && setPreviewText(view.current.state.doc.toString());
+    if (now) run();
+    else previewTimer.current = window.setTimeout(run, PREVIEW_MS);
+  }, []);
+  useEffect(() => () => window.clearTimeout(previewTimer.current), []);
 
   const data = file.data;
   const canEdit = !!data?.hash;
@@ -64,7 +124,8 @@ export default function FileView({ folder, path, tabKey, active = true, onOpenHi
     setDirty(false);
     setConflict(null);
     setPos((p) => ({ ...p, lines: v.state.doc.lines }));
-  }, []);
+    syncPreview(true);
+  }, [syncPreview]);
 
   const save = useCallback(async (): Promise<boolean> => {
     const v = view.current;
@@ -98,6 +159,7 @@ export default function FileView({ folder, path, tabKey, active = true, onOpenHi
     update: (u: ViewUpdate) => {
       const s = saved.current;
       if (u.docChanged && s) setDirty(!u.state.doc.eq(s.doc));
+      if (u.docChanged && preview) syncPreview();
       if (u.docChanged || u.selectionSet) {
         const head = u.state.selection.main.head;
         const line = u.state.doc.lineAt(head);
@@ -122,6 +184,7 @@ export default function FileView({ folder, path, tabKey, active = true, onOpenHi
       ro.observe(nv.scrollDOM);
       stopWatching.current = () => ro.disconnect();
       setReady(true);
+      syncPreview(true);
       return;
     }
     const s = saved.current;
@@ -131,7 +194,7 @@ export default function FileView({ folder, path, tabKey, active = true, onOpenHi
     }
     if (s && !v.state.doc.eq(s.doc)) setConflict(data);
     else load(data);
-  }, [data, load]);
+  }, [data, load, syncPreview]);
 
   const stopWatching = useRef<() => void>(() => {});
   useEffect(
@@ -180,6 +243,23 @@ export default function FileView({ folder, path, tabKey, active = true, onOpenHi
     return () => window.removeEventListener("keydown", onKey);
   }, [active]);
 
+  // Ctrl+Shift+V flips between the preview and the source, as in VS Code.
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
+  useEffect(() => {
+    if (!active || !preview) return;
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && e.key.toLowerCase() === "v" && !e.defaultPrevented) {
+        e.preventDefault();
+        setModeRef.current(modeRef.current === "source" ? "preview" : "source");
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [active, preview]);
+  const setModeRef = useRef(setMode);
+  setModeRef.current = setMode;
+
   // The tab bar's ● and the question before the tab closes.
   const saveRef = useRef(save);
   saveRef.current = save;
@@ -216,31 +296,13 @@ export default function FileView({ folder, path, tabKey, active = true, onOpenHi
     git.open(folder, path).catch((e) => setOpenError(apiError(e).message));
   };
 
-  const parts = path.split("/");
   const m = marks.data;
   const showEditor = !!data && !data.binary;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex min-h-[42px] flex-wrap items-center gap-x-2.5 gap-y-1.5 border-b border-chrome-line bg-chrome py-1.5 pr-3.5 pl-[18px]">
-        <nav aria-label="Path" className="flex min-w-0 items-center gap-1.5 text-[12.5px] text-ink-muted">
-          <span className="shrink-0">{baseName(folder)}</span>
-          {parts.map((p, i) => (
-            <Fragment key={i}>
-              <span aria-hidden className="text-ink-faint">
-                /
-              </span>
-              <span className={cx(i === parts.length - 1 ? "font-medium text-ink" : "truncate")} aria-current={i === parts.length - 1 ? "page" : undefined}>
-                {p}
-              </span>
-            </Fragment>
-          ))}
-          {dirty && (
-            <span className="text-ink-muted" title="Unsaved changes" aria-label="Unsaved changes">
-              ●
-            </span>
-          )}
-        </nav>
+        <PathCrumbs folder={folder} path={path} dirty={dirty} />
         {data && (
           <span className="text-xs whitespace-nowrap text-ink-subtle">
             {data.binary ? `Binary · ${bytes(data.size)}` : `${langName(data.lang)} · Ln ${pos.line}, Col ${pos.col} · ${pos.lines.toLocaleString("en-US")} ${pos.lines === 1 ? "line" : "lines"}`}
@@ -261,7 +323,20 @@ export default function FileView({ folder, path, tabKey, active = true, onOpenHi
             Uncommitted changes
           </span>
         )}
-        <Button size="sm" icon={UserRoundSearch} aria-pressed={blameOn} className={cx(blameOn && "!border-accent/60 !bg-accent/15")} onClick={() => setBlameOn((v) => !v)} disabled={!showEditor} title="Shows who last changed the cursor's line">
+        {preview && showEditor && (
+          <Segmented<Mode>
+            size="sm"
+            label="Show"
+            value={mode}
+            onChange={setMode}
+            options={[
+              { value: "preview", label: "Preview", icon: Eye, title: "The rendered file (Ctrl+Shift+V)" },
+              { value: "split", label: "Split", icon: Columns2, title: "The source and the rendered file side by side" },
+              { value: "source", label: "Source", icon: Code, title: "The text, to edit (Ctrl+Shift+V)" },
+            ]}
+          />
+        )}
+        <Button size="sm" icon={UserRoundSearch} aria-pressed={blameOn} className={cx(blameOn && "!border-accent/60 !bg-accent/15")} onClick={() => setBlameOn((v) => !v)} disabled={!showEditor || !showSource} title="Shows who last changed the cursor's line">
           Blame
         </Button>
         {onOpenHistory && (
@@ -341,9 +416,17 @@ export default function FileView({ folder, path, tabKey, active = true, onOpenHi
           {baseName(path)} is {bytes(data.size)} of binary data; Gwen edits text files.
         </Empty>
       ) : null}
-      <div className={cx("relative min-h-0 flex-1 bg-canvas", !showEditor && "hidden")}>
-        <div ref={host} className="absolute inset-0 right-3" />
-        <Overview lines={pos.lines} marks={marked} scroll={scroll} view={view} />
+      <div className={cx("flex min-h-0 flex-1 bg-canvas", !showEditor && "hidden")}>
+        {/* The editor stays mounted while hidden, so undo, the cursor and unsaved edits survive a flip to Preview. */}
+        <div className={cx("relative min-w-0 flex-1", !showSource && "hidden", showPreview && "border-r border-chrome-line")}>
+          <div ref={host} className="absolute inset-0 right-3" />
+          <Overview lines={pos.lines} marks={marked} scroll={scroll} view={view} />
+        </div>
+        {preview && showPreview && (
+          <div className="min-w-0 flex-1">
+            <Preview kind={preview} text={previewText} folder={folder} path={path} onOpenFile={onOpenFile} />
+          </div>
+        )}
       </div>
     </div>
   );

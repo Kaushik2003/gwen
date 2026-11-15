@@ -38,7 +38,10 @@
     "@lezer/highlight": "1.2.5",
     "@visx/scale": "4.0.0",
     "@xterm/xterm": "5.5.0",
+    "dompurify": "3.4.17",
     "lucide-react": "1.52.0",
+    "marked": "18.2.0",
+    "pdfjs-dist": "6.5.438",
     "qrcode": "1.5.4",
     "react": "19.3.0",
     "react-dom": "19.3.0"

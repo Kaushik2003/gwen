@@ -3,13 +3,16 @@ import { lazy, Suspense } from "react";
 import { Empty } from "../components/ui";
 import { useDaemon } from "../daemon";
 import FileTree from "../work/FileTree";
+import { viewerKind } from "../work/raw";
 import { tabId, useTabs, type Tab } from "./tabs";
 
 // A file's tab (plan.md 3.15, board 5). Opened without a file it is the
 // project's Files: the tree, and the file you pick from it. The editor
-// (CodeMirror) loads the first time a file opens, not with the window.
+// (CodeMirror) loads the first time a file opens, not with the window. PDFs and images open in a
+// viewer (work/MediaView) instead of the editor.
 
 const FileView = lazy(() => import("../work/FileView"));
+const MediaView = lazy(() => import("../work/MediaView"));
 
 export default function FileTab({ tab, active }: { tab: Extract<Tab, { kind: "file" }>; active: boolean }) {
   const d = useDaemon();
@@ -33,16 +36,22 @@ export default function FileTab({ tab, active }: { tab: Extract<Tab, { kind: "fi
         </Empty>
       </div>
     );
+  const openHistory = () => tabs.open({ kind: "history", project: tab.project });
+  const kind = viewerKind(tab.path);
   return (
     <Suspense
       fallback={
         <p className="flex items-center gap-2 p-5 text-[13px] text-ink-subtle">
           <LoaderCircle size={14} className="animate-spin" aria-hidden />
-          Opening the editor…
+          {kind === "text" ? "Opening the editor…" : "Opening the viewer…"}
         </p>
       }
     >
-      <FileView folder={project.folder} path={tab.path} tabKey={tabId(tab)} active={active} onOpenHistory={() => tabs.open({ kind: "history", project: tab.project })} />
+      {kind === "text" ? (
+        <FileView folder={project.folder} path={tab.path} tabKey={tabId(tab)} active={active} onOpenHistory={openHistory} onOpenFile={open} />
+      ) : (
+        <MediaView folder={project.folder} path={tab.path} kind={kind} active={active} onOpenHistory={openHistory} />
+      )}
     </Suspense>
   );
 }

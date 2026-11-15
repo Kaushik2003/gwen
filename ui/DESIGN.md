@@ -25,6 +25,9 @@ for the phone; when this file and those disagree, fix whichever is wrong in the 
   (accent) button per card.
 - **Code and terminals** are Geist Mono. Diffs use `success` for added and `danger` for removed lines, tinted 7 to
   15% into the surface; long lines wrap in diffs and scroll sideways only in the file editor.
+- **Files that aren't code.** Markdown and SVG open rendered: Preview, Split, or Source in the file bar, Ctrl Shift V
+  to flip (the Markdown page is `.md-page`). PDFs and images open in a viewer on the `preview-checker` ground,
+  never as "binary".
 - **Keys.** Ctrl K (or Ctrl Shift P) opens everything; Ctrl W closes a tab, Ctrl Tab cycles, Ctrl 1 to 9 jump, Ctrl \
   shows the side panel. Inside a terminal Ctrl W, Ctrl K, and Ctrl \ belong to the program, so the window uses
   Ctrl Shift W and Ctrl Shift P there.
