@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -46,6 +47,7 @@ type NewTask struct {
 	Stage           *string // nil is todo
 	Effort          *int
 	DelegatedTo     *string
+	WaitsOn         []string
 }
 
 // TaskPatch changes a task; unset fields are unchanged.
@@ -65,7 +67,9 @@ type TaskPatch struct {
 	Stage           *string
 	Effort          Nullable[int]
 	DelegatedTo     *string
-	Rev             *int64
+	// WaitsOn replaces the list of tasks this one waits on; nil leaves it.
+	WaitsOn *[]string
+	Rev     *int64
 }
 
 // Changes lists what a write touched beyond its own row, so that the API can
@@ -137,7 +141,7 @@ func NewTaskRepo(db *DB) TaskRepo { return taskRepo{db} }
 
 const taskCols = `id, project_id, title, notes, status, priority, due_day, estimate_minutes, done_at, goal_id,
 	quantity, quantity_done, rrule, template_id, occurrence_day, parent_id, start_day, start_minute, stage, effort,
-	delegated_to, ` + envelopeCols
+	delegated_to, waits_on, ` + envelopeCols
 
 func scanTask(s scanner) (model.Task, error) {
 	var (
@@ -145,11 +149,12 @@ func scanTask(s scanner) (model.Task, error) {
 		project, due, goal, rrule, tmpl, occurs, parent, start sql.NullString
 		estimate, doneAt, quantity, quantityDone, startMinute  sql.NullInt64
 		effort                                                 sql.NullInt64
+		waits                                                  string
 		env                                                    envelopeScan
 	)
 	dest := append([]any{&t.ID, &project, &t.Title, &t.Notes, &t.Status, &t.Priority, &due, &estimate, &doneAt,
 		&goal, &quantity, &quantityDone, &rrule, &tmpl, &occurs, &parent, &start, &startMinute, &t.Stage, &effort,
-		&t.DelegatedTo}, env.dest()...)
+		&t.DelegatedTo, &waits}, env.dest()...)
 	if err := s.Scan(dest...); err != nil {
 		return model.Task{}, err
 	}
@@ -157,6 +162,8 @@ func scanTask(s scanner) (model.Task, error) {
 	t.GoalID, t.RRule, t.TemplateID, t.OccurrenceDay = stringPtr(goal), stringPtr(rrule), stringPtr(tmpl), stringPtr(occurs)
 	t.Quantity, t.QuantityDone, t.ParentID = intPtr(quantity), intPtr(quantityDone), stringPtr(parent)
 	t.StartDay, t.StartMinute, t.Effort = stringPtr(start), intPtr(startMinute), intPtr(effort)
+	t.WaitsOn = []string{}
+	_ = json.Unmarshal([]byte(waits), &t.WaitsOn)
 	if estimate.Valid {
 		d := time.Duration(estimate.Int64) * time.Minute
 		t.Estimate = &d
@@ -258,6 +265,7 @@ func (r taskRepo) Create(ctx context.Context, nt NewTask) (model.Task, Changes, 
 	if nt.DelegatedTo != nil {
 		t.DelegatedTo = *nt.DelegatedTo
 	}
+	t.WaitsOn = nt.WaitsOn
 	if nt.Notes != nil {
 		t.Notes = *nt.Notes
 	}
@@ -271,6 +279,9 @@ func (r taskRepo) Create(ctx context.Context, nt NewTask) (model.Task, Changes, 
 	var ch Changes
 	err := r.db.InTx(ctx, func(tx *sql.Tx) error {
 		if err := validTask(ctx, tx, &t); err != nil {
+			return err
+		}
+		if err := validWaits(ctx, tx, &t); err != nil {
 			return err
 		}
 		if err := defaultUnit(ctx, tx, &t); err != nil {
@@ -297,13 +308,14 @@ func insertTask(ctx context.Context, tx *sql.Tx, t *model.Task) error {
 	}
 	const qInsertTask = `INSERT INTO tasks (id, project_id, title, notes, status, priority, due_day,
 		estimate_minutes, done_at, goal_id, quantity, quantity_done, rrule, template_id, occurrence_day, parent_id,
-		start_day, start_minute, stage, effort, delegated_to, created_at, updated_at, device_id, rev)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		start_day, start_minute, stage, effort, delegated_to, waits_on, created_at, updated_at, device_id, rev)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	_, err := tx.ExecContext(ctx, qInsertTask, t.ID, nullString(t.ProjectID), t.Title, t.Notes, t.Status, t.Priority,
 		nullString(t.DueDay), estimateMinutes(t.Estimate), nullMillis(t.DoneAt), nullString(t.GoalID),
 		nullInt(t.Quantity), nullInt(t.QuantityDone), nullString(t.RRule), nullString(t.TemplateID),
 		nullString(t.OccurrenceDay), nullString(t.ParentID), nullString(t.StartDay), nullInt(t.StartMinute),
-		t.Stage, nullInt(t.Effort), t.DelegatedTo, t.CreatedAt.UnixMilli(), t.UpdatedAt.UnixMilli(), t.DeviceID, t.Rev)
+		t.Stage, nullInt(t.Effort), t.DelegatedTo, waitsJSON(t.WaitsOn), t.CreatedAt.UnixMilli(), t.UpdatedAt.UnixMilli(),
+		t.DeviceID, t.Rev)
 	return classify(err)
 }
 
@@ -444,6 +456,12 @@ func (r taskRepo) Update(ctx context.Context, id string, p TaskPatch) (model.Tas
 		if p.DelegatedTo != nil {
 			t.DelegatedTo = *p.DelegatedTo
 		}
+		if p.WaitsOn != nil {
+			t.WaitsOn = *p.WaitsOn
+			if err := validWaits(ctx, tx, &t); err != nil {
+				return err
+			}
+		}
 		if err := validTask(ctx, tx, &t); err != nil {
 			return err
 		}
@@ -464,13 +482,13 @@ func writeTask(ctx context.Context, tx *sql.Tx, db *DB, t *model.Task) error {
 	t.UpdatedAt, t.DeviceID, t.Rev = now, db.DeviceID(), t.Rev+1
 	const qUpdateTask = `UPDATE tasks SET project_id = ?, title = ?, notes = ?, status = ?, priority = ?,
 		due_day = ?, estimate_minutes = ?, done_at = ?, goal_id = ?, quantity = ?, quantity_done = ?, rrule = ?,
-		parent_id = ?, start_day = ?, start_minute = ?, stage = ?, effort = ?, delegated_to = ?, updated_at = ?,
-		device_id = ?, rev = ? WHERE id = ?`
+		parent_id = ?, start_day = ?, start_minute = ?, stage = ?, effort = ?, delegated_to = ?, waits_on = ?,
+		updated_at = ?, device_id = ?, rev = ? WHERE id = ?`
 	_, err := tx.ExecContext(ctx, qUpdateTask, nullString(t.ProjectID), t.Title, t.Notes, t.Status, t.Priority,
 		nullString(t.DueDay), estimateMinutes(t.Estimate), nullMillis(t.DoneAt), nullString(t.GoalID),
 		nullInt(t.Quantity), nullInt(t.QuantityDone), nullString(t.RRule), nullString(t.ParentID),
-		nullString(t.StartDay), nullInt(t.StartMinute), t.Stage, nullInt(t.Effort), t.DelegatedTo, now.UnixMilli(),
-		t.DeviceID, t.Rev, t.ID)
+		nullString(t.StartDay), nullInt(t.StartMinute), t.Stage, nullInt(t.Effort), t.DelegatedTo, waitsJSON(t.WaitsOn),
+		now.UnixMilli(), t.DeviceID, t.Rev, t.ID)
 	return classify(err)
 }
 

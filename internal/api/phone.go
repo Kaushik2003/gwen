@@ -32,6 +32,7 @@ func (s *Server) phoneRoutes(route router) {
 	phone("POST /v1/session/switch", s.switchTo)
 
 	phone("GET /v1/plan", s.getPlan)
+	phone("GET /v1/days/{day}/graph", s.getDayGraph)
 	phone("GET /v1/projects", s.listProjects)
 	phone("POST /v1/projects", s.phoneCreateProject)
 	phone("POST /v1/projects/{id}/folder", s.phoneProjectFolder)

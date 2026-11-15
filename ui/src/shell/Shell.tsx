@@ -1,9 +1,9 @@
-import { Bell, CalendarDays, ChartColumn, Columns2, FileCode, FolderKanban, GitCommitHorizontal, Inbox, PanelRight, Plus, SlidersHorizontal, Smartphone, Sparkles, Sun, X, type LucideIcon } from "lucide-react";
+import { Bell, CalendarDays, ChartColumn, Columns2, FileCode, FolderKanban, GitCommitHorizontal, Inbox, PanelRight, Plus, Save, SlidersHorizontal, Smartphone, Sparkles, Sun, X, type LucideIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { App, onEvent } from "../api";
 import { BriefingProvider } from "../components/Briefing";
 import { TaskUIProvider } from "../task/TaskUI";
-import { cx, stateColor } from "../components/ui";
+import { Button, cx, Modal, stateColor } from "../components/ui";
 import { useDaemon, useTick } from "../daemon";
 import { clockFace, formatTime } from "../format";
 import { NavContext } from "../nav";
@@ -21,6 +21,7 @@ import ProjectHome from "./ProjectHome";
 import TermTab from "./TermTab";
 import FileTab from "./FileTab";
 import HistoryTab from "./HistoryTab";
+import { unsavedSave, useUnsaved } from "./unsaved";
 
 // The Gwen window (plan.md 3.15, board 1): sidebar, tabs, an optional side
 // panel, and a status bar on every screen.
@@ -174,8 +175,9 @@ function Frame() {
               {tabs.tabs.map((t) => {
                 const id = tabId(t);
                 const on = id === tabs.active;
-                // Terminals stay mounted while their tab is open, so their screens and scrollback survive a tab switch.
-                if (!on && t.kind !== "term") return null;
+                // Terminals and open files stay mounted while their tab is open, so a terminal's screen and
+                // scrollback, and a file's unsaved edits and undo, survive a tab switch.
+                if (!on && t.kind !== "term" && !(t.kind === "file" && t.path)) return null;
                 return (
                   <div key={id} className={cx("absolute inset-0", !on && "invisible")} aria-hidden={!on}>
                     <TabBody tab={t} active={on} />
@@ -189,7 +191,50 @@ function Frame() {
         <StatusBar onPalette={() => setPalette(true)} />
       </div>
       {palette && <Palette onClose={() => setPalette(false)} />}
+      {tabs.closing && <UnsavedClose id={tabs.closing} />}
     </NavContext.Provider>
+  );
+}
+
+/** "Save changes?" before a tab with unsaved edits closes. */
+function UnsavedClose({ id }: { id: string }) {
+  const tabs = useTabs();
+  const [busy, setBusy] = useState(false);
+  const t = tabs.tabs.find((x) => tabId(x) === id);
+  const path = t?.kind === "file" ? t.path : "";
+  const save = async () => {
+    setBusy(true);
+    const ok = (await unsavedSave(id)?.()) ?? true;
+    setBusy(false);
+    if (ok) tabs.close(id, { discard: true });
+    else {
+      // The save didn't go through (changed on disk, or an error): the tab says why.
+      tabs.cancelClose();
+      tabs.focus(id);
+    }
+  };
+  return (
+    <Modal
+      size="sm"
+      title={`Save changes to ${path.split("/").pop() || "this tab"}?`}
+      description="Closing it without saving loses them."
+      onClose={tabs.cancelClose}
+      footer={
+        <>
+          <Button tone="ghost" onClick={tabs.cancelClose}>
+            Cancel
+          </Button>
+          <Button tone="danger" onClick={() => tabs.close(id, { discard: true })}>
+            Don't save
+          </Button>
+          <Button tone="primary" icon={Save} busy={busy} onClick={() => void save()}>
+            Save
+          </Button>
+        </>
+      }
+    >
+      {path && <p className="font-mono text-xs break-all text-ink-subtle">{path}</p>}
+    </Modal>
   );
 }
 
@@ -204,7 +249,7 @@ function TabBody({ tab, active }: { tab: Tab; active: boolean }) {
     case "term":
       return <TermTab tab={tab} active={active} />;
     case "file":
-      return <FileTab tab={tab} />;
+      return <FileTab tab={tab} active={active} />;
     case "history":
       return <HistoryTab project={tab.project} />;
   }
@@ -216,6 +261,7 @@ function TabBar() {
   const tabs = useTabs();
   const panel = usePanel();
   const active = tabs.activeTab;
+  const unsaved = useUnsaved();
 
   function label(t: Tab): { icon: ReactNode; text: string; title?: string; glyph?: ReactNode } {
     const project = (id: string) => d.projects.find((p) => p.id === id);
@@ -241,7 +287,16 @@ function TabBar() {
         };
       }
       case "file":
-        return { icon: <FileCode size={14} strokeWidth={1.9} aria-hidden className="text-ink-subtle" />, text: t.path.split("/").pop() ?? t.path, title: t.path };
+        return {
+          icon: <FileCode size={14} strokeWidth={1.9} aria-hidden className="text-ink-subtle" />,
+          text: t.path.split("/").pop() ?? t.path,
+          title: t.path,
+          glyph: unsaved.has(tabId(t)) ? (
+            <span className="ml-0.5 text-[11px] text-ink-muted" title="Unsaved changes" aria-label="unsaved">
+              ●
+            </span>
+          ) : null,
+        };
       case "history":
         return { icon: <GitCommitHorizontal size={14} strokeWidth={1.9} aria-hidden />, text: `History · ${project(t.project)?.name ?? ""}` };
     }

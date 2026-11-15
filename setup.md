@@ -45,6 +45,11 @@ Then go to [step 3](#3-first-run). A non-technical user can open the rpm or deb 
 center instead, then open **Gwen** from the app menu. The GUI's first-run screen does step 3 for
 them.
 
+The package carries Gwen's terminals too: her own herdr-core (`/usr/lib/gwen/herdr-core`) and Gwen
+Terminal (`/usr/bin/gwen-term`). `make package` builds them first when they are missing, which needs the
+tools and the fork of [step 8](#8-gwen-terminal) on the machine that builds the package, not on the one
+that installs it. A core from `make term` in `~/.local/lib/gwen` is used before the packaged one.
+
 Untagged builds are packaged as version `0.0.0`. For a release, tag `vX.Y.Z` and run
 `make package VERSION=X.Y.Z`.
 
@@ -473,6 +478,12 @@ package) is the Gwen window, which draws the same terminals, and Gwen Terminal's
 hidden. The first build takes about 20 minutes; later ones a minute. If Gwen's core is running, it is
 restarted onto the new build and its terminals keep running. A Gwen Terminal set up by the first W16
 loses its old `gwen` mod and the **Ctrl+Shift+G** key it added the next time `gwend` starts.
+
+`gwend` starts Gwen's core when it starts, so your terminals and your phone are ready after you log in
+without opening the Gwen window first. The core has no autostart of its own: turn `gwend` off
+(`systemctl --user disable --now gwend`) and nothing of Gwen starts at login; turn it on and all of it
+does. `gwend` starts the core once; a core you stop by hand stays stopped until you open the Gwen window
+or start a session.
 
 Gwen Terminal is separate from a Herdr you run yourself. It has its own core (the session `gwen`), so
 it shows none of your Herdr's spaces or terminals, your Herdr shows none of Gwen's, and `make term`

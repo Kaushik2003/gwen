@@ -258,7 +258,7 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) error {
 		ProjectID: req.ProjectID, Title: req.Title, Notes: req.Notes, Priority: req.Priority,
 		DueDay: req.DueDay, EstimateMinutes: req.EstimateMinutes, GoalID: req.GoalID, Quantity: req.Quantity,
 		RRule: req.RRule, ParentID: req.ParentID, StartDay: req.StartDay, StartMinute: req.StartMinute,
-		Stage: req.Stage, Effort: req.Effort, DelegatedTo: req.DelegatedTo,
+		Stage: req.Stage, Effort: req.Effort, DelegatedTo: req.DelegatedTo, WaitsOn: req.WaitsOn,
 	})
 	if err != nil {
 		return err
@@ -315,7 +315,7 @@ func (s *Server) patchTask(w http.ResponseWriter, r *http.Request) error {
 		DueDay: nullable(req.DueDay), EstimateMinutes: nullable(req.EstimateMinutes),
 		GoalID: nullable(req.GoalID), Quantity: nullable(req.Quantity), RRule: nullable(req.RRule),
 		ParentID: nullable(req.ParentID), StartDay: nullable(req.StartDay), StartMinute: nullable(req.StartMinute),
-		Stage: req.Stage, Effort: nullable(req.Effort), DelegatedTo: req.DelegatedTo, Rev: req.Rev,
+		Stage: req.Stage, Effort: nullable(req.Effort), DelegatedTo: req.DelegatedTo, WaitsOn: req.WaitsOn, Rev: req.Rev,
 	})
 	return s.taskReplanned(w, r, http.StatusOK, t, err)
 }

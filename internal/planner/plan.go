@@ -180,8 +180,9 @@ func Generate(in GenerateInput) []PlanItemDraft {
 		}
 	}
 
+	waits := openWaits(in.Tasks)
 	var fresh []PlanItemDraft
-	for _, c := range Candidates(in, keptTasks) {
+	size := func(c Candidate) bool {
 		t := c.Task
 		remaining := RemainingMinutes(t, in.Tracked[t.ID])
 		blocks, maxBlock := BlocksPerTask, MaxBlock
@@ -202,6 +203,38 @@ func Generate(in GenerateInput) []PlanItemDraft {
 				effort: effortOf(t.Task), urgency: c.Urgency, held: isHeld})
 			capacityLeft -= m
 		}
+		return len(sizes) > 0
+	}
+	// Most urgent first, but a task waits its turn until everything open it
+	// waits on is kept on the day or got blocks itself; one still waiting at
+	// the end stays off the day.
+	sized := map[string]bool{}
+	ready := func(c Candidate) bool {
+		for _, w := range waits[c.Task.ID] {
+			if !keptTasks[w] && !sized[w] {
+				return false
+			}
+		}
+		return true
+	}
+	var pending []Candidate
+	for _, c := range Candidates(in, keptTasks) {
+		if !ready(c) {
+			pending = append(pending, c)
+			continue
+		}
+		sized[c.Task.ID] = size(c)
+		for moved := true; moved; {
+			moved = false
+			for i, p := range pending {
+				if ready(p) {
+					pending = slices.Delete(pending, i, i+1)
+					sized[p.Task.ID] = size(p)
+					moved = true
+					break
+				}
+			}
+		}
 	}
 
 	var seq []PlanItemDraft
@@ -209,6 +242,16 @@ func Generate(in GenerateInput) []PlanItemDraft {
 		seq = stickyOrder(kept, fresh, holdingAt)
 	} else {
 		seq = freshOrder(kept, fresh, in.Frog || in.Prime != nil)
+	}
+	seq = afterWaits(seq, waits)
+	// Where each task's placed blocks end, so what waits on it starts after.
+	ends := map[string]time.Time{}
+	for _, it := range kept {
+		if it.StartAt != nil {
+			if e := it.StartAt.Add(it.Planned); e.After(ends[it.TaskID]) {
+				ends[it.TaskID] = e
+			}
+		}
 	}
 	var prime []Interval
 	if in.Prime != nil {
@@ -220,17 +263,26 @@ func Generate(in GenerateInput) []PlanItemDraft {
 		if d.ExistingID != "" {
 			continue
 		}
+		if at := waitsEnd(ends, waits[d.TaskID]); at.After(d.notBefore) {
+			d.notBefore = at
+		}
 		if d.effort == model.EffortHard && prime != nil {
 			// Hard work takes prime time when it fits there.
 			if at, ok := earliestFit(prime, d.Planned, d.notBefore); ok {
 				d.StartAt = &at
 				cut := Interval{at, at.Add(held(d.Planned))}
 				free, prime = subtract(free, cut), subtract(prime, cut)
+				if e := at.Add(d.Planned); e.After(ends[d.TaskID]) {
+					ends[d.TaskID] = e
+				}
 				continue
 			}
 		}
 		if at, ok := earliestFit(free, d.Planned, d.notBefore); ok {
 			d.StartAt = &at
+			if e := at.Add(d.Planned); e.After(ends[d.TaskID]) {
+				ends[d.TaskID] = e
+			}
 			cut := Interval{at, at.Add(held(d.Planned))}
 			free = subtract(free, cut)
 			if prime != nil {

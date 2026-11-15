@@ -2,7 +2,8 @@ import { CalendarClock, ChevronRight, ListChecks, Radio, Sparkles, SquareTermina
 import { useEffect, useMemo, useState } from "react";
 import { App, wire } from "../api";
 import { GoalMeter, PaceChip, goalAmount } from "../components/goal";
-import Timeline, { type FixedBlock, type PlannedBlock } from "../components/Timeline";
+import AgenticTimeline from "../timeline/AgenticTimeline";
+import type { FixedBlock } from "../components/Timeline";
 import { Badge, Button, IconButton, cx, unassignedColor } from "../components/ui";
 import { useDaemon } from "../daemon";
 import { formatDuration, formatTime, instantOn } from "../format";
@@ -96,23 +97,13 @@ function fixedBlocks(data: TodayData, today: string, rollover: string): FixedBlo
     .concat(eventBlocks(data.plan, data.from, data.to));
 }
 
-/** Your day: planned and tracked lanes against the clock; where the time went is the header's total and the legend under the lanes. */
+/** Your day: how it hangs together against the clock (the agentic timeline, plan.md 3.17); where the time went is the header's total and the legend under it. */
 export function DayCard({ data, className }: { data: TodayData; className?: string }) {
   const d = useDaemon();
   const t = useTracking();
   const st = d.status;
   const today = d.today();
   const fixed = fixedBlocks(data, today, d.config?.tracking.day_rollover ?? "04:00");
-  const planned: PlannedBlock[] = (data.plan?.items ?? [])
-    .filter((it) => it.start_at != null && it.status !== "skipped")
-    .map((it) => ({
-      id: it.id,
-      title: it.task.title,
-      start: it.start_at!,
-      minutes: it.planned_minutes,
-      color: data.colors.get(it.task.project_id ?? null) ?? unassignedColor,
-      done: it.status === "done",
-    }));
   const live = st && st.state !== "off" && !t.onBreak;
   const byProject = data.day?.summary.by_project ?? [];
   const total = byProject.reduce((sum, p) => sum + p.worked_ms, 0);
@@ -142,7 +133,7 @@ export function DayCard({ data, className }: { data: TodayData; className?: stri
         )
       }
     >
-      <Timeline segments={data.day?.segments ?? []} colors={data.colors} names={data.names} now={d.now()} live from={data.from} to={data.to} planned={planned} fixed={fixed} showDensity showLegend={false} />
+      <AgenticTimeline segments={data.day?.segments ?? []} colors={data.colors} names={data.names} fixed={fixed} />
       {(total > 0 || breaks > 0) && (
         <ul aria-label="Where today went" className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-[12px]">
           {byProject.map((p) => (

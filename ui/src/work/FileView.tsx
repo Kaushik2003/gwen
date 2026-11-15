@@ -1,107 +1,224 @@
-import { ExternalLink, FileWarning, GitCommitHorizontal, History as HistoryIcon, LoaderCircle, UserRoundSearch } from "lucide-react";
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from "react";
+import { isolateHistory } from "@codemirror/commands";
+import type { Text } from "@codemirror/state";
+import { EditorView, type ViewUpdate } from "@codemirror/view";
+import { ExternalLink, FileWarning, History as HistoryIcon, LoaderCircle, Save, UserRoundSearch } from "lucide-react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiError } from "../api";
-import { Button, Callout, Empty, cx } from "../components/ui";
-import { baseName, bytes, git, highlight, langName, relTime, tokClass, useLoad, type BlameLine } from "./repo";
+import { Button, Callout, Empty, IconButton, cx } from "../components/ui";
+import { setUnsaved } from "../shell/unsaved";
+import { editable, editableExt, editorState, markedLines, minimalChange, separatorOf, setBlame, setMarks, type EditorHooks, type MarkKind } from "./editor";
+import { baseName, bytes, changedOnDisk, git, langName, relTime, useLoad, type FileText } from "./repo";
 
-// A file's tab (plan.md 3.15, board 5): read-only text with line numbers, syntax colours, gutter
-// marks for the uncommitted lines (else the lines of the last commit that touched the file), and
-// blame for the line you pick. Long lines scroll sideways here, and only here.
+// A file's tab (plan.md 3.15, board 5): the file in an editor (work/editor.ts), with gutter marks for the
+// uncommitted lines (else the lines of the last commit that touched the file) and blame for the cursor's
+// line. Ctrl+S or Save writes it. It follows the file on disk, as Herdr's editor does: a change made
+// elsewhere (an agent, another editor) comes in at once while nothing here is unsaved, and with unsaved
+// edits it asks: Reload, or Keep mine. A save writes only over the text it last read (repo.SaveFile's
+// check), so a change made meanwhile is never overwritten unseen.
 
-const LH = 20; // px per line
-const OVERSCAN = 30; // lines drawn above and below the visible ones
-const GUTTER = 50; // mark, then the line number
+const POLL_MS = 1500; // how often the open tab looks for a change on disk
 
-export default function FileView({ folder, path, onOpenHistory }: { folder: string; path: string; onOpenHistory?: () => void }) {
+interface Saved {
+  doc: Text; // the text as on disk, to tell unsaved edits from none
+  hash: string; // "" when the file is read-only here
+  stamp: string;
+}
+
+export default function FileView({ folder, path, tabKey, active = true, onOpenHistory }: { folder: string; path: string; tabKey: string; active?: boolean; onOpenHistory?: () => void }) {
   const key = `${folder}\n${path}`;
   const file = useLoad(`file:${key}`, () => git.file(folder, path));
   const marks = useLoad(`marks:${key}`, () => git.marks(folder, path));
-  const [showLarge, setShowLarge] = useState(false);
-  const [blameOn, setBlameOn] = useState(false);
-  const [cur, setCur] = useState<number | null>(null);
-  const [blame, setBlame] = useState<{ line: number; data?: BlameLine; error?: string } | null>(null);
+  const host = useRef<HTMLDivElement>(null);
+  const view = useRef<EditorView | null>(null);
+  const saved = useRef<Saved | null>(null);
+  const [dirty, setDirty] = useState(false);
+  const [conflict, setConflict] = useState<FileText | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
   const [openError, setOpenError] = useState("");
-  const scroller = useRef<HTMLDivElement>(null);
-  const [view, setView] = useState({ top: 0, height: 800 });
-
-  useEffect(() => {
-    setShowLarge(false);
-    setCur(null);
-    setBlame(null);
-    setOpenError("");
-    scroller.current?.scrollTo(0, 0);
-  }, [key]);
+  const [blameOn, setBlameOn] = useState(false);
+  const [pos, setPos] = useState({ line: 1, col: 1, lines: 0 });
+  const [marked, setMarked] = useState<{ line: number; kind: MarkKind }[]>([]);
+  const [scroll, setScroll] = useState({ top: 0, height: 0, total: 0 });
+  const [ready, setReady] = useState(false);
+  const hooks = useRef<EditorHooks>({ save: () => {}, update: () => {} });
 
   const data = file.data;
-  const readable = !!data && !data.binary && (!data.truncated || showLarge);
-  const lines = useMemo(() => (readable ? highlight(data.text, data.lang) : []), [readable, data]);
-  const cols = useMemo(() => (readable ? longestLine(data.text) : 0), [readable, data]);
-  const gutter = useMemo(() => {
-    const kinds = new Map<number, string>();
-    const dels = new Set<number>();
-    for (const m of marks.data?.lines ?? []) {
-      if (m.kind === "del") dels.add(m.line);
-      else kinds.set(m.line, m.kind);
-    }
-    return { kinds, dels };
-  }, [marks.data]);
+  const canEdit = !!data?.hash;
 
-  // Blame follows the picked line while it is on, a moment after the line settles.
+  /** Puts the file's text in the editor and takes it as the saved text: all of it the first time, else just what changed. */
+  const load = useCallback((d: FileText) => {
+    const v = view.current;
+    if (!v) return;
+    const sep = separatorOf(d.text);
+    if (sep !== v.state.lineBreak) v.setState(editorState({ text: d.text, lang: d.lang, canEdit: !!d.hash }, hooks));
+    else {
+      const next = sep === "\r\n" ? d.text.split("\r\n").join("\n") : d.text;
+      const c = minimalChange(v.state.doc.toString(), next);
+      v.dispatch({
+        changes: c.from === c.to && !c.insert ? undefined : { ...c, insert: sep === "\r\n" ? c.insert.split("\n").join("\r\n") : c.insert },
+        effects: editable.reconfigure(editableExt(!!d.hash)),
+      });
+    }
+    saved.current = { doc: v.state.doc, hash: d.hash, stamp: d.stamp };
+    setDirty(false);
+    setConflict(null);
+    setPos((p) => ({ ...p, lines: v.state.doc.lines }));
+  }, []);
+
+  const save = useCallback(async (): Promise<boolean> => {
+    const v = view.current;
+    const s = saved.current;
+    if (!v || !s?.hash || saving) return false;
+    const doc = v.state.doc;
+    if (doc.eq(s.doc)) return true;
+    setSaving(true);
+    setSaveError("");
+    try {
+      const d = await git.save(folder, path, v.state.sliceDoc(), s.hash);
+      saved.current = { doc, hash: d.hash, stamp: d.stamp };
+      // Typing after a save starts a new undo step, so undo comes back to the saved text.
+      v.dispatch({ annotations: isolateHistory.of("full") });
+      setDirty(!v.state.doc.eq(doc));
+      setConflict(null);
+      marks.reload();
+      return true;
+    } catch (e) {
+      const err = apiError(e);
+      if (changedOnDisk(err)) file.reload(); // shows Reload / Keep mine
+      else setSaveError(err.message);
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }, [folder, path, saving, file, marks]);
+
+  hooks.current = {
+    save: () => void save(),
+    update: (u: ViewUpdate) => {
+      const s = saved.current;
+      if (u.docChanged && s) setDirty(!u.state.doc.eq(s.doc));
+      if (u.docChanged || u.selectionSet) {
+        const head = u.state.selection.main.head;
+        const line = u.state.doc.lineAt(head);
+        setPos({ line: line.number, col: head - line.from + 1, lines: u.state.doc.lines });
+      }
+      if (u.docChanged || u.transactions.some((tr) => tr.effects.some((e) => e.is(setMarks)))) setMarked(markedLines(u.state));
+    },
+  };
+
+  // The editor, once there is text to show; a later read of the file goes through load.
   useEffect(() => {
-    if (!blameOn || cur == null) return;
+    if (!data || data.binary || !host.current) return;
+    const v = view.current;
+    if (!v) {
+      const nv = new EditorView({ parent: host.current, state: editorState({ text: data.text, lang: data.lang, canEdit: !!data.hash }, hooks) });
+      view.current = nv;
+      saved.current = { doc: nv.state.doc, hash: data.hash, stamp: data.stamp };
+      setPos({ line: 1, col: 1, lines: nv.state.doc.lines });
+      const onScroll = () => setScroll({ top: nv.scrollDOM.scrollTop, height: nv.scrollDOM.clientHeight, total: nv.scrollDOM.scrollHeight });
+      nv.scrollDOM.addEventListener("scroll", onScroll, { passive: true });
+      const ro = new ResizeObserver(onScroll);
+      ro.observe(nv.scrollDOM);
+      stopWatching.current = () => ro.disconnect();
+      setReady(true);
+      return;
+    }
+    const s = saved.current;
+    if (s && (data.hash ? data.hash === s.hash : data.stamp === s.stamp)) {
+      s.stamp = data.stamp; // the same text (a save of ours, or a touch)
+      return;
+    }
+    if (s && !v.state.doc.eq(s.doc)) setConflict(data);
+    else load(data);
+  }, [data, load]);
+
+  const stopWatching = useRef<() => void>(() => {});
+  useEffect(
+    () => () => {
+      stopWatching.current();
+      view.current?.destroy();
+      view.current = null;
+    },
+    [],
+  );
+
+  // Gutter marks, as git last reported them; they move with your edits until the next save.
+  useEffect(() => {
+    const v = view.current;
+    if (v && marks.data) v.dispatch({ effects: setMarks.of(marks.data.lines ?? []) });
+  }, [marks.data, ready]);
+
+  // Follow the file on disk while its tab is in front: a new stamp reads it again.
+  useEffect(() => {
+    if (!active) return;
     let live = true;
+    const t = setInterval(() => {
+      const s = saved.current;
+      if (!s) return;
+      git.stamp(folder, path).then(
+        (stamp) => live && stamp !== s.stamp && stamp !== conflict?.stamp && file.reload(),
+        () => {},
+      );
+    }, POLL_MS);
+    return () => {
+      live = false;
+      clearInterval(t);
+    };
+  }, [active, folder, path, file, conflict]);
+
+  // Ctrl+S anywhere in the window while this tab is in front, not only with the cursor in the text.
+  useEffect(() => {
+    if (!active) return;
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "s" && !e.defaultPrevented) {
+        e.preventDefault();
+        void saveRef.current();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [active]);
+
+  // The tab bar's ● and the question before the tab closes.
+  const saveRef = useRef(save);
+  saveRef.current = save;
+  useEffect(() => {
+    setUnsaved(tabKey, dirty ? () => saveRef.current() : null);
+  }, [tabKey, dirty]);
+  useEffect(() => () => setUnsaved(tabKey, null), [tabKey]);
+
+  // Blame follows the cursor's line while it is on, a moment after the line settles; it reads the saved file.
+  useEffect(() => {
+    const v = view.current;
+    if (!v) return;
+    if (!blameOn || dirty) {
+      v.dispatch({ effects: setBlame.of(blameOn && dirty ? { line: pos.line, text: "Save to see who changed this line" } : null) });
+      return;
+    }
+    let live = true;
+    const line = pos.line;
     const t = setTimeout(() => {
-      setBlame({ line: cur });
-      git.blame(folder, path, cur).then(
-        (data) => live && setBlame({ line: cur, data }),
-        (e) => live && setBlame({ line: cur, error: apiError(e).message }),
+      view.current?.dispatch({ effects: setBlame.of({ line, text: "Looking…" }) });
+      git.blame(folder, path, line).then(
+        (b) => live && view.current?.dispatch({ effects: setBlame.of({ line, text: b.uncommitted ? "Not committed yet" : `${b.short} · ${b.author} · ${relTime(b.when)} · ${b.summary}` }) }),
+        (e) => live && view.current?.dispatch({ effects: setBlame.of({ line, text: apiError(e).message }) }),
       );
     }, 120);
     return () => {
       live = false;
       clearTimeout(t);
     };
-  }, [blameOn, cur, folder, path]);
+  }, [blameOn, dirty, pos.line, folder, path]);
 
-  const measure = useCallback(() => {
-    const el = scroller.current;
-    if (el) setView((v) => (v.top === el.scrollTop && v.height === el.clientHeight ? v : { top: el.scrollTop, height: el.clientHeight }));
-  }, []);
-  useLayoutEffect(() => {
-    const el = scroller.current;
-    if (!el) return;
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [measure, readable]);
-
-  const pick = (line: number) => {
-    setCur(line);
-    const el = scroller.current;
-    if (!el) return;
-    const y = (line - 1) * LH + 10;
-    if (y < el.scrollTop) el.scrollTop = y;
-    else if (y + LH > el.scrollTop + el.clientHeight) el.scrollTop = y + LH - el.clientHeight;
-  };
-  const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
-    const n = lines.length;
-    if (!n) return;
-    if (e.key === "ArrowDown") pick(Math.min(n, (cur ?? 0) + 1));
-    else if (e.key === "ArrowUp") pick(Math.max(1, (cur ?? 2) - 1));
-    else if (e.key === "Escape") setCur(null);
-    else return;
-    e.preventDefault();
-  };
-  const openInEditor = () => {
+  const openInApp = () => {
     setOpenError("");
     git.open(folder, path).catch((e) => setOpenError(apiError(e).message));
   };
 
   const parts = path.split("/");
-  const first = Math.max(0, Math.floor(view.top / LH) - OVERSCAN);
-  const last = Math.min(lines.length, Math.ceil((view.top + view.height) / LH) + OVERSCAN);
   const m = marks.data;
+  const showEditor = !!data && !data.binary;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -118,10 +235,15 @@ export default function FileView({ folder, path, onOpenHistory }: { folder: stri
               </span>
             </Fragment>
           ))}
+          {dirty && (
+            <span className="text-ink-muted" title="Unsaved changes" aria-label="Unsaved changes">
+              ●
+            </span>
+          )}
         </nav>
         {data && (
           <span className="text-xs whitespace-nowrap text-ink-subtle">
-            {data.binary ? `Binary · ${bytes(data.size)}` : `${langName(data.lang)} · ${data.lines.toLocaleString("en-US")} ${data.lines === 1 ? "line" : "lines"}${data.truncated ? " shown" : ""}`}
+            {data.binary ? `Binary · ${bytes(data.size)}` : `${langName(data.lang)} · Ln ${pos.line}, Col ${pos.col} · ${pos.lines.toLocaleString("en-US")} ${pos.lines === 1 ? "line" : "lines"}`}
           </span>
         )}
         <span className="flex-1" />
@@ -139,7 +261,7 @@ export default function FileView({ folder, path, onOpenHistory }: { folder: stri
             Uncommitted changes
           </span>
         )}
-        <Button size="sm" icon={UserRoundSearch} aria-pressed={blameOn} className={cx(blameOn && "!border-accent/60 !bg-accent/15")} onClick={() => setBlameOn((v) => !v)} disabled={!readable} title="Click a line to see who last changed it">
+        <Button size="sm" icon={UserRoundSearch} aria-pressed={blameOn} className={cx(blameOn && "!border-accent/60 !bg-accent/15")} onClick={() => setBlameOn((v) => !v)} disabled={!showEditor} title="Shows who last changed the cursor's line">
           Blame
         </Button>
         {onOpenHistory && (
@@ -147,13 +269,61 @@ export default function FileView({ folder, path, onOpenHistory }: { folder: stri
             History
           </Button>
         )}
-        <Button size="sm" icon={ExternalLink} onClick={openInEditor}>
-          Open in editor
-        </Button>
+        {canEdit && (
+          <Button size="sm" tone={dirty ? "primary" : "secondary"} icon={Save} busy={saving} disabled={!dirty || saving} onClick={() => void save()} title="Save (Ctrl+S)">
+            Save
+          </Button>
+        )}
+        <IconButton icon={ExternalLink} label="Open in its app" size="sm" onClick={openInApp} />
       </div>
       {openError && (
         <Callout tone="danger" className="m-3 mb-0">
           Couldn't open the file: {openError}
+        </Callout>
+      )}
+      {saveError && (
+        <Callout tone="danger" className="m-3 mb-0" action={<Button size="sm" tone="ghost" onClick={() => setSaveError("")}>Dismiss</Button>}>
+          Couldn't save {baseName(path)}: {saveError}
+        </Callout>
+      )}
+      {conflict && (
+        <Callout
+          tone="accent"
+          className="m-3 mb-0"
+          action={
+            <>
+              <Button
+                size="sm"
+                onClick={() => {
+                  load(conflict);
+                  view.current?.focus();
+                }}
+              >
+                Reload
+              </Button>
+              <Button
+                size="sm"
+                tone="ghost"
+                onClick={() => {
+                  // Keep mine: the next save writes over the new text on disk.
+                  if (saved.current) saved.current = { ...saved.current, hash: conflict.hash, stamp: conflict.stamp };
+                  setConflict(null);
+                  view.current?.focus();
+                }}
+              >
+                Keep mine
+              </Button>
+            </>
+          }
+        >
+          {baseName(path)} changed on disk while you have unsaved changes here. Reload takes the new text and drops yours; Keep mine lets your next save write over it.
+        </Callout>
+      )}
+      {data && !data.binary && !canEdit && (
+        <Callout className="m-3 mb-0">
+          {data.truncated
+            ? `${baseName(path)} is ${bytes(data.size)}, more than the 1 MB Gwen reads at once: this is its start, read-only, since saving a cut-off copy would lose the rest.`
+            : `${baseName(path)} isn't UTF-8 text, so it is read-only here: saving would change bytes you didn't touch.`}
         </Callout>
       )}
 
@@ -167,169 +337,59 @@ export default function FileView({ folder, path, onOpenHistory }: { folder: stri
           {file.error.message}
         </Empty>
       ) : data?.binary ? (
-        <Empty icon={FileWarning} title="A binary file" className="m-5" action={<Button size="sm" icon={ExternalLink} onClick={openInEditor}>Open in its app</Button>}>
-          {baseName(path)} is {bytes(data.size)} of binary data; Gwen shows text files.
+        <Empty icon={FileWarning} title="A binary file" className="m-5" action={<Button size="sm" icon={ExternalLink} onClick={openInApp}>Open in its app</Button>}>
+          {baseName(path)} is {bytes(data.size)} of binary data; Gwen edits text files.
         </Empty>
-      ) : data?.truncated && !showLarge ? (
-        <Empty
-          icon={FileWarning}
-          title="A large file"
-          className="m-5"
-          action={
-            <>
-              <Button size="sm" icon={ExternalLink} onClick={openInEditor}>
-                Open in editor
-              </Button>
-              <Button size="sm" tone="ghost" onClick={() => setShowLarge(true)}>
-                Show the first {data.lines.toLocaleString("en-US")} lines
-              </Button>
-            </>
-          }
-        >
-          {baseName(path)} is {bytes(data.size)}, more than the 1 MB Gwen reads at once.
-        </Empty>
-      ) : data && lines.length === 0 ? (
-        <Empty title="An empty file" className="m-5" />
-      ) : (
-        <div className="relative flex min-h-0 flex-1 bg-canvas">
-          <div
-            ref={scroller}
-            role="region"
-            tabIndex={0}
-            aria-label={`${path}${cur ? `, line ${cur}` : ""}`}
-            onScroll={measure}
-            onKeyDown={onKey}
-            className="min-w-0 flex-1 overflow-auto font-mono text-[12.5px] text-ink/85 [tab-size:4] focus-visible:outline-offset-[-2px]"
-          >
-            <div className="relative" style={{ height: lines.length * LH + 22, width: `calc(${cols}ch + ${GUTTER + 48}px)`, minWidth: "100%" }}>
-              <div className="absolute inset-x-0 top-2.5" style={{ transform: `translateY(${first * LH}px)` }}>
-                {lines.slice(first, last).map((toks, k) => {
-                  const n = first + k + 1;
-                  const kind = gutter.kinds.get(n);
-                  const isCur = n === cur;
-                  return (
-                    <div key={n} onClick={() => pick(n)} className={cx("relative flex items-center", isCur && "bg-surface-1")} style={{ height: LH }}>
-                      <span className={cx("sticky left-0 z-10 flex h-full shrink-0 items-center", isCur ? "bg-surface-1" : "bg-canvas")} style={{ width: GUTTER }}>
-                        <span className={cx("mr-[3px] h-full w-[3px] shrink-0", kind === "add" ? "bg-success" : kind === "mod" ? "bg-warning" : "")} title={kind === "add" ? "Added" : kind === "mod" ? "Changed" : undefined} />
-                        <span className={cx("flex-1 pr-[14px] text-right tabular-nums select-none", isCur ? "text-ink" : "text-ink-faint")}>{n}</span>
-                        {(gutter.dels.has(n) || (n === 1 && gutter.dels.has(0))) && (
-                          <span
-                            title="Lines deleted here"
-                            className={cx("absolute left-0 z-20 size-0 border-y-4 border-l-[6px] border-y-transparent border-l-danger", n === 1 && gutter.dels.has(0) && !gutter.dels.has(1) ? "-top-1" : "-bottom-1")}
-                          />
-                        )}
-                      </span>
-                      <span className="pl-1 whitespace-pre">
-                        {toks.map((t, i) =>
-                          t.c ? (
-                            <span key={i} className={tokClass[t.c]}>
-                              {t.t}
-                            </span>
-                          ) : (
-                            t.t
-                          ),
-                        )}
-                        {isCur && blameOn && <BlameNote blame={blame?.line === n ? blame : null} />}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-          <Overview lines={lines.length} marks={gutter} view={view} scroller={scroller} />
-        </div>
-      )}
+      ) : null}
+      <div className={cx("relative min-h-0 flex-1 bg-canvas", !showEditor && "hidden")}>
+        <div ref={host} className="absolute inset-0 right-3" />
+        <Overview lines={pos.lines} marks={marked} scroll={scroll} view={view} />
+      </div>
     </div>
-  );
-}
-
-function BlameNote({ blame }: { blame: { data?: BlameLine; error?: string } | null }) {
-  const b = blame?.data;
-  const text = !blame
-    ? "Looking…"
-    : blame.error
-      ? blame.error
-      : b?.uncommitted
-        ? "Not committed yet"
-        : b
-          ? `${b.short} · ${b.author} · ${relTime(b.when)} · ${b.summary}`
-          : "Looking…";
-  return (
-    <span aria-live="polite" className="pl-7 font-sans text-xs text-ink-faint italic">
-      {b && !b.uncommitted && <GitCommitHorizontal size={12} className="mr-1 inline align-[-2px]" aria-hidden />}
-      {text}
-    </span>
   );
 }
 
 /** The strip at the right edge: where the marked lines are in the whole file, and what is in view. */
-function Overview({
-  lines,
-  marks,
-  view,
-  scroller,
-}: {
-  lines: number;
-  marks: { kinds: Map<number, string>; dels: Set<number> };
-  view: { top: number; height: number };
-  scroller: RefObject<HTMLDivElement | null>;
-}) {
+function Overview({ lines, marks, scroll, view }: { lines: number; marks: { line: number; kind: MarkKind }[]; scroll: { top: number; height: number; total: number }; view: { current: EditorView | null } }) {
   const runs = useMemo(() => {
-    const out: { from: number; to: number; kind: string }[] = [];
-    for (const [n, kind] of [...marks.kinds].sort((a, b) => a[0] - b[0])) {
+    const out: { from: number; to: number; kind: MarkKind }[] = [];
+    for (const { line, kind } of [...marks].sort((a, b) => a.line - b.line)) {
+      if (kind === "del") {
+        out.push({ from: line + 0.5, to: line + 0.5, kind });
+        continue;
+      }
       const last = out[out.length - 1];
-      if (last && last.kind === kind && last.to === n - 1) last.to = n;
-      else out.push({ from: n, to: n, kind });
+      if (last && last.kind === kind && last.to >= line - 1) last.to = line;
+      else out.push({ from: line, to: line, kind });
     }
-    for (const n of marks.dels) out.push({ from: n + 0.5, to: n + 0.5, kind: "del" });
     return out;
   }, [marks]);
-  if (lines < 2) return null;
-  const total = lines * LH;
-  const pct = (n: number) => `${Math.min(100, Math.max(0, ((n - 1) / lines) * 100))}%`;
+  const pct = (n: number) => `${Math.min(100, Math.max(0, ((n - 1) / Math.max(1, lines)) * 100))}%`;
   return (
     <div
       aria-hidden
       onClick={(e) => {
-        const el = scroller.current;
+        const el = view.current?.scrollDOM;
         if (!el) return;
         const r = e.currentTarget.getBoundingClientRect();
         el.scrollTop = ((e.clientY - r.top) / r.height) * el.scrollHeight - el.clientHeight / 2;
       }}
-      className="relative w-3 shrink-0 cursor-pointer border-l border-chrome-line bg-chrome-deep"
+      className="absolute inset-y-0 right-0 w-3 cursor-pointer border-l border-chrome-line bg-chrome-deep"
     >
-      {view.height < total && (
+      {scroll.total > scroll.height && scroll.height > 0 && (
         <span
           className="absolute inset-x-px rounded-[2px] bg-ink/6 shadow-[inset_0_0_0_1px_rgb(242_241_237/0.1)]"
-          style={{ top: `${(view.top / (total + 22)) * 100}%`, height: `${Math.max(2, (view.height / (total + 22)) * 100)}%` }}
+          style={{ top: `${(scroll.top / scroll.total) * 100}%`, height: `${Math.max(2, (scroll.height / scroll.total) * 100)}%` }}
         />
       )}
-      {runs.map((r, i) => (
-        <span
-          key={i}
-          className={cx("absolute inset-x-[3px] rounded-[1px]", r.kind === "add" ? "bg-success" : r.kind === "mod" ? "bg-warning" : "bg-danger")}
-          style={{ top: pct(r.from), height: `max(3px, ${((r.to - r.from + 1) / lines) * 100}%)` }}
-        />
-      ))}
+      {lines > 1 &&
+        runs.map((r, i) => (
+          <span
+            key={i}
+            className={cx("absolute inset-x-[3px] rounded-[1px]", r.kind === "add" ? "bg-success" : r.kind === "mod" ? "bg-warning" : "bg-danger")}
+            style={{ top: pct(r.from), height: `max(3px, ${((r.to - r.from + 1) / lines) * 100}%)` }}
+          />
+        ))}
     </div>
   );
-}
-
-/** The widest line in characters, tabs counted as four. */
-function longestLine(text: string): number {
-  let max = 0;
-  let start = 0;
-  while (start <= text.length) {
-    let end = text.indexOf("\n", start);
-    if (end < 0) end = text.length;
-    let w = end - start;
-    if (w > max) {
-      const line = text.slice(start, end);
-      w = line.length + (line.split("\t").length - 1) * 3;
-      max = Math.max(max, w);
-    }
-    start = end + 1;
-  }
-  return max;
 }

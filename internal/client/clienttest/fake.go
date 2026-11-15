@@ -159,6 +159,10 @@ func (f *Fake) GetDay(_ context.Context, day string) (*wire.DayDetail, error) {
 	return result[*wire.DayDetail](f, "GetDay", day)
 }
 
+func (f *Fake) GetDayGraph(_ context.Context, day string) (*wire.DayGraph, error) {
+	return result[*wire.DayGraph](f, "GetDayGraph", day)
+}
+
 func (f *Fake) PatchDay(_ context.Context, day string, req wire.PatchDayRequest) (*wire.WorkDay, error) {
 	return result[*wire.WorkDay](f, "PatchDay", day, req)
 }

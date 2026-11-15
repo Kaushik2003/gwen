@@ -141,9 +141,21 @@ ensure() {
   build
 }
 
+# Copies herdr-core and gwen-term into a folder for `make package`, building them first when one is
+# missing or the core isn't the pinned release. The copies are stripped: the package is installed, not debugged.
+stage() {
+  local out=${1:?stage needs a folder}
+  ensure
+  mkdir -p "$out"
+  install -m 0755 "$core_bin" "$out/herdr-core"
+  install -m 0755 "$(readlink -f "$bin/gwen-term")" "$out/gwen-term"
+  strip "$out/herdr-core" "$out/gwen-term"
+}
+
 case ${1:-} in
   build) build ;;
   ensure) ensure ;;
+  stage) stage "${2:-}" ;;
   update) update ;;
-  *) die "usage: scripts/term.sh build|ensure|update ($app_repo, $core_repo)" ;;
+  *) die "usage: scripts/term.sh build|ensure|stage <folder>|update ($app_repo, $core_repo)" ;;
 esac

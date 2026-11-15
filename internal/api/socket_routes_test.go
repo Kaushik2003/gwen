@@ -67,6 +67,7 @@ var w27bPhoneRoutes = []w27bRoute{
 	{"POST", "/v1/break/end"},
 	{"POST", "/v1/session/switch"},
 	{"GET", "/v1/plan"},
+	{"GET", "/v1/days/{day}/graph"},
 	{"GET", "/v1/projects"},
 	{"POST", "/v1/projects"},
 	{"POST", "/v1/projects/{id}/folder"},

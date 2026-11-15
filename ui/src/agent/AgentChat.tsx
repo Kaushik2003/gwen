@@ -35,7 +35,7 @@ import { BoardMenu, type MenuEntry } from "../screens/BoardMenu";
 import { ClaudeMark } from "../shell/bits";
 import { useTabs } from "../shell/tabs";
 import { useWork } from "../shell/work";
-import { autonomyChoices, autonomyLabel, busyState, focusLabel, focusOf, lastChat, rememberChat, useAgentChat, useAgentChats, type Place } from "./agent";
+import { autonomyChoices, autonomyLabel, busyState, focusLabel, focusOf, lastChat, openChatEvent, rememberChat, useAgentChat, useAgentChats, type Place } from "./agent";
 
 // Gwen's agent in a chat (plan.md 3.16): her replies as she writes them, every tool call as a quiet row under her text,
 // the approvals she waits on pinned above the box, the sessions she started as cards, and chips saying what she will
@@ -84,6 +84,20 @@ export default function AgentChat({
     fresh.current = false;
     if (!controlled) setOwn(lastChat(place));
   }, [place, controlled]);
+  // Another part of the window started a chat here (Ask Gwen on the timeline): show it.
+  useEffect(() => {
+    if (controlled) return;
+    const show = (e: Event) => {
+      const { place: at, id: chat } = (e as CustomEvent<{ place: Place; id: string }>).detail;
+      if (at !== place) return;
+      made.current = chat;
+      fresh.current = false;
+      setOwn(chat);
+      reloadChats();
+    };
+    window.addEventListener(openChatEvent, show);
+    return () => window.removeEventListener(openChatEvent, show);
+  });
 
   const { chats, loaded, reload: reloadChats } = useAgentChats(place, !screen);
   // The chat last open, else the newest one of the place.

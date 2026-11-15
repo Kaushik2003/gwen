@@ -1020,6 +1020,8 @@ export function TaskForm({
   const [effort, setEffort] = useState(task?.effort ?? 0);
   const [stage, setStage] = useState(task?.stage ?? defaultStage ?? "todo");
   const [delegatedTo, setDelegatedTo] = useState(task?.delegated_to ?? "");
+  // The tasks it waits on: it is planned after them, and blocked while they are open and off the plan (plan.md 3.17).
+  const [waitsOn, setWaitsOn] = useState<string[]>(task?.waits_on ?? []);
   // A time set by hand: a pinned block on the plan.
   const [block, setBlock] = useState<Block | null>(null);
   const [saving, setSaving] = useState(false);
@@ -1074,6 +1076,7 @@ export function TaskForm({
       effort: effort || null,
       stage,
       delegated_to: stage === "waiting" ? delegatedTo : "",
+      waits_on: waitsOn,
     };
     const repeat = canRepeat && rule !== (current?.rrule ?? "") ? { rrule: rule || null } : {};
     const ok = current
@@ -1328,6 +1331,9 @@ export function TaskForm({
                 <Input value={delegatedTo} onChange={(e) => setDelegatedTo(e.target.value)} placeholder="Alex" maxLength={200} />
               </Field>
             )}
+            <Field label="Starts after" compound className="col-span-2" hint={waitsOn.length ? "Planned after these, and blocked while they are open and off the plan." : "Tasks it can't start before."}>
+              <WaitsOnPicker value={waitsOn} onChange={setWaitsOn} self={task?.id} />
+            </Field>
             {goalKind === "quantity" && (
               <Field label="Covers how many of the goal" hint="Completing it asks how many you actually did.">
                 <Input type="number" min="1" value={quantity} onChange={(e) => setQuantity(e.target.value)} className="w-28" />
@@ -1354,5 +1360,34 @@ export function TaskForm({
     <Modal title={task ? "Edit task" : many ? "New tasks" : "New task"} size={more ? "lg" : "md"} onClose={onClose} footer={footer}>
       {body}
     </Modal>
+  );
+}
+
+/** The tasks a task waits on, as chips, with a list to add one: open tasks other than itself. */
+function WaitsOnPicker({ value, onChange, self }: { value: string[]; onChange: (ids: string[]) => void; self?: string }) {
+  const d = useDaemon();
+  const title = (id: string) => d.tasks.find((x) => x.id === id)?.title ?? "A finished task";
+  const choices = d.tasks.filter((x) => !x.parent_id && x.status === "open" && !x.rrule && x.id !== self && !value.includes(x.id));
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {value.map((id) => (
+        <span key={id} className="inline-flex h-6 max-w-full items-center gap-1 rounded-full bg-surface-3 pr-1 pl-2.5 text-xs text-ink-muted">
+          <span className="truncate">{title(id)}</span>
+          <button type="button" aria-label={`Doesn't wait on ${title(id)}`} className="rounded-full p-0.5 hover:bg-surface-2 hover:text-ink" onClick={() => onChange(value.filter((x) => x !== id))}>
+            <X size={11} aria-hidden />
+          </button>
+        </span>
+      ))}
+      {choices.length > 0 && (
+        <Select aria-label="Add a task it waits on" value="" className="h-7 w-auto min-w-40 flex-1 text-[12px]" onChange={(e) => e.target.value && onChange([...value, e.target.value])}>
+          <option value="">{value.length ? "And after…" : "Nothing: add a task…"}</option>
+          {choices.map((x) => (
+            <option key={x.id} value={x.id}>
+              {x.title}
+            </option>
+          ))}
+        </Select>
+      )}
+    </div>
   );
 }

@@ -1,7 +1,7 @@
 // Package repo reads a project folder for the Gwen window's workbench
 // (plan.md 3.15): its files with their git status, a file's text, gutter
-// marks and blame, the history, a commit's files and diffs, and it commits a
-// chosen set of files. Every function takes the folder as an absolute path,
+// marks and blame, the history, a commit's files and diffs, and it saves a
+// file's edited text and commits a chosen set of files. Every function takes the folder as an absolute path,
 // runs git there with machine-readable output, and keeps nothing between
 // calls. Paths in and out are relative to the folder, slash-separated, and
 // must stay inside it.

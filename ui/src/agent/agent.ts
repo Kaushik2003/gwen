@@ -196,6 +196,19 @@ export function rememberChat(place: Place, id: string | null) {
   }
 }
 
+/** The window event that tells a place's chat panel to show a chat: detail { place, id }. */
+export const openChatEvent = "gwen:open-chat";
+
+/** Starts a new chat with Gwen everywhere, sends her a message, and tells the chat panel to show it. The caller opens the
+ * panel. Resolves to the chat's id. */
+export async function askGwen(text: string): Promise<string> {
+  const c = await App.CreateAgentChat(wire.CreateAgentChat.createFrom({ project_id: null }));
+  rememberChat("everywhere", c.id);
+  await App.SendAgentMessage(c.id, wire.AgentMessageRequest.createFrom({ text }));
+  window.dispatchEvent(new CustomEvent(openChatEvent, { detail: { place: "everywhere", id: c.id } }));
+  return c.id;
+}
+
 /** Autonomy as the chat's menu says it. */
 export const autonomyChoices: { value: string; label: string; hint: string }[] = [
   { value: "cautious", label: "Cautious", hint: "Asks before every change and every job" },

@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { setUnsaved, unsavedSave } from "./unsaved";
 
 // The Gwen window's tabs (plan.md 3.15). Today is always first and cannot
 // close; every other tab is a screen, a project's home, a terminal, a file,
@@ -152,7 +153,11 @@ interface Tabs extends TabsState {
   activeTab: Tab;
   /** Opens a tab, or focuses it when it is already open (taking the new sub-screen or param). */
   open: (t: Tab, opts?: { background?: boolean }) => void;
-  close: (id: string) => void;
+  /** Closes a tab; one with unsaved edits asks first (closing), unless discard. */
+  close: (id: string, opts?: { discard?: boolean }) => void;
+  /** The tab waiting on "Save changes?" before it closes. */
+  closing: string | null;
+  cancelClose: () => void;
   focus: (id: string) => void;
   /** Changes an open tab in place, e.g. a hub's sub-screen or a terminal's split. */
   update: (id: string, t: Tab) => void;
@@ -194,6 +199,7 @@ function load(): TabsState {
 
 export function TabsProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<TabsState>(load);
+  const [closing, setClosing] = useState<string | null>(null);
 
   useEffect(() => {
     try {
@@ -212,8 +218,14 @@ export function TabsProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const close = useCallback((id: string) => {
+  const close = useCallback((id: string, opts?: { discard?: boolean }) => {
     if (id === "today") return;
+    if (!opts?.discard && unsavedSave(id)) {
+      setClosing(id);
+      return;
+    }
+    setClosing(null);
+    setUnsaved(id, null);
     setState((s) => {
       const at = s.tabs.findIndex((x) => tabId(x) === id);
       if (at < 0) return s;
@@ -222,6 +234,8 @@ export function TabsProvider({ children }: { children: ReactNode }) {
       return { tabs, active };
     });
   }, []);
+
+  const cancelClose = useCallback(() => setClosing(null), []);
 
   const focus = useCallback((id: string) => setState((s) => (s.tabs.some((x) => tabId(x) === id) ? { ...s, active: id } : s)), []);
 
@@ -242,8 +256,8 @@ export function TabsProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<Tabs>(() => {
     const activeTab = state.tabs.find((t) => tabId(t) === state.active) ?? today;
-    return { ...state, activeTab, open, close, focus, update, cycle };
-  }, [state, open, close, focus, update, cycle]);
+    return { ...state, activeTab, open, close, closing, cancelClose, focus, update, cycle };
+  }, [state, open, close, closing, cancelClose, focus, update, cycle]);
 
   return <TabsContext.Provider value={value}>{children}</TabsContext.Provider>;
 }

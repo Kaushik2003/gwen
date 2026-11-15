@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Gwen Terminal
+GenericName=Terminal
+Comment=Terminals and coding agents that keep running
+Exec=gwen-term
+Icon=gwen
+Terminal=false
+Categories=Development;
+StartupWMClass=gwen-term
+NoDisplay=true

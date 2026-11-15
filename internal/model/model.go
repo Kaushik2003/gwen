@@ -169,6 +169,9 @@ type Task struct {
 	Stage       string
 	Effort      *int
 	DelegatedTo string
+	// v18: the tasks this one waits on, by id, in the order they were added.
+	// Ids of tasks that are missing, deleted, or done block nothing.
+	WaitsOn []string
 	Envelope
 }
 

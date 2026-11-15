@@ -1157,9 +1157,14 @@ The text below decides; the canvas shows it.
 - **Files** (board 5). The tree comes from `git ls-files -co --exclude-standard` (a plain walk without git, skipping
   `.git` and `node_modules`), with the open folders' rows pinned while you scroll, indent guides, git status letters
   (U new, A added, M changed, D deleted, R renamed), and the number of changed files on each folder. A file opens as
-  a tab: line numbers, syntax colours, gutter marks for uncommitted lines (else the lines of the last commit that
-  touched it), and blame for the line you click (commit, author, when, subject). **Open in editor** uses the
-  desktop's default app. Files are read-only here.
+  a tab in an editor built in (CodeMirror 6, set up to feel like VS Code: line numbers, syntax colours, folding,
+  multiple cursors, bracket matching and closing, find and replace, completion), with gutter marks for uncommitted
+  lines (else the lines of the last commit that touched it) and blame for the cursor's line (commit, author, when,
+  subject). Ctrl S or **Save** writes the file; the tab shows ● while unsaved and asks before closing with unsaved
+  edits. It follows the file on disk the way Herdr's editor does: a change made elsewhere comes in at once while
+  nothing is unsaved, and with unsaved edits it asks, Reload or Keep mine. A save writes only over the text it last
+  read (`repo.SaveFile` checks the hash), so a change made meanwhile is never overwritten unseen. Binary files,
+  files over 1 MB, and text that is not UTF-8 stay read-only; the open-in-app button uses the desktop's default app.
 - **History** (board 6). Three columns, left to right: **commits** (graph lanes with merges, branch and tag
   chips, author, time, +/−; uncommitted work first; search, author, and file filters), the **commit** (message,
   author, time, parents, its session when one made it, files as a tree or a list with +/− bars), and the
@@ -1483,6 +1488,66 @@ permissions are Claude Code's (auto mode in Trusted):
 - a worktree per chat: W23's coding runs stay the isolated path;
 - connectors: they arrive as more MCP servers (W22, W24);
 - engines other than Claude Code (harness.md G1 PR3).
+
+### 3.17 The agentic timeline: what waits on what
+
+Asked for on 2026-11-14, built the same day. Today's "Your day" card becomes one picture of how the day hangs
+together. It shows your plan, with arrows for what waits on what, your tracked time, your fixed time, and each Claude
+session's day. Every task gets where it is heading now and, when something is wrong, a sentence saying why. Gwen reads
+the same picture and fixes it.
+
+**Dependencies.** A task waits on other tasks: `tasks.waits_on`, a JSON list of ids (00018_timeline.sql). It syncs
+with the row (added at schema 18, so an older hub never gets it). The store refuses a task waiting on itself, a loop
+(the error names the task that already waits), a repeating template, and more than 20. Ids of tasks that are gone are
+dropped quietly. You set them in the task form ("Starts after"), in the timeline's panel, or through Gwen
+(`task_wait`).
+
+**The planner** (internal/planner/waits.go) sizes tasks most urgent first. A task waits its turn until everything open
+it waits on is kept on the day or got blocks itself. One still waiting at the end stays off the day, so room never goes
+to work that can't start. New blocks go after the blocks of what they wait on and start no earlier than those end.
+Done, deleted, and missing tasks block nothing.
+
+**Agent history.** Each state change of a Claude session writes a span (`agent_spans`: state, need, task, start, end),
+kept on this machine and pruned with its session. A session keeps its task (`code_sessions.task_id`, from its
+terminal's `gwen.task` label), so the link outlives the terminal.
+
+**The day graph** (`GET /v1/days/{day}/graph`, internal/api/daygraph.go; the window, the phone, and Gwen read it):
+
+- *Who is in it:* the plan's tasks; the tasks agents work on; open work kept off the day by what it waits on; what all
+  of those wait on; and the open tasks that wait on them.
+- *Where each task is heading:* the one you track ends at now plus what is left of its estimate. A planned one starts
+  at its plan, or after what it waits on ends, or now if its time came and went. One with Claude working on it ends at
+  now plus what is left. One where Claude waits on you has no end in sight.
+- *States, worst first:* done, waiting on you (a session on it, or on what it waits on, asks you something), blocked
+  (it waits on open work with no end in sight today: off the plan, with someone, out of planned time, or blocked
+  itself), on it now, with Claude, not planned, running late (heading 10 or more minutes past its plan, or past the
+  end of the day), on track. Each comes with a reason, such as "Starts after “API”, which now ends at 10:40 am: 40 min
+  later than planned".
+- *Issues* are the waiting, blocked, and late ones, worst first. The *longest chain* runs back from the latest-ending
+  task that waits on something, through what ends last at each link.
+
+**The window** (ui/src/timeline):
+
+- The liquid Timeline has groups You (Plan, Busy, Tracked) and Agents (one row per session). A planned block fills as
+  you work on it. A block pushed later by what it waits on moves; one you're on starts where you started it; one
+  running long shows where its plan ended. Blocked work is red, work waiting on you amber; Claude working is blue,
+  waiting on you amber.
+- Focusing a bar lights its whole chain both ways (the liquid layout change in `relatedTasks`).
+- The panel below reads the bar in focus. Hovering previews it and clicking keeps it. It shows the reason, planned
+  against heading, the full "Waits on" and "Holds up" trees, and actions: add or remove what it waits on, Start
+  (disabled while blocked), Done, Hand to Claude, Open or Answer the session, Edit, and Ask Gwen. Beside it is "In
+  your way" with the longest chain.
+- The zoom is Day (the day's work with air) or Around now (2 hours back, 3 ahead). "Sort out my day" opens a chat with
+  Gwen.
+
+**Gwen.** `day_graph` (read) and `task_wait` (a change, approved as task changes are, with undo); her rules say to read
+the graph before sorting out a day and to make the smallest change that works.
+
+**The phone.** Today gets "In your way" (the issues, and Ask Gwen to sort it out), and a plan row that is blocked, late,
+or waiting on you says why.
+
+**Not in it yet:** a week view (one graph per day only); dragging bars to reschedule; Gwen acting on the graph by
+herself without being asked.
 
 ---
 

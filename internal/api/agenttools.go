@@ -81,6 +81,9 @@ type toolArgs struct {
 	Tool            string          `json:"tool"`
 	App             string          `json:"app"`
 	Arguments       json.RawMessage `json:"arguments"`
+	WaitsOn         *[]string       `json:"waits_on"`
+	Add             []string        `json:"add"`
+	Remove          []string        `json:"remove"`
 }
 
 // undoOp is how a change is taken back.
@@ -115,6 +118,9 @@ var agentTools = append([]agentTool{
 	{name: "plan", capability: agent.CapGwenRead, risk: connect.Read, run: (*Server).toolPlan,
 		schema:      `{"type":"object","properties":{"day":{"type":"string","description":"YYYY-MM-DD; today when left out"}}}`,
 		description: "A day's plan: the planned blocks with their times, and the calendar's busy times."},
+	{name: "day_graph", capability: agent.CapGwenRead, risk: connect.Read, run: (*Server).toolDayGraph,
+		schema:      `{"type":"object","properties":{"day":{"type":"string","description":"YYYY-MM-DD; today when left out"}}}`,
+		description: "A day as a graph of what waits on what: each task's state (blocked, at risk, waiting on the user, with Claude, ready), why, where it is heading against its plan, the Claude sessions on the day, the issues worth fixing first, and the chain that sets when the day ends. Read it before rescheduling or adding dependencies."},
 	{name: "goals", capability: agent.CapGwenRead, risk: connect.Read, schema: schemaNone, run: (*Server).toolGoals,
 		description: "The active goals with their progress and pace."},
 	{name: "projects", capability: agent.CapGwenRead, risk: connect.Read, schema: schemaNone, run: (*Server).toolProjects,
@@ -142,6 +148,9 @@ var agentTools = append([]agentTool{
 	{name: "task_schedule", capability: agent.CapGwenChange, risk: connect.Local, run: (*Server).toolTaskSchedule,
 		schema:      `{"type":"object","properties":{"id":{"type":"string"},"day":{"type":"string","description":"YYYY-MM-DD; today when left out"},"start":{"type":"string","description":"HH:MM, 24-hour"},"minutes":{"type":"integer"}},"required":["id"]}`,
 		description: "Pin a task on a day's plan, at a time if given."},
+	{name: "task_wait", capability: agent.CapGwenChange, risk: connect.Local, run: (*Server).toolTaskWait,
+		schema:      `{"type":"object","properties":{"id":{"type":"string","description":"The task that waits"},"add":{"type":"array","items":{"type":"string"},"description":"Tasks it waits on, to add"},"remove":{"type":"array","items":{"type":"string"},"description":"Tasks it no longer waits on"},"waits_on":{"type":"array","items":{"type":"string"},"description":"The whole list, replacing it; [] clears it"}},"required":["id"]}`,
+		description: "Say which tasks a task waits on: it is planned after them and shown blocked while they are open and off the plan. Loops are refused."},
 	{name: "task_unschedule", capability: agent.CapGwenChange, risk: connect.Local, run: (*Server).toolTaskUnschedule,
 		schema:      `{"type":"object","properties":{"id":{"type":"string"},"day":{"type":"string","description":"YYYY-MM-DD; every day when left out"}},"required":["id"]}`,
 		description: "Take a task off the plan."},
@@ -246,6 +255,8 @@ func (s *Server) ToolTitle(name string, input json.RawMessage) string {
 		return "Put a task on the plan"
 	case "task_unschedule":
 		return "Take a task off the plan"
+	case "task_wait":
+		return "Change what a task waits on"
 	case "project_create":
 		return "Add project" + title(in.Name)
 	case "goal_create":
@@ -348,7 +359,7 @@ func (s *Server) Undo(ctx context.Context, raw json.RawMessage) error {
 		_, err := s.Repos.Tasks.Update(ctx, op.ID, store.TaskPatch{Title: &t.Title, Notes: &t.Notes, Priority: &t.Priority,
 			ProjectID: store.Nullable[string]{Set: true, Value: t.ProjectID}, GoalID: store.Nullable[string]{Set: true, Value: t.GoalID},
 			DueDay: store.Nullable[string]{Set: true, Value: t.DueDay}, StartDay: store.Nullable[string]{Set: true, Value: t.StartDay},
-			EstimateMinutes: est, Effort: eff, Stage: &t.Stage, DelegatedTo: &t.DelegatedTo})
+			EstimateMinutes: est, Effort: eff, Stage: &t.Stage, DelegatedTo: &t.DelegatedTo, WaitsOn: &t.WaitsOn})
 		if err != nil {
 			return err
 		}
@@ -1238,4 +1249,145 @@ func (s *Server) Sessions() []wire.CodeSession {
 		return nil
 	}
 	return s.Code.Sessions().Sessions
+}
+
+func (s *Server) toolDayGraph(ctx context.Context, _ model.ChatThread, in toolArgs) (wire.AgentToolResult, json.RawMessage, error) {
+	day := s.today()
+	if in.Day != nil && *in.Day != "" {
+		if _, err := civil.Parse(*in.Day); err != nil {
+			return wire.AgentToolResult{}, nil, fmt.Errorf("%q is not a day like 2026-10-05", *in.Day)
+		}
+		day = *in.Day
+	}
+	g, err := s.dayGraph(ctx, day)
+	if err != nil {
+		return wire.AgentToolResult{}, nil, err
+	}
+	d := civil.MustParse(day)
+	clock := func(ms *int64) string {
+		if ms == nil {
+			return ""
+		}
+		return s.dayClock(d, time.UnixMilli(*ms))
+	}
+	short := func(ids []string) []string {
+		out := make([]string, len(ids))
+		for i, id := range ids {
+			out[i] = id[:min(8, len(id))]
+		}
+		return out
+	}
+	type task struct {
+		ID           string   `json:"id"`
+		Title        string   `json:"title"`
+		State        string   `json:"state"`
+		Why          string   `json:"why,omitempty"`
+		Planned      string   `json:"planned,omitempty"`
+		HeadingToEnd string   `json:"heading_to_end,omitempty"`
+		LateMinutes  int      `json:"late_minutes,omitempty"`
+		WaitsOn      []string `json:"waits_on,omitempty"`
+		Blocks       []string `json:"blocks,omitempty"`
+		Session      string   `json:"session_id,omitempty"`
+	}
+	titles := map[string]string{}
+	tasks := make([]task, 0, len(g.Tasks))
+	for _, t := range g.Tasks {
+		titles[t.ID] = t.Title
+		tk := task{ID: t.ID[:min(8, len(t.ID))], Title: t.Title, State: t.State, Why: t.Reason,
+			HeadingToEnd: clock(t.ProjectedEnd), LateMinutes: t.SlipMinutes, WaitsOn: short(t.WaitsOn),
+			Blocks: short(t.Blocks), Session: t.SessionID}
+		if t.PlannedStart != nil {
+			tk.Planned = clock(t.PlannedStart) + "–" + clock(t.PlannedEnd)
+		}
+		tasks = append(tasks, tk)
+	}
+	type agentRow struct {
+		ID       string `json:"session_id"`
+		Name     string `json:"name"`
+		State    string `json:"state"`
+		Task     string `json:"task,omitempty"`
+		Question string `json:"asks,omitempty"`
+	}
+	agents := []agentRow{}
+	for _, a := range g.Agents {
+		agents = append(agents, agentRow{ID: a.SessionID, Name: a.Name, State: a.State, Task: titles[a.TaskID], Question: a.Question})
+	}
+	issues := make([]string, len(g.Issues))
+	for i, is := range g.Issues {
+		issues[i] = is.Text
+	}
+	critical := make([]string, len(g.Critical))
+	for i, id := range g.Critical {
+		critical[i] = titles[id]
+	}
+	res := toolData(map[string]any{"day": day, "now": s.dayClock(d, time.UnixMilli(g.Now)), "ends": s.dayClock(d, time.UnixMilli(g.To)),
+		"tasks": tasks, "agents": agents, "issues": issues, "critical_chain": critical})
+	res.Summary = fmt.Sprintf("Read how %s hangs together", s.dayText(d))
+	if n := len(g.Issues); n > 0 {
+		res.Summary += fmt.Sprintf(" (%d to look at)", n)
+	}
+	return res, nil, nil
+}
+
+func (s *Server) toolTaskWait(ctx context.Context, _ model.ChatThread, in toolArgs) (wire.AgentToolResult, json.RawMessage, error) {
+	t, err := s.findTask(ctx, in.ID)
+	if err != nil {
+		return wire.AgentToolResult{}, nil, err
+	}
+	before := t
+	ids := slices.Clone(t.WaitsOn)
+	resolveAll := func(refs []string) ([]model.Task, error) {
+		out := make([]model.Task, 0, len(refs))
+		for _, r := range refs {
+			o, err := s.findTask(ctx, r)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, o)
+		}
+		return out, nil
+	}
+	if in.WaitsOn != nil {
+		list, err := resolveAll(*in.WaitsOn)
+		if err != nil {
+			return wire.AgentToolResult{}, nil, err
+		}
+		ids = ids[:0]
+		for _, o := range list {
+			ids = append(ids, o.ID)
+		}
+	}
+	added, err := resolveAll(in.Add)
+	if err != nil {
+		return wire.AgentToolResult{}, nil, err
+	}
+	for _, o := range added {
+		if !slices.Contains(ids, o.ID) {
+			ids = append(ids, o.ID)
+		}
+	}
+	removed, err := resolveAll(in.Remove)
+	if err != nil {
+		return wire.AgentToolResult{}, nil, err
+	}
+	for _, o := range removed {
+		ids = slices.DeleteFunc(ids, func(id string) bool { return id == o.ID })
+	}
+	got, err := s.Repos.Tasks.Update(ctx, t.ID, store.TaskPatch{WaitsOn: &ids})
+	if err != nil {
+		return wire.AgentToolResult{}, nil, err
+	}
+	s.Hub.Publish(wire.EventTasksChanged, wire.TasksChanged{TaskIDs: []string{t.ID}})
+	s.replan(ctx)
+	var names []string
+	for _, id := range got.WaitsOn {
+		if o, err := s.Repos.Tasks.Get(ctx, id); err == nil {
+			names = append(names, fmt.Sprintf("%q", o.Title))
+		}
+	}
+	summary := fmt.Sprintf("%q waits on nothing now", got.Title)
+	if len(names) > 0 {
+		summary = fmt.Sprintf("%q waits on %s", got.Title, strings.Join(names, ", "))
+	}
+	return wire.AgentToolResult{Summary: summary}, undoJSON(undoOp{Kind: "task_restore", ID: t.ID, Task: &before}), nil
 }

@@ -106,21 +106,22 @@ type PatchAttachmentRequest struct {
 // CreateTaskRequest is the POST /v1/tasks body. Nil Notes and Priority take the
 // defaults "" and 2.
 type CreateTaskRequest struct {
-	ProjectID       *string `json:"project_id"`
-	Title           string  `json:"title"`
-	Notes           *string `json:"notes,omitempty"`
-	Priority        *int    `json:"priority,omitempty"`
-	DueDay          *string `json:"due_day"`
-	EstimateMinutes *int    `json:"estimate_minutes"`
-	GoalID          *string `json:"goal_id,omitempty"`
-	Quantity        *int    `json:"quantity,omitempty"`
-	RRule           *string `json:"rrule,omitempty"`
-	ParentID        *string `json:"parent_id,omitempty"`
-	StartDay        *string `json:"start_day,omitempty"`
-	StartMinute     *int    `json:"start_minute,omitempty"`
-	Stage           *string `json:"stage,omitempty"`
-	Effort          *int    `json:"effort,omitempty"`
-	DelegatedTo     *string `json:"delegated_to,omitempty"`
+	ProjectID       *string  `json:"project_id"`
+	Title           string   `json:"title"`
+	Notes           *string  `json:"notes,omitempty"`
+	Priority        *int     `json:"priority,omitempty"`
+	DueDay          *string  `json:"due_day"`
+	EstimateMinutes *int     `json:"estimate_minutes"`
+	GoalID          *string  `json:"goal_id,omitempty"`
+	Quantity        *int     `json:"quantity,omitempty"`
+	RRule           *string  `json:"rrule,omitempty"`
+	ParentID        *string  `json:"parent_id,omitempty"`
+	StartDay        *string  `json:"start_day,omitempty"`
+	StartMinute     *int     `json:"start_minute,omitempty"`
+	Stage           *string  `json:"stage,omitempty"`
+	Effort          *int     `json:"effort,omitempty"`
+	DelegatedTo     *string  `json:"delegated_to,omitempty"`
+	WaitsOn         []string `json:"waits_on,omitempty"`
 	// Schedule puts the new task on a day at a time the user chose.
 	Schedule *TaskSchedule `json:"schedule,omitempty"`
 }
@@ -150,7 +151,9 @@ type PatchTaskRequest struct {
 	Stage           *string          `json:"stage,omitempty"`
 	Effort          Optional[int]    `json:"effort,omitzero" ts_type:"number | null"`
 	DelegatedTo     *string          `json:"delegated_to,omitempty"`
-	Rev             *int64           `json:"rev,omitempty"`
+	// WaitsOn replaces the tasks this one waits on; [] clears them.
+	WaitsOn *[]string `json:"waits_on,omitempty"`
+	Rev     *int64    `json:"rev,omitempty"`
 }
 
 // DeleteTasksRequest is the POST /v1/tasks/delete body.

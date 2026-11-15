@@ -2,6 +2,7 @@ import { ArrowLeftRight, Bot, Check, CircleCheck, Coffee, Globe, Play, Plus, Squ
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import smiling from "../assets/gwen/smiling.png";
 import thinking from "../assets/gwen/thinking.png";
+import type { wire } from "../wailsjs/go/models";
 import { ApiError, api, type Approval, type PlanItem, type Project, type Session, type Task } from "./api";
 import { useDay } from "./day";
 import { PushCard } from "./PushCard";
@@ -43,6 +44,7 @@ const onBreak = (state?: string) => state === "break_auto" || state === "break_m
 export function Today() {
   const { meta, online, sessions, go } = useStore();
   const day = useDay();
+  const graph = useGraph(day.plan?.day, `${day.plan?.items.map((i) => `${i.id}:${i.status}:${i.start_at}`).join(",")}|${sessions.map((s) => `${s.id}:${s.state}`).join(",")}|${day.status?.task_id}`);
   const [sheet, setSheet] = useState<null | { kind: "new" } | { kind: "hand"; task: Task } | { kind: "switch" }>(null);
 
   const dateWords = new Date(`${day.plan?.day ?? new Date().toISOString().slice(0, 10)}T12:00:00`).toLocaleDateString(undefined, {
@@ -113,7 +115,8 @@ export function Today() {
           </div>
         </section>
 
-        <Agenda onHand={(task) => setSheet({ kind: "hand", task })} />
+        <InYourWay graph={graph} onAsk={() => go({ name: "gwen" }, true)} />
+        <Agenda graph={graph} onHand={(task) => setSheet({ kind: "hand", task })} />
         <OpenTasks onHand={(task) => setSheet({ kind: "hand", task })} />
       </div>
 
@@ -420,7 +423,7 @@ function useTick() {
 const claudeOn = (t: Task) => t.stage === "waiting" && /claude/i.test(t.delegated_to);
 
 /** Today's plan, in order: tick, what and when, and Start. */
-function Agenda({ onHand }: { onHand: (t: Task) => void }) {
+function Agenda({ graph, onHand }: { graph: wire.DayGraph | null; onHand: (t: Task) => void }) {
   const day = useDay();
   const items = (day.plan?.items ?? []).filter((i) => i.status !== "skipped" && i.task);
   const left = items.filter((i) => i.task.status !== "done");
@@ -433,7 +436,7 @@ function Agenda({ onHand }: { onHand: (t: Task) => void }) {
       </div>
       <div className="td-card">
         {items.map((i) => (
-          <AgendaRow key={i.id} item={i} onHand={onHand} />
+          <AgendaRow key={i.id} item={i} onHand={onHand} node={graph?.tasks.find((t) => t.id === i.task.id)} />
         ))}
         {items.length === 0 && (
           <p className="td-none">{day.loaded ? "Nothing planned today. Your tasks are below; add one with + and Gwen fits it in." : "Loading your day…"}</p>
@@ -443,7 +446,7 @@ function Agenda({ onHand }: { onHand: (t: Task) => void }) {
   );
 }
 
-function AgendaRow({ item, onHand }: { item: PlanItem; onHand: (t: Task) => void }) {
+function AgendaRow({ item, onHand, node }: { item: PlanItem; onHand: (t: Task) => void; node?: wire.GraphTask }) {
   const day = useDay();
   const start = useStart();
   const tick = useTick();
@@ -463,6 +466,9 @@ function AgendaRow({ item, onHand }: { item: PlanItem; onHand: (t: Task) => void
           {p && <span className="td-sq" style={{ background: p.color || "var(--dim)" }} aria-hidden />}
           <span className="clip">{[p?.name, when, item.planned_minutes ? span(item.planned_minutes) : ""].filter(Boolean).join(" · ")}</span>
         </div>
+        {!done && node && (node.state === "blocked" || node.state === "at_risk" || node.state === "waiting_on_you") && (
+          <div className={`td-flag ${node.state === "blocked" ? "red" : "amber"}`}>{node.reason}</div>
+        )}
       </div>
       {done ? null : claudeOn(t) ? (
         <span className="td-chip blue">Claude is on it</span>
@@ -602,5 +608,56 @@ function TaskRow({ task: t, canHand, onHand }: { task: Task; canHand: boolean; o
         </>
       )}
     </div>
+  );
+}
+
+/** The day's graph from the laptop, read again when the plan, the sessions, or what you track change, and each minute. */
+function useGraph(day: string | undefined, key: string): wire.DayGraph | null {
+  const [graph, setGraph] = useState<wire.DayGraph | null>(null);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const t = window.setInterval(() => setTick((n) => n + 1), 60_000);
+    return () => window.clearInterval(t);
+  }, []);
+  useEffect(() => {
+    if (!day) return;
+    let live = true;
+    const t = window.setTimeout(() => {
+      api.dayGraph(day).then(
+        (g) => live && setGraph(g),
+        () => {}, // an older laptop has no graph: the section stays away
+      );
+    }, 300);
+    return () => {
+      live = false;
+      window.clearTimeout(t);
+    };
+  }, [day, key, tick]);
+  return graph;
+}
+
+/** What is blocked, running late, or waiting on you across the day, and why; Gwen can sort it out. */
+function InYourWay({ graph, onAsk }: { graph: wire.DayGraph | null; onAsk: () => void }) {
+  const issues = graph?.issues ?? [];
+  if (!graph || issues.length === 0) return null;
+  return (
+    <section aria-label="In your way">
+      <div className="td-eyebrow">
+        <b>In your way</b>
+        <span className="td-count">{issues.length}</span>
+      </div>
+      <div className="td-card">
+        {issues.slice(0, 4).map((is) => (
+          <div key={`${is.kind}:${is.task_id}`} className="td-way">
+            <span className={`td-dot ${is.kind === "blocked" ? "red" : "amber"}`} aria-hidden />
+            <span className="td-way-text">{is.text}</span>
+          </div>
+        ))}
+        {issues.length > 4 && <p className="td-none">{issues.length - 4} more on the laptop's timeline</p>}
+        <button type="button" className="td-way-ask" onClick={onAsk}>
+          Ask Gwen to sort it out
+        </button>
+      </div>
+    </section>
   );
 }

@@ -126,6 +126,8 @@ type Task struct {
 	Stage           string  `json:"stage"`
 	Effort          *int    `json:"effort"`
 	DelegatedTo     string  `json:"delegated_to"`
+	// WaitsOn are the tasks this one waits on, by id (plan.md 3.17).
+	WaitsOn []string `json:"waits_on"`
 	// Attachments is how many attachments the task has, in task lists and
 	// replies about one task; 0 where a task is embedded in something else.
 	Attachments int `json:"attachments"`

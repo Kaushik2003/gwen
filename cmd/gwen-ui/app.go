@@ -75,6 +75,11 @@ func (a *App) ListDays(from, to string) (*wire.DayList, error) {
 	return call(a.api.ListDays(a.ctx, from, to))
 }
 func (a *App) GetDay(day string) (*wire.DayDetail, error) { return call(a.api.GetDay(a.ctx, day)) }
+
+// GetDayGraph is the day's plan as a graph of what waits on what.
+func (a *App) GetDayGraph(day string) (*wire.DayGraph, error) {
+	return call(a.api.GetDayGraph(a.ctx, day))
+}
 func (a *App) PatchDay(day string, req wire.PatchDayRequest) (*wire.WorkDay, error) {
 	return call(a.api.PatchDay(a.ctx, day, req))
 }

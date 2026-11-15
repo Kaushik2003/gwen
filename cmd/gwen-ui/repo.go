@@ -15,6 +15,7 @@ import (
 const (
 	codeNotRepo = "not_repo" // the folder has no git repository
 	codeOutside = "outside"  // a path leaves the folder
+	codeChanged = "changed"  // a save found the file changed on disk
 )
 
 // repoError gives a repo failure the JSON shape wrap gives API failures.
@@ -24,6 +25,8 @@ func repoError(err error) error {
 		return nil
 	case errors.Is(err, repo.ErrNotRepo):
 		return &hostError{Code: codeNotRepo, Message: "This folder isn't a git repository", Details: map[string]any{}}
+	case errors.Is(err, repo.ErrChanged):
+		return &hostError{Code: codeChanged, Message: err.Error(), Details: map[string]any{}}
 	case errors.Is(err, repo.ErrOutside):
 		return &hostError{Code: codeOutside, Message: err.Error(), Details: map[string]any{}}
 	case errors.Is(err, repo.ErrInvalid), errors.Is(err, repo.ErrBadRev), errors.Is(err, repo.ErrNotFile):
@@ -45,6 +48,17 @@ func (a *App) RepoTree(dir string) (*repo.Tree, error) { return repoCall(repo.Li
 // RepoFile reads one file's text.
 func (a *App) RepoFile(dir, path string) (*repo.File, error) {
 	return repoCall(repo.ReadFile(a.ctx, dir, path))
+}
+
+// RepoFileStamp tells whether a file changed on disk: its text changes when the file does.
+func (a *App) RepoFileStamp(dir, path string) (string, error) {
+	stamp, err := repo.FileStamp(a.ctx, dir, path)
+	return stamp, repoError(err)
+}
+
+// RepoSaveFile writes a file's edited text; base is the hash it was read with.
+func (a *App) RepoSaveFile(dir, path, text, base string) (*repo.File, error) {
+	return repoCall(repo.SaveFile(a.ctx, dir, path, text, base))
 }
 
 // RepoMarks finds the lines to mark in a file's gutter.

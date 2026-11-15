@@ -262,6 +262,10 @@ export function GetDay(arg1) {
   return window['go']['main']['App']['GetDay'](arg1);
 }
 
+export function GetDayGraph(arg1) {
+  return window['go']['main']['App']['GetDayGraph'](arg1);
+}
+
 export function GetGoal(arg1) {
   return window['go']['main']['App']['GetGoal'](arg1);
 }
@@ -626,12 +630,20 @@ export function RepoFile(arg1, arg2) {
   return window['go']['main']['App']['RepoFile'](arg1, arg2);
 }
 
+export function RepoFileStamp(arg1, arg2) {
+  return window['go']['main']['App']['RepoFileStamp'](arg1, arg2);
+}
+
 export function RepoLog(arg1, arg2) {
   return window['go']['main']['App']['RepoLog'](arg1, arg2);
 }
 
 export function RepoMarks(arg1, arg2) {
   return window['go']['main']['App']['RepoMarks'](arg1, arg2);
+}
+
+export function RepoSaveFile(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['RepoSaveFile'](arg1, arg2, arg3, arg4);
 }
 
 export function RepoTree(arg1) {

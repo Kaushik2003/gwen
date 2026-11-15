@@ -223,6 +223,8 @@ export const api = {
   breakEnd: () => request<DayStatus>("POST", "/v1/break/end", {}),
   switchTo: (project_id: string | null, task_id: string | null) => request<DayStatus>("POST", "/v1/session/switch", { project_id, task_id }),
   plan: (day?: string) => request<Plan>("GET", `/v1/plan${q({ day })}`),
+  /** The day as a graph of what waits on what: what is blocked or running late, and why (plan.md 3.17). */
+  dayGraph: (day: string) => request<wire.DayGraph>("GET", `/v1/days/${enc(day)}/graph`),
   projects: () => request<wire.ProjectList>("GET", "/v1/projects"),
   /** A new project; its folder must be one the phone may open, made first with create_folder. */
   createProject: (p: ProjectFolder & { name: string; color?: string }) => request<Project>("POST", "/v1/projects", p),

@@ -120,6 +120,7 @@ func taskWire(t model.Task, tracked time.Duration) wire.Task {
 		GoalID:    t.GoalID, Quantity: t.Quantity, QuantityDone: t.QuantityDone, RRule: t.RRule,
 		TemplateID: t.TemplateID, OccurrenceDay: t.OccurrenceDay, ParentID: t.ParentID,
 		StartDay: t.StartDay, StartMinute: t.StartMinute, Stage: t.Stage, Effort: t.Effort, DelegatedTo: t.DelegatedTo,
+		WaitsOn: append([]string{}, t.WaitsOn...),
 	}
 }
 

@@ -24,7 +24,7 @@ for the phone; when this file and those disagree, fix whichever is wrong in the 
 - **Cards** are `surface-1` with a `line` hairline; a card's list rows are separated by `chrome-line`. One primary
   (accent) button per card.
 - **Code and terminals** are Geist Mono. Diffs use `success` for added and `danger` for removed lines, tinted 7 to
-  15% into the surface; long lines wrap in diffs and scroll sideways only in the file viewer.
+  15% into the surface; long lines wrap in diffs and scroll sideways only in the file editor.
 - **Keys.** Ctrl K (or Ctrl Shift P) opens everything; Ctrl W closes a tab, Ctrl Tab cycles, Ctrl 1 to 9 jump, Ctrl \
   shows the side panel. Inside a terminal Ctrl W, Ctrl K, and Ctrl \ belong to the program, so the window uses
   Ctrl Shift W and Ctrl Shift P there.

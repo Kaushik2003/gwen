@@ -134,6 +134,8 @@ export function GetConfig():Promise<wire.Config>;
 
 export function GetDay(arg1:string):Promise<wire.DayDetail>;
 
+export function GetDayGraph(arg1:string):Promise<wire.DayGraph>;
+
 export function GetGoal(arg1:string):Promise<wire.Goal>;
 
 export function GetLLMRun(arg1:string):Promise<wire.LlmRun>;
@@ -316,9 +318,13 @@ export function RepoDiff(arg1:string,arg2:string,arg3:string):Promise<repo.DiffT
 
 export function RepoFile(arg1:string,arg2:string):Promise<repo.File>;
 
+export function RepoFileStamp(arg1:string,arg2:string):Promise<string>;
+
 export function RepoLog(arg1:string,arg2:repo.LogQuery):Promise<repo.Log>;
 
 export function RepoMarks(arg1:string,arg2:string):Promise<repo.Marks>;
+
+export function RepoSaveFile(arg1:string,arg2:string,arg3:string,arg4:string):Promise<repo.File>;
 
 export function RepoTree(arg1:string):Promise<repo.Tree>;
 

@@ -43,7 +43,9 @@ type CodeSession struct {
 	Cwd     string `json:"cwd"`
 	Branch  string `json:"branch"`
 	Sandbox bool   `json:"sandbox"`
-	State   string `json:"state"`
+	// TaskID is the task it works on, "" for none (plan.md 3.17).
+	TaskID string `json:"task_id"`
+	State  string `json:"state"`
 	// Need says why it needs you: permission, question, or other.
 	Need string `json:"need"`
 	// Step is what Claude is doing, e.g. "Editing main.go".

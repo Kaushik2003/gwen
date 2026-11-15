@@ -66,4 +66,4 @@ SOFTWARE.
  * build, and only it, is written with `false`, which is all a Pro licence changes in the code. The
  * Liquid Charts Source-Available Licence asks that the credit stays visible where it shows:
  * https://liquid.ojieame.design/docs/licence */
-export const LIQUID_CREDIT: boolean = false;
+export const LIQUID_CREDIT: boolean = true;

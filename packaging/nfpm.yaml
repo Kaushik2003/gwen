@@ -16,6 +16,9 @@ overrides:
     depends:
       - webkit2gtk4.1
       - gtk3
+      # Gwen Terminal's window.
+      - libxcb
+      - libxkbcommon
     # pw-record, which voice input records the microphone with.
     recommends:
       - pipewire-utils
@@ -23,6 +26,8 @@ overrides:
     depends:
       - libwebkit2gtk-4.1-0
       - libgtk-3-0
+      - libxcb1
+      - libxkbcommon0
     recommends:
       - pipewire-bin
 
@@ -43,6 +48,18 @@ contents:
   - src: bin/gwen-stt
     dst: /usr/bin/gwen-stt
     file_info: {mode: 0755}
+  # Gwen's terminals (scripts/term.sh stage): her own herdr-core, which gwend starts, and
+  # Gwen Terminal, Herdr's app under Gwen's name.
+  - src: bin/herdr-core
+    dst: /usr/lib/gwen/herdr-core
+    file_info: {mode: 0755}
+  - src: bin/gwen-term
+    dst: /usr/bin/gwen-term
+    file_info: {mode: 0755}
+  # Hidden from the launcher; it gives Gwen Terminal's window its icon.
+  - src: packaging/gwen-term.desktop
+    dst: /usr/share/applications/gwen-term.desktop
+    file_info: {mode: 0644}
   # Voice input: sherpa-onnx and ONNX Runtime, which gwen-ui and gwen-stt find here.
   - src: bin/lib/libsherpa-onnx-c-api.so
     dst: /usr/lib/gwen/libsherpa-onnx-c-api.so

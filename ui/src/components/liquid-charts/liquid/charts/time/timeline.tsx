@@ -669,6 +669,7 @@ function Connectors({
   if (!size.width) return null;
   const g = geometryFor(size.width);
   const links: { key: string; d: string; head: string; lit: boolean; dim: boolean }[] = [];
+  const chain = relatedTasks(model, active);
   for (const t of model.tasks)
     for (const j of t.after) {
       const from = g.shapes[j],
@@ -677,7 +678,7 @@ function Connectors({
       const down = to.cross >= from.cross;
       const laneFrom = g.lanes[model.tasks[j].lane];
       const between = down ? laneFrom.bottom : laneFrom.top;
-      const lit = active !== null && (active === t.index || active === j);
+      const lit = active !== null && chain.has(t.index) && chain.has(j);
       links.push({
         key: `${j}-${t.index}`,
         d: dependencyPath(ends.from, { x: ends.to.x - 1.5, y: ends.to.y }, { between }),

@@ -30,6 +30,7 @@ func (s *Server) Handler() http.Handler {
 
 	route("GET /v1/days", s.listDays)
 	route("GET /v1/days/{day}", s.getDay)
+	route("GET /v1/days/{day}/graph", s.getDayGraph)
 	route("PATCH /v1/days/{day}", s.patchDay)
 	route("POST /v1/segments", s.createSegment)
 	route("PATCH /v1/segments/{id}", s.patchSegment)

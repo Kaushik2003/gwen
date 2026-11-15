@@ -71,6 +71,8 @@ docs-check:
 
 package: build
 	@mkdir -p dist
+	@# Gwen's terminals go in the package: herdr-core and Gwen Terminal, built when missing or not at the pinned release.
+	@scripts/term.sh stage $(CURDIR)/bin
 	rm -f dist/*.rpm dist/*.deb dist/SHA256SUMS
 	VERSION=$(PKG_VERSION) $(GO) tool nfpm package --config packaging/nfpm.yaml --packager rpm --target dist/
 	VERSION=$(PKG_VERSION) $(GO) tool nfpm package --config packaging/nfpm.yaml --packager deb --target dist/

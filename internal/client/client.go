@@ -34,6 +34,8 @@ type API interface {
 
 	ListDays(ctx context.Context, from, to string) (*wire.DayList, error)
 	GetDay(ctx context.Context, day string) (*wire.DayDetail, error)
+	// GetDayGraph is the day's plan as a graph of what waits on what (plan.md 3.17).
+	GetDayGraph(ctx context.Context, day string) (*wire.DayGraph, error)
 	PatchDay(ctx context.Context, day string, req wire.PatchDayRequest) (*wire.WorkDay, error)
 	CreateSegment(ctx context.Context, req wire.CreateSegmentRequest) (*wire.Segment, error)
 	PatchSegment(ctx context.Context, id string, req wire.PatchSegmentRequest) (*wire.Segment, error)
@@ -302,6 +304,10 @@ func (c *Client) ListDays(ctx context.Context, from, to string) (*wire.DayList, 
 
 func (c *Client) GetDay(ctx context.Context, day string) (*wire.DayDetail, error) {
 	return call[wire.DayDetail](ctx, c, http.MethodGet, "/v1/days/"+url.PathEscape(day), nil, nil)
+}
+
+func (c *Client) GetDayGraph(ctx context.Context, day string) (*wire.DayGraph, error) {
+	return call[wire.DayGraph](ctx, c, http.MethodGet, "/v1/days/"+url.PathEscape(day)+"/graph", nil, nil)
 }
 
 func (c *Client) PatchDay(ctx context.Context, day string, req wire.PatchDayRequest) (*wire.WorkDay, error) {

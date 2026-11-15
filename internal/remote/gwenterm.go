@@ -47,12 +47,17 @@ func TermHome(home string) string { return termHome(home) }
 // TermInstalled reports whether gwen-term is installed.
 func TermInstalled(home string) bool { return termBin(home) != "" }
 
-// CoreBin is the herdr-core Gwen built for herself (`make term` installs it
-// in ~/.local/lib/gwen, apart from any Herdr of yours), "" when there is none.
+// systemCore is where the rpm and deb put Gwen's herdr-core.
+var systemCore = "/usr/lib/gwen/herdr-core"
+
+// CoreBin is Gwen's own herdr-core, apart from any Herdr of yours: the one
+// `make term` installs in ~/.local/lib/gwen, else the one the package
+// installs in /usr/lib/gwen, "" when there is none.
 func CoreBin(home string) string {
-	p := filepath.Join(home, ".local", "lib", "gwen", "herdr-core")
-	if st, err := os.Stat(p); err == nil && !st.IsDir() {
-		return p
+	for _, p := range []string{filepath.Join(home, ".local", "lib", "gwen", "herdr-core"), systemCore} {
+		if st, err := os.Stat(p); err == nil && !st.IsDir() {
+			return p
+		}
 	}
 	return ""
 }

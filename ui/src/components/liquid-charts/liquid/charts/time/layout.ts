@@ -1211,14 +1211,22 @@ export function taskInNextLane(model: TimelineModel, from: number, step: -1 | 1)
   return null;
 }
 
-/** The tasks a focus lights: the task itself, what it waits on and what waits on it. */
+/** The tasks a focus lights: the task itself, everything it waits on in turn and everything that waits on it in turn
+ * (Gwen: the whole chain, so what holds a task up reads at a glance, not only the next link). */
 export function relatedTasks(model: TimelineModel, index: number | null): Set<number> {
   const lit = new Set<number>();
   const t = index === null ? undefined : model.tasks[index];
   if (!t) return lit;
   lit.add(t.index);
-  for (const j of t.after) lit.add(j);
-  for (const j of t.before) lit.add(j);
+  for (const dir of ["after", "before"] as const) {
+    const queue = [...t[dir]];
+    while (queue.length) {
+      const j = queue.pop()!;
+      if (lit.has(j)) continue;
+      lit.add(j);
+      queue.push(...model.tasks[j][dir]);
+    }
+  }
   return lit;
 }
 

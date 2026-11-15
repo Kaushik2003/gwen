@@ -203,11 +203,20 @@ func (s *Service) Run(ctx context.Context) {
 	s.load(ctx)
 	go s.janitor(ctx)
 	delays := []time.Duration{time.Second, 2 * time.Second, 5 * time.Second, 10 * time.Second}
-	attempt := 0
+	attempt, started := 0, false
 	for ctx.Err() == nil {
 		connected := s.follow(ctx)
 		if connected {
 			attempt = 0
+		}
+		if !started {
+			// Gwen's terminals start with gwend, so the phone finds them after
+			// a login without the Gwen window being opened first. Once only: a
+			// core stopped by hand later stays stopped until something needs it.
+			started = true
+			if !connected {
+				s.startCoreAtBoot(ctx)
+			}
 		}
 		t := s.clk.NewTimer(delays[min(attempt, len(delays)-1)])
 		attempt++
@@ -220,6 +229,21 @@ func (s *Service) Run(ctx context.Context) {
 	}
 	s.stt.close()
 	s.awake.release()
+}
+
+// startCoreAtBoot starts Gwen's core when none is running and one is
+// installed. An out-of-date core is left for `make term` to replace.
+func (s *Service) startCoreAtBoot(ctx context.Context) {
+	s.mu.Lock()
+	state := s.coreState
+	s.mu.Unlock()
+	hc := CoreBin(s.home)
+	if state != "down" || hc == "" {
+		return
+	}
+	if err := s.launch(ctx, coreUnit, coreArgv(hc)...); err != nil {
+		slog.Warn("start herdr-core", "err", err)
+	}
 }
 
 // load brings back the sessions that had not ended when gwend last ran.
@@ -575,6 +599,9 @@ func (s *Service) evaluate(ctx context.Context, addr string) {
 		s.setState(sess, state)
 		changed = true
 	}
+	if id, set := t.Labels[TaskLabel]; set && id != sess.TaskID {
+		changed = true // linked to a task, or unlinked: save copies it
+	}
 	if changed || sess.UpdatedAt.IsZero() {
 		s.save(ctx, sess)
 	}
@@ -723,6 +750,12 @@ func (s *Service) end(ctx context.Context, sess *session) {
 // save stores a card and tells the dashboard and phones. s.mu is held.
 func (s *Service) save(ctx context.Context, sess *session) {
 	sess.UpdatedAt = s.clk.Now().Truncate(time.Millisecond)
+	if t, ok := s.terms[sess.Terminal]; ok && sess.Terminal != "" {
+		// The task it works on outlives the terminal's label.
+		if id, set := t.Labels[TaskLabel]; set {
+			sess.TaskID = id
+		}
+	}
 	row := sess.CodeSession
 	if err := s.repos.CodeSessions.Save(context.WithoutCancel(ctx), row); err != nil {
 		slog.Error("save code session", "id", sess.ID, "err", err)
@@ -749,7 +782,7 @@ func findBranch(dir string) string {
 func (s *Service) wireSession(sess *session) wire.CodeSession {
 	out := wire.CodeSession{
 		ID: sess.ID, Terminal: sess.Terminal, Name: filepath.Base(sess.Cwd), Cwd: sess.Cwd, Branch: findBranch(sess.Cwd),
-		Sandbox: sess.Sandbox, State: sess.State, Need: sess.Need, Step: sess.Step, LastMessage: sess.LastMessage,
+		Sandbox: sess.Sandbox, TaskID: sess.TaskID, State: sess.State, Need: sess.Need, Step: sess.Step, LastMessage: sess.LastMessage,
 		PermissionMode: sess.PermissionMode, ClaudeSessionID: sess.ClaudeSessionID, Pinned: sess.Pinned,
 		Notice: sess.notice, Helpers: []wire.CodeTerminal{}, Changes: sess.stat,
 		StartedAt: sess.StartedAt.UnixMilli(), UpdatedAt: sess.UpdatedAt.UnixMilli(), EndedAt: wire.MillisPtr(sess.EndedAt),

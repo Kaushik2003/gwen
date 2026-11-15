@@ -44,6 +44,10 @@ func TestRepoBindingsGiveTheUIErrorShape(t *testing.T) {
 	f, err := a.RepoFile(dir, "a.txt")
 	require.NoError(t, err)
 	require.Equal(t, "a\n", f.Text)
+	_, err = a.RepoSaveFile(dir, "a.txt", "b\n", f.Hash)
+	require.NoError(t, err)
+	_, err = a.RepoSaveFile(dir, "a.txt", "c\n", f.Hash)
+	require.Equal(t, codeChanged, code(err))
 
 	require.NoError(t, a.OpenPath(dir, "a.txt"))
 	real, _ := filepath.EvalSymlinks(filepath.Join(dir, "a.txt"))
