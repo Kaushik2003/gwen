@@ -33,7 +33,9 @@ export default function TodayBoard() {
   // The hand-off panel opens over the right edge, where the agenda is; the board makes room for it.
   const root = useRef<HTMLDivElement>(null);
   const pad = useClearOfSheet(root, !!useTaskUI().handing);
-  useTick(1000);
+  // The header reads to the minute. Only the Now and Next rows tick each second, so the timeline and the
+  // agenda don't render again every second.
+  useTick(15_000);
   const st = d.status;
   const today = d.today();
   const now = d.now();
@@ -124,6 +126,7 @@ function MomentCard({ plan, className }: { plan: wire.Plan | null; className?: s
 
 /** Now: what your time goes to, how long, and Switch (or Clock in, or the session doing it with you). */
 function NowRow({ plan }: { plan: wire.Plan | null }) {
+  useTick(1000);
   const d = useDaemon();
   const w = useWork();
   const t = useTracking();
@@ -244,6 +247,7 @@ function SwitchTask({ current }: { current?: string }) {
 
 /** Next: the next block or event, when, and Start. */
 function NextRow() {
+  useTick(1000);
   const d = useDaemon();
   const t = useTracking();
   const tabs = useTabs();

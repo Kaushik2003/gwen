@@ -340,7 +340,7 @@ export function sessionTicks(
   // Tuesday it lands on); months keep the month's name.
   const daily =
     ticks.length > 1 && ticks[1].value - ticks[0].value < 28 * DAY
-      ? new Intl.DateTimeFormat(locale, { month: "short", day: "numeric", timeZone })
+      ? dateFormat(locale, { month: "short", day: "numeric", timeZone })
       : null;
   const out: { index: number; label: string }[] = [];
   let i = 0;
@@ -898,6 +898,15 @@ export function timelineDomain(
 }
 
 /** Ms of the calendar parts (y, m, d, h, minute) of `ms` in a time zone, read as UTC. */
+// Formatters are slow to build and the chart formats every bar's dates on each render: one per locale and options.
+const dateFormats = new Map<string, Intl.DateTimeFormat>();
+function dateFormat(locale: string | undefined, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+  const key = `${locale ?? ""}|${JSON.stringify(options)}`;
+  let f = dateFormats.get(key);
+  if (!f) dateFormats.set(key, (f = new Intl.DateTimeFormat(locale, options)));
+  return f;
+}
+
 function zoned(ms: number, timeZone: string) {
   if (timeZone === "UTC") {
     const d = new Date(ms);
@@ -910,7 +919,7 @@ function zoned(ms: number, timeZone: string) {
       weekday: d.getUTCDay(),
     };
   }
-  const parts = new Intl.DateTimeFormat("en-US", {
+  const parts = dateFormat("en-US", {
     timeZone,
     year: "numeric",
     month: "numeric",
@@ -1375,13 +1384,13 @@ export function dateRangeText(
   const showYear =
     year !== undefined &&
     (zoned(start, timeZone).year !== year || zoned(end, timeZone).year !== year);
-  const date = new Intl.DateTimeFormat("en-US", {
+  const date = dateFormat("en-US", {
     month: "short",
     day: "numeric",
     year: showYear ? "numeric" : undefined,
     timeZone,
   });
-  const time = new Intl.DateTimeFormat("en-US", {
+  const time = dateFormat("en-US", {
     hour: "2-digit",
     minute: "2-digit",
     hourCycle: "h23",
@@ -1402,9 +1411,9 @@ export function dateRangeText(
 /** An exclusive end as people write it: the last whole day for dates ("Oct 16" for an end of
  * Oct 17 at midnight), the time of day otherwise. */
 export function endText(end: number, { timeZone = "UTC" }: { timeZone?: string } = {}): string {
-  const date = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone });
+  const date = dateFormat("en-US", { month: "short", day: "numeric", timeZone });
   if (isMidnight(end, timeZone)) return date.format(end - DAY);
-  const time = new Intl.DateTimeFormat("en-US", {
+  const time = dateFormat("en-US", {
     hour: "2-digit",
     minute: "2-digit",
     hourCycle: "h23",

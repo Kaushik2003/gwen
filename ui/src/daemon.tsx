@@ -47,13 +47,15 @@ export function useDaemon(): Daemon {
   return d;
 }
 
-/** Re-renders every interval ms, for ticking timers. */
-export function useTick(ms = 1000): number {
+/** Re-renders every interval ms, for ticking timers; not at all while enabled is false (a hidden tab). */
+export function useTick(ms = 1000, enabled = true): number {
   const [t, setT] = useState(Date.now());
   useEffect(() => {
+    if (!enabled) return;
+    setT(Date.now());
     const id = setInterval(() => setT(Date.now()), ms);
     return () => clearInterval(id);
-  }, [ms]);
+  }, [ms, enabled]);
   return t;
 }
 

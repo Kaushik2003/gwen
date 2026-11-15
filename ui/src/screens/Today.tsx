@@ -89,6 +89,8 @@ export function useToday(): TodayData {
   return { day, plan, goals, commitments, colors, names, from, to };
 }
 
+const noSegments: wire.Segment[] = [];
+
 /** The day's fixed blocks: commitments that fall today and calendar events. */
 function fixedBlocks(data: TodayData, today: string, rollover: string): FixedBlock[] {
   return data.commitments
@@ -103,7 +105,10 @@ export function DayCard({ data, className }: { data: TodayData; className?: stri
   const t = useTracking();
   const st = d.status;
   const today = d.today();
-  const fixed = fixedBlocks(data, today, d.config?.tracking.day_rollover ?? "04:00");
+  const rollover = d.config?.tracking.day_rollover ?? "04:00";
+  // Kept between renders, so the timeline works its bars out again only when the day's data changes.
+  const fixed = useMemo(() => fixedBlocks(data, today, rollover), [data.commitments, data.plan, data.from, data.to, today, rollover]);
+  const segments = data.day?.segments ?? noSegments;
   const live = st && st.state !== "off" && !t.onBreak;
   const byProject = data.day?.summary.by_project ?? [];
   const total = byProject.reduce((sum, p) => sum + p.worked_ms, 0);
@@ -133,7 +138,7 @@ export function DayCard({ data, className }: { data: TodayData; className?: stri
         )
       }
     >
-      <AgenticTimeline segments={data.day?.segments ?? []} colors={data.colors} names={data.names} fixed={fixed} />
+      <AgenticTimeline segments={segments} colors={data.colors} names={data.names} fixed={fixed} />
       {(total > 0 || breaks > 0) && (
         <ul aria-label="Where today went" className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-[12px]">
           {byProject.map((p) => (

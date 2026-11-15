@@ -64,7 +64,7 @@ export default function TermTab({ tab, active }: { tab: TermTabT; active: boolea
 
   return (
     <div className="flex h-full flex-col">
-      <TaskStrip tab={tab} onEndShell={term && !term.claude ? closeShell : undefined} />
+      <TaskStrip tab={tab} active={active} onEndShell={term && !term.claude ? closeShell : undefined} />
       <div className="relative flex min-h-0 flex-1 bg-canvas">
         <div className={cx("min-w-0 flex-1", tab.split && focus === "main" && "ring-1 ring-line-strong ring-inset")} onMouseDown={() => setFocus("main")}>
           <TerminalPane terminal={tab.terminal} focused={active && focus === "main"} />
@@ -91,11 +91,12 @@ export default function TermTab({ tab, active }: { tab: TermTabT; active: boolea
 }
 
 /** The strip above a terminal: its task, the time on it, its branch, and how it runs. */
-function TaskStrip({ tab, onEndShell }: { tab: TermTabT; onEndShell?: () => void }) {
+function TaskStrip({ tab, active, onEndShell }: { tab: TermTabT; active: boolean; onEndShell?: () => void }) {
   const d = useDaemon();
   const w = useWork();
   const t = useTracking();
-  useTick(1000);
+  // The time on the task ticks only while this terminal is in front.
+  useTick(1000, active);
   const term = w.terminals.find((x) => x.address === tab.terminal);
   const projectId = tab.project || term?.project || "";
   const project = d.projects.find((p) => p.id === projectId);

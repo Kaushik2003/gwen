@@ -214,7 +214,8 @@ export function useDiamondMarks({
       start = presence.clock(performance.now()),
       raf = 0,
       last = 0,
-      failed = false;
+      failed = false,
+      drewAny = false;
 
     function step(frameTime: number) {
       raf = 0;
@@ -286,6 +287,13 @@ export function useDiamondMarks({
           glow: 0.8,
         };
       });
+      // No milestones and none drawn yet: nothing to draw, so a timeline without milestones never builds the
+      // optical painter (its shader takes seconds to compile). Once some were drawn, an empty frame clears them.
+      if (!marks.length && !drewAny) {
+        last = 0;
+        return;
+      }
+      drewAny = true;
       const result = optical.draw({
         width: canvasWidth,
         height: canvasHeight,

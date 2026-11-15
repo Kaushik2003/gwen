@@ -88,11 +88,36 @@ function useFocusReport() {
   }, []);
 }
 
+// Tabs mount when you first open them, not because they were open last time: a window restored with dozens of
+// files (whole PDFs among them) and terminals used to load every one at launch. Once opened, a terminal stays
+// mounted, so its screen and scrollback survive a tab switch, and so does a file with unsaved edits; other
+// files stay mounted only while among the few you used last, so a switch back is instant.
+const keepFiles = 4;
+
+function keepMounted(t: Tab, id: string, recent: readonly string[], unsaved: ReadonlySet<string>): boolean {
+  if (t.kind === "term") return recent.includes(id);
+  if (t.kind !== "file" || !t.path) return false;
+  if (unsaved.has(id)) return true;
+  const i = recent.indexOf(id);
+  return i >= 0 && i <= keepFiles;
+}
+
+/** The tabs you had in front, the latest first: the active one, then the one before it, and so on. */
+function useRecentTabs(active: string, open: readonly Tab[]): readonly string[] {
+  const recent = useRef<string[]>([]);
+  const ids = new Set(open.map(tabId));
+  // The active tab first; closed tabs forgotten.
+  recent.current = [active, ...recent.current.filter((x) => x !== active && ids.has(x))];
+  return recent.current;
+}
+
 function Frame() {
   const w = useWork();
   const tabs = useTabs();
   const panel = usePanel();
   const [palette, setPalette] = useState(false);
+  const recent = useRecentTabs(tabs.active, tabs.tabs);
+  const unsaved = useUnsaved();
 
   // A target from `gwen-ui --open`, at launch or handed to the running window.
   const openTarget = useCallback(
@@ -175,9 +200,7 @@ function Frame() {
               {tabs.tabs.map((t) => {
                 const id = tabId(t);
                 const on = id === tabs.active;
-                // Terminals and open files stay mounted while their tab is open, so a terminal's screen and
-                // scrollback, and a file's unsaved edits and undo, survive a tab switch.
-                if (!on && t.kind !== "term" && !(t.kind === "file" && t.path)) return null;
+                if (!on && !keepMounted(t, id, recent, unsaved)) return null;
                 return (
                   <div key={id} className={cx("absolute inset-0", !on && "invisible")} aria-hidden={!on}>
                     <TabBody tab={t} active={on} />

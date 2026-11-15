@@ -1,5 +1,5 @@
 import { Sparkles } from "lucide-react";
-import { useMemo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import type { wire } from "../api";
 import { Timeline as LiquidTimeline, type TimelineTask } from "../components/liquid-charts/liquid/charts/time";
 import type { ChartConfig } from "../components/liquid-charts/liquid/core";
@@ -42,7 +42,11 @@ const stateSeries: Record<string, { label: string; color: string }> = {
   fixed: { label: "Fixed time", color: "#8a8f98" },
 };
 
-export default function AgenticTimeline({
+// Memoised: Today's board renders again as its clock ticks, and the chart (glass, a label per bar) needn't follow. It
+// still renders when the daemon's state changes, and each minute as the day graph reads again.
+export default memo(AgenticTimeline);
+
+function AgenticTimeline({
   segments,
   colors,
   names,
